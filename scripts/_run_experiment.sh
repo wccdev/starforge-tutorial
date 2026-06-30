@@ -9,7 +9,12 @@
 #   NEMO_RL_DIR      容器内 NeMo-RL 0.6.0 源码目录（必填）
 #   CLUSTER_PROFILE  硬件 profile（不设则读实验自带 cluster 文件，再兜底 gb10-spark）
 #   OUTPUT_ROOT      产物根目录（不设则落到 EXP_DIR/outputs）；RUN_USER 再做多人隔离
+#   NRL_RUN_ID       单次训练 run id（中心化提交时注入）；产物落到 .../<实验名>/<run_id>
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=_output_paths.sh
+source "${SCRIPT_DIR}/_output_paths.sh"
 
 EXP_DIR="${1:?用法: _run_experiment.sh <实验目录绝对路径>（由各实验 run.sh 传入）}"
 [[ -d "${EXP_DIR}" ]] || { echo "实验目录不存在: ${EXP_DIR}"; exit 1; }
@@ -43,13 +48,15 @@ OVERRIDES=()
 while IFS= read -r l; do [[ -n "$l" ]] && OVERRIDES+=("$l"); done < <(read_conf "${PROFILE_CONF}")
 # 产物（checkpoint + 每步样本 jsonl + 日志）落盘位置。
 # 经服务端提交时 EXP_DIR 在 Ray 上传的临时包目录里（训练结束被清理、不回传本机），
-# 故由服务端注入 OUTPUT_ROOT（集群持久路径/共享盘）后产物落到 OUTPUT_ROOT[/<用户>]/<实验名>。
-# 多人共用平台时设 RUN_USER（如名字/工号），产物隔离到 OUTPUT_ROOT/<用户>/<实验名>，互不覆盖。
-if [[ -n "${OUTPUT_ROOT:-}" ]]; then OUT_DIR="${OUTPUT_ROOT%/}${RUN_USER:+/${RUN_USER}}/${EXP_NAME}"; else OUT_DIR="${EXP_DIR}/outputs"; fi
+# 故由服务端注入 OUTPUT_ROOT（集群持久路径/共享盘）后产物落到
+#   OUTPUT_ROOT[/<用户>]/<实验名>/<NRL_RUN_ID>
+# 多人共用平台时设 RUN_USER，同一实验多次提交按 run_id 隔离，互不覆盖。
+OUT_DIR="$(_lab_train_output_dir "${EXP_NAME}" "${EXP_DIR}")"
 OVERRIDES+=("checkpointing.checkpoint_dir=${OUT_DIR}")
 OVERRIDES+=("logger.log_dir=${OUT_DIR}/logs")
 
 echo "[run] exp     : ${EXP_NAME}"
+echo "[run] out_dir : ${OUT_DIR}"
 echo "[run] profile : ${CLUSTER_PROFILE}"
 echo "[run] entry   : ${ENTRY}"
 echo "[run] config  : ${CONFIG}"

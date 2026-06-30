@@ -38,6 +38,27 @@ def _mk_step(root: Path, n: int, megatron: bool):
 
 
 @pytest.mark.skipif(shutil.which("bash") is None, reason="需要 bash")
+def test_export_with_run_id_and_output_root(tmp_path: Path):
+    run_id = "grpo_demo_v1-alice-20250630-120000"
+    ckpt = tmp_path / "shared" / "alice" / "foo" / run_id
+    _mk_step(ckpt, 10, megatron=False)
+    env = {
+        "LAB_DRY_RUN": "1",
+        "NEMO_RL_DIR": "/opt/nemo-rl",
+        "OUTPUT_ROOT": str(tmp_path / "shared"),
+        "RUN_USER": "alice",
+        "PATH": "/usr/bin:/bin",
+    }
+    proc = subprocess.run(
+        ["bash", str(POST_TRAIN), "export", "experiments/foo", "--run-id", run_id],
+        capture_output=True, text=True, env=env,
+    )
+    out = proc.stdout
+    assert "ckpt_root:" in out and run_id in out
+    assert "step=10" in out and "backend=dcp" in out
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="需要 bash")
 def test_export_picks_latest_step_and_megatron(tmp_path: Path):
     _mk_step(tmp_path, 5, megatron=True)
     _mk_step(tmp_path, 12, megatron=True)

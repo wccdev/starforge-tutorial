@@ -7,13 +7,18 @@
 #
 # checkpoint 目录约定（与 scripts/_run_experiment.sh 落盘一致）：
 #   <CKPT_ROOT>/step_<N>/{config.yaml, policy/weights[/iter_*], policy/tokenizer}
-#   CKPT_ROOT 默认 = OUTPUT_ROOT[/<RUN_USER>]/<实验名>；未设 OUTPUT_ROOT 时回退到 <仓库>/<exp>/outputs。
+#   CKPT_ROOT 默认 = OUTPUT_ROOT[/<RUN_USER>]/<实验名>/<train_run_id>；
+#   未设 OUTPUT_ROOT 时回退到 <仓库>/<exp>/outputs。
 #
 # 用法：
-#   bash scripts/post_train.sh export <exp_rel> [--step N] [--out DIR] [--push-repo user/name]
-#   bash scripts/post_train.sh eval   <exp_rel> [--step N] [--model HF_PATH] [--eval-config CFG] [-- 覆盖项...]
-# 环境变量：NEMO_RL_DIR(必填)、OUTPUT_ROOT/RUN_USER(定位 checkpoint)、HF_TOKEN(下载/推送)、LAB_DRY_RUN=1(只打印不执行)。
+#   bash scripts/post_train.sh export <exp_rel> [--run-id RUN] [--step N] [--out DIR] [--push-repo user/name]
+#   bash scripts/post_train.sh eval   <exp_rel> [--run-id RUN] [--step N] [--model HF_PATH] [--eval-config CFG] [-- 覆盖项...]
+# 环境变量：NEMO_RL_DIR(必填)、OUTPUT_ROOT/RUN_USER/NRL_TRAIN_RUN_ID(定位 checkpoint)、HF_TOKEN、LAB_DRY_RUN=1。
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=_output_paths.sh
+source "${SCRIPT_DIR}/_output_paths.sh"
 
 ACTION="${1:?用法: post_train.sh <export|eval> <exp_rel> [flags]}"
 EXP_REL="${2:?缺少实验相对路径，如 experiments/grpo_qwen3.5-9b_gsm8k_v1}"
@@ -24,13 +29,6 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NEMO_RL_DIR="${NEMO_RL_DIR:?请设置 NEMO_RL_DIR 指向容器内 NeMo-RL 0.6.0 源码目录}"
 EXP_NAME="$(basename "${EXP_REL}")"
 
-# checkpoint 根目录：与训练落盘规则一致。
-if [[ -n "${OUTPUT_ROOT:-}" ]]; then
-  CKPT_ROOT="${OUTPUT_ROOT%/}${RUN_USER:+/${RUN_USER}}/${EXP_NAME}"
-else
-  CKPT_ROOT="${REPO_ROOT}/${EXP_REL}/outputs"
-fi
-
 # ---------- 解析 flags ----------
 STEP=""            # 空 = 自动取最新 step_<N>
 OUT=""             # export 输出目录；空 = CKPT_ROOT/hf_export/step_<N>
@@ -38,11 +36,13 @@ PUSH_REPO=""       # 非空 = 转换后 huggingface-cli upload 到该 repo
 MODEL=""           # eval 用：直接评测此 HF 模型路径/Hub id（给了就跳过 export）
 EVAL_CONFIG="examples/configs/evals/eval.yaml"
 CKPT_ROOT_OVERRIDE=""
+TRAIN_RUN_ID="${NRL_TRAIN_RUN_ID:-}"
 EVAL_OVERRIDES=()  # `--` 之后透传给 run_eval.py 的 NeMo-RL 覆盖项
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --step)        STEP="${2:?--step 需要数值}"; shift 2 ;;
+    --run-id)      TRAIN_RUN_ID="${2:?--run-id 需要 lab_run_id}"; shift 2 ;;
     --out)         OUT="${2:?--out 需要目录}"; shift 2 ;;
     --push-repo)   PUSH_REPO="${2:?--push-repo 需要 user/name}"; shift 2 ;;
     --model)       MODEL="${2:?--model 需要路径或 Hub id}"; shift 2 ;;
@@ -52,7 +52,12 @@ while [[ $# -gt 0 ]]; do
     *) echo "未知参数: $1"; exit 2 ;;
   esac
 done
-[[ -n "${CKPT_ROOT_OVERRIDE}" ]] && CKPT_ROOT="${CKPT_ROOT_OVERRIDE}"
+
+if [[ -n "${CKPT_ROOT_OVERRIDE}" ]]; then
+  CKPT_ROOT="${CKPT_ROOT_OVERRIDE}"
+else
+  CKPT_ROOT="$(_lab_resolve_ckpt_root "${EXP_NAME}" "${REPO_ROOT}/${EXP_REL}" "${TRAIN_RUN_ID}")"
+fi
 
 # 干跑：打印命令而非执行（本地/集群均可用于检查路径与命令是否正确）。
 DRY="${LAB_DRY_RUN:-0}"
@@ -81,7 +86,7 @@ resolve_step_dir() {
 STEP_DIR="$(resolve_step_dir)"
 if [[ -z "${STEP_DIR}" || ! -d "${STEP_DIR}" ]]; then
   echo "找不到 checkpoint：${CKPT_ROOT}/step_<N>（CKPT_ROOT=${CKPT_ROOT}）"
-  echo "  · 确认 OUTPUT_ROOT/RUN_USER 与训练时一致；或用 --ckpt-dir / --step 指定。"
+  echo "  · 确认 OUTPUT_ROOT/RUN_USER/--run-id 与训练时一致；或用 --ckpt-dir / --step 指定。"
   [[ "${DRY}" == "1" ]] || exit 1
   STEP_DIR="${CKPT_ROOT}/step_<N>"   # 干跑下给个占位继续打印
 fi
@@ -100,6 +105,7 @@ fi
 
 echo "[post] action  : ${ACTION}"
 echo "[post] exp     : ${EXP_REL}"
+echo "[post] ckpt_root: ${CKPT_ROOT}"
 echo "[post] ckpt    : ${STEP_DIR}  (step=${STEP_NUM}, backend=${BACKEND})"
 
 # ---------- export：DCP/Megatron → HF ----------
