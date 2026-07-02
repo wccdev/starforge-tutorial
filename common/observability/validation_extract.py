@@ -20,29 +20,36 @@ def extract_message_log_samples(
     message_logs: list,
     rewards: list[float],
     *,
-    num_samples: int = 5,
+    num_samples: int | None = None,
 ) -> tuple[list[dict], list[dict], float | None]:
-    """返回 (samples, dist, avg_reward)。采样策略与 print_message_log_samples 一致。"""
-    if not message_logs or not rewards or num_samples <= 0:
+    """返回 (samples, dist, avg_reward)。
+
+    - num_samples=None（默认）：上报**整轮全量**样本，idx 用验证集原始位置（1-based），
+      跨验证轮稳定，便于按题目追踪得分变化。
+    - num_samples>0 且小于总数：按 reward 高/低两端采样（与 print_message_log_samples 一致），
+      但 idx 仍保留样本在本轮中的原始位置，不重排。
+    dist / avg_reward 始终基于**全量** rewards 计算。
+    """
+    if not message_logs or not rewards:
         return [], [], None
     n = len(message_logs)
     indices = list(range(n))
-    num_to_show = min(num_samples, n)
-    if len(indices) > num_to_show:
+    if num_samples is not None and 0 < num_samples < n:
         sorted_indices = sorted(indices, key=lambda i: rewards[i], reverse=True)
-        half = num_to_show // 2
-        indices = sorted_indices[:half] + sorted_indices[-half:]
-        if num_to_show % 2 == 1:
-            indices.append(sorted_indices[len(sorted_indices) // 2])
-        indices = indices[:num_to_show]
+        half = num_samples // 2
+        picked = sorted_indices[:half] + sorted_indices[-half:]
+        if num_samples % 2 == 1:
+            picked.append(sorted_indices[len(sorted_indices) // 2])
+        # 去重并回到原始顺序，保证 idx 稳定、可跨轮对齐
+        indices = sorted(dict.fromkeys(picked))[:num_samples]
 
     samples: list[dict] = []
-    for i, idx in enumerate(indices):
+    for idx in indices:
         ml = message_logs[idx]
         reward = float(rewards[idx])
         samples.append(
             {
-                "idx": i + 1,
+                "idx": idx + 1,  # 原始位置，1-based
                 "reward": reward,
                 "user": _role_text(ml, "user"),
                 "assistant": _role_text(ml, "assistant"),

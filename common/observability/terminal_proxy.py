@@ -74,6 +74,8 @@ class TerminalProxy:
             self._stopped.wait(0.25)
 
     def _drain_and_flush(self, *, final: bool) -> None:
+        from common.observability.log_format import format_log_chunk_for_ingest
+
         buf: list[str] = []
         for q in (self._stdout_q, self._stderr_q):
             while True:
@@ -85,7 +87,7 @@ class TerminalProxy:
             if final:
                 self._ingest.enqueue_log_eof()
             return
-        text = "".join(buf)
+        text = format_log_chunk_for_ingest("".join(buf))
         try:
             from common.observability.validation_ctx import feed_log_text
 

@@ -6,6 +6,29 @@ import os
 _PATCHED = False
 
 
+def _val_upload_config() -> tuple[int | None, int]:
+    """验证样本上报配置（环境变量，默认上报全量）。
+
+    - NEMOLAB_VAL_UPLOAD_SAMPLES：整轮上报的样本数上限；0/未设/非法 → None（全量）。
+    - NEMOLAB_VAL_CHUNK：分片大小，单片样本条数（默认 64），避免大 payload 触发代理体积限制。
+    """
+    raw = os.environ.get("NEMOLAB_VAL_UPLOAD_SAMPLES", "").strip()
+    upload_n: int | None = None
+    if raw:
+        try:
+            v = int(raw)
+            upload_n = v if v > 0 else None
+        except ValueError:
+            upload_n = None
+    try:
+        chunk = int(os.environ.get("NEMOLAB_VAL_CHUNK", "64"))
+    except ValueError:
+        chunk = 64
+    if chunk <= 0:
+        chunk = 64
+    return upload_n, chunk
+
+
 def apply_patch() -> None:
     global _PATCHED
     if _PATCHED:
@@ -48,6 +71,7 @@ def apply_patch() -> None:
     def _patched_print_message_log_samples(
         message_logs, rewards, num_samples=5, step=0
     ):
+        # 日志仍只打印 num_samples 条；上报数量与打印数量解耦（见 _val_upload_config）。
         _orig_print_samples(message_logs, rewards, num_samples=num_samples, step=step)
         ingest = get_ingest()
         if ingest is None:
@@ -56,20 +80,27 @@ def apply_patch() -> None:
         if val_step is None or val_step != step:
             return
         try:
+            upload_n, chunk_size = _val_upload_config()
             samples, dist, avg_reward = extract_message_log_samples(
-                message_logs, rewards, num_samples=num_samples
+                message_logs, rewards, num_samples=upload_n
             )
             if not samples:
                 return
-            ingest.enqueue_validation(
-                {
+            total = len(samples)
+            chunks = [samples[i : i + chunk_size] for i in range(0, total, chunk_size)]
+            for ci, part in enumerate(chunks):
+                payload = {
                     "run_id": ingest.run_id,
                     "step": val_step,
-                    "avg_reward": avg_reward,
-                    "dist": dist,
-                    "samples": samples,
+                    "chunk_index": ci,
+                    "total_chunks": len(chunks),
+                    "total_samples": total,
+                    "samples": part,
                 }
-            )
+                if ci == 0:  # 元数据只随首片上报
+                    payload["avg_reward"] = avg_reward
+                    payload["dist"] = dist
+                ingest.enqueue_validation(payload)
         except Exception as e:
             print(f"NeMoLab validation upload failed (training continues): {e}")
         finally:
