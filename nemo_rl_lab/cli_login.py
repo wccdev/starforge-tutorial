@@ -220,10 +220,12 @@ def _bearer_request(server: str, method: str, path: str, *, data: Optional[bytes
 
 
 def submit_via_server(exp_rel: str, profile: Optional[str], repo_root: Path,
-                      server: Optional[str] = None) -> dict:
+                      server: Optional[str] = None, project: Optional[str] = None) -> dict:
     """server 模式提交：打包上传 + 服务端注入密钥后代理提交，返回 {job_id, run_id, ...}。"""
     srv = current_server(server)
     meta = {"exp": exp_rel, "profile": profile or "", **git_provenance(repo_root, exp_rel)}
+    if project:
+        meta["project"] = project
     blob = pack_working_dir(repo_root)
     headers = {"Content-Type": "application/gzip", "X-Lab-Meta": json.dumps(meta, ensure_ascii=False)}
     try:

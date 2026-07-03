@@ -185,6 +185,9 @@ def _validate_exp(exp_path: str) -> tuple[list[str], list[str]]:
 def submit(
     exp: str = typer.Argument(..., autocompletion=_complete_exp, help="实验名或路径"),
     profile: Optional[str] = _PROF_OPT,
+    project: Optional[str] = typer.Option(
+        None, "--project", "-p", help="实验名称（用于分组展示），不传则默认使用目录名"
+    ),
     no_validate: bool = typer.Option(False, "--no-validate", help="跳过提交前 config 校验"),
 ) -> None:
     cli_login.gate("submit")
@@ -199,7 +202,7 @@ def submit(
             )
             raise typer.Exit(1)
     # 打包 working-dir → 上传到中心化服务 → 服务端注入密钥/路径后代理提交（密钥/地址不外泄）。
-    res = cli_login.submit_via_server(exp_path, profile, ROOT)
+    res = cli_login.submit_via_server(exp_path, profile, ROOT, project=project)
     gpus = res.get("requested_gpus")
     msg = f"✓ 已提交  作业 {res.get('job_id')}"
     if gpus is not None:
