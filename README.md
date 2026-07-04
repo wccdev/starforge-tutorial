@@ -39,7 +39,7 @@ lab logs                                        # 跟随最近一个作业的实
 | --- | --- | --- |
 | `h100` | 单机 1× NVIDIA H100 80GB（单节点单卡，远程微调平台主力） | `cluster/h100/` |
 | `gb10-spark` | 2× NVIDIA DGX Spark（GB10 Grace-Blackwell），通过 Ray 组成 2 节点集群 | `cluster/gb10-spark/` |
-| `b300` | NVIDIA B300（后续使用） | `cluster/b300/` |
+| `h200` | 单机 8× NVIDIA H200 141GB（异构集群新增卡型） | `cluster/h200/` |
 
 训练配置与硬件解耦：NeMo-RL 通过 CLI override 调集群（`cluster.num_nodes` / `cluster.gpus_per_node`）；硬件相关 override 抽到 `cluster/<profile>/overrides.conf`。每个实验**自带目标集群**（实验目录下 `cluster` 文件，`lab new --cluster` 写入）——因为 batch/seq/LoRA/显存等超参都是按某张卡的显存调出来的；`lab submit --profile` 可临时换卡跑。
 
@@ -59,7 +59,7 @@ nemo-rl-lab/
 ├── cluster/                  # 硬件 / 分布式 profile + 依赖与环境说明（见 cluster/README.md）
 │   ├── h100/                 # 单机 1× H100（远程微调平台主力）
 │   ├── gb10-spark/           # 2× DGX Spark GB10
-│   └── b300/                 # B300（后续）
+│   └── h200/                 # 单机 8× H200（异构集群新增卡型）
 ├── configs/                  # 配置继承体系（NeMo-RL 原生 defaults）
 │   ├── base/                 # 祖父：官方 v0.6.0 example 原样副本（勿手改）
 │   └── models/               # 父：各基础模型公共片段（qwen3.5-4b / 9b ...）

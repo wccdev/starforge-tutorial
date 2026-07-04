@@ -22,6 +22,15 @@ def main() -> int:
         print("usage: python scripts/nemolab_boot.py <entry.py> [args...]", file=sys.stderr)
         return 2
 
+    # 卡型 pin：独立于可观测性（本地直跑也可能需要 pin；由 NRL_PIN_RESOURCE 控制，
+    # 未设则 no-op）。放在 import 训练入口前，确保补丁先于 RayVirtualCluster 实例化生效。
+    try:
+        from common.ray_pin import apply_pin_patch
+
+        apply_pin_patch()
+    except Exception as e:  # pin 是调度优化，任何异常都不应影响训练
+        print(f"[nemolab] pin patch skipped: {e}")
+
     try:
         from common.observability.session import start_observability
 

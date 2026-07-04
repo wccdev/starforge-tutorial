@@ -24,7 +24,7 @@ EXP_NAME="$(basename "${EXP_DIR}")"
 # 本地 NeMo-RL 0.6.0 源码目录（必填）
 NEMO_RL_DIR="${NEMO_RL_DIR:?请设置 NEMO_RL_DIR 指向 NeMo-RL 0.6.0 源码目录}"
 
-# 硬件 profile：默认读本实验绑定的集群（同目录 cluster 文件，可选 cluster/ 下 h100 | gb10-spark | b300）。
+# 硬件 profile：默认读本实验绑定的集群（同目录 cluster 文件，可选 cluster/ 下 h100 | gb10-spark | h200）。
 # 本实验超参（batch/seq/LoRA/并行度/显存）都是按该集群的卡调出来的，换卡通常要重调。
 # 优先级：环境 CLUSTER_PROFILE（服务端注入 / --profile）> 自带 cluster 文件 > gb10-spark 兜底。
 if [[ -z "${CLUSTER_PROFILE:-}" && -f "${EXP_DIR}/cluster" ]]; then

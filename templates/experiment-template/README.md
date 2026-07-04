@@ -13,7 +13,7 @@
   **只写本实验差异**；不断调参就改 `config.yaml` 的「本实验差异」部分。
 - 通用启动逻辑都在 `scripts/_run_experiment.sh`（单一事实来源）；本实验 `run.sh` 只声明差异。
   入口：GRPO 默认无需改；SFT 取消 `run.sh` 里 `ENTRY` 那行注释；自定义环境写本目录 `run.py`（自动选用）。见 `configs/README.md` 方法对照表。
-- 硬件 profile：`h100 | gb10-spark | b300`（实验目录 `cluster` 文件绑定；`cluster/<profile>/overrides.conf` 运行时叠加）。
+- 硬件 profile：`h100 | gb10-spark | h200`（实验目录 `cluster` 文件绑定；`cluster/<profile>/overrides.conf` 运行时叠加）。
 
 ## SwanLab
 

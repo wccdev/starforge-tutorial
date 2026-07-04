@@ -6,7 +6,7 @@ NeMo-RL 0.6.0 的集群设置（`cluster.num_nodes`、`cluster.gpus_per_node`）
 
 - `h100/` — 单机 1× H100 80GB（单节点单卡，远程微调平台主力）
 - `gb10-spark/` — 2× DGX Spark GB10（Ray 2 节点）
-- `b300/` — B300（后续使用）
+- `h200/` — 单机 8× H200 141GB（异构集群新增卡型）
 
 ## 用法
 
@@ -51,7 +51,7 @@ uv run python examples/run_grpo.py --config <base.yaml> \
 | 硬件 profile | 架构 | 安装方式 |
 | --- | --- | --- |
 | `gb10-spark` | aarch64 + Blackwell | aarch64 容器 / wheel |
-| `h100` / `b300` | x86_64 + Hopper / Blackwell | x86_64 容器 / wheel |
+| `h100` / `h200` | x86_64 + Hopper | x86_64 容器 / wheel |
 
 ### 集群容器内：NeMo-RL 0.6.0
 
