@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 import urllib.error
+from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Optional
 
@@ -192,3 +194,132 @@ def fail_http(e: urllib.error.HTTPError, *, fallback: str, title: str = "") -> N
         hint=parsed.hint,
     )
     raise typer.Exit(1) from e
+
+
+# ----------------------------- 提交进度条（打包 → 上传 → 受理）-----------------------------
+def human_bytes(n: float) -> str:
+    """字节数 → 人类可读（1023 B / 5.8 MB）。"""
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n:.1f} GB"
+
+
+class _PlainReporter:
+    """无 rich / 非 TTY 时的降级上报：只在 stderr 打几行状态（不刷进度条）。"""
+
+    def start_pack(self, total: int) -> None:
+        typer.echo(f"  打包工作目录（{total} 个文件）…", err=True)
+
+    def pack_tick(self, n: int = 1) -> None:  # noqa: D401
+        pass
+
+    def start_upload(self, total_bytes: int) -> None:
+        typer.echo(f"  上传到 Lab 服务（{human_bytes(total_bytes)}）…", err=True)
+
+    def upload_tick(self, n: int) -> None:
+        pass
+
+    def awaiting_server(self) -> None:
+        typer.echo("  服务端受理中…", err=True)
+
+    def finish(self) -> None:
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+class _RichReporter:
+    """基于 rich 的炫酷双段进度条：📦 打包（按文件） → 🚀 上传（按字节）→ ⏳ 受理。"""
+
+    def __init__(self, progress):
+        self._p = progress
+        self._pack = None
+        self._upload = None
+
+    def start_pack(self, total: int) -> None:
+        self._pack = self._p.add_task("📦 打包工作目录", total=max(total, 1), detail=f"0/{total} 文件")
+        self._pack_total = total
+
+    def pack_tick(self, n: int = 1) -> None:
+        if self._pack is None:
+            return
+        self._p.advance(self._pack, n)
+        done = int(self._p.tasks[self._pack].completed)
+        self._p.update(self._pack, detail=f"{done}/{self._pack_total} 文件")
+
+    def start_upload(self, total_bytes: int) -> None:
+        if self._pack is not None:  # 打包收尾，标记 100%
+            self._p.update(self._pack, completed=self._p.tasks[self._pack].total,
+                           detail=f"{self._pack_total}/{self._pack_total} 文件")
+        self._upload_total = total_bytes
+        self._upload = self._p.add_task(
+            "🚀 上传到 Lab", total=max(total_bytes, 1),
+            detail=f"0 B / {human_bytes(total_bytes)}",
+        )
+
+    def upload_tick(self, n: int) -> None:
+        if self._upload is None:
+            return
+        self._p.advance(self._upload, n)
+        done = int(self._p.tasks[self._upload].completed)
+        self._p.update(self._upload, detail=f"{human_bytes(done)} / {human_bytes(self._upload_total)}")
+
+    def awaiting_server(self) -> None:
+        if self._upload is None:
+            return
+        self._p.update(self._upload, description="⏳ 服务端受理中", completed=self._p.tasks[self._upload].total,
+                       detail=human_bytes(self._upload_total))
+
+    def finish(self) -> None:
+        if self._upload is not None:
+            self._p.update(self._upload, description="✅ 已受理")
+
+    def __enter__(self):
+        self._p.__enter__()
+        return self
+
+    def __exit__(self, *exc):
+        return self._p.__exit__(*exc)
+
+
+@contextmanager
+def submit_progress():
+    """提交进度条上下文：`with submit_progress() as reporter: submit_via_server(..., reporter=reporter)`。
+
+    有 rich 且输出是 TTY 时用炫酷进度条；否则（CI / 管道 / 无 rich）降级为简短状态行。
+    """
+    reporter = _make_reporter()
+    with reporter as r:
+        yield r
+
+
+def _make_reporter():
+    if not sys.stderr.isatty():
+        return _PlainReporter()
+    try:
+        from rich.console import Console
+        from rich.progress import (
+            BarColumn,
+            Progress,
+            SpinnerColumn,
+            TextColumn,
+            TimeElapsedColumn,
+        )
+    except Exception:  # noqa: BLE001
+        return _PlainReporter()
+    progress = Progress(
+        SpinnerColumn(style="cyan"),
+        TextColumn("[bold]{task.description}"),
+        BarColumn(bar_width=26, complete_style="cyan", finished_style="green"),
+        TextColumn("[dim]{task.fields[detail]}"),
+        TimeElapsedColumn(),
+        console=Console(stderr=True),
+        transient=True,
+    )
+    return _RichReporter(progress)

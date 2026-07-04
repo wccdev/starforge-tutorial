@@ -202,7 +202,8 @@ def submit(
             )
             raise typer.Exit(1)
     # 打包 working-dir → 上传到中心化服务 → 服务端注入密钥/路径后代理提交（密钥/地址不外泄）。
-    res = cli_login.submit_via_server(exp_path, profile, ROOT, project=project)
+    with cli_ui.submit_progress() as reporter:
+        res = cli_login.submit_via_server(exp_path, profile, ROOT, project=project, reporter=reporter)
     gpus = res.get("requested_gpus")
     msg = f"✓ 已提交  作业 {res.get('job_id')}"
     if gpus is not None:
@@ -210,7 +211,20 @@ def submit(
     if res.get("dry_run"):
         msg += "  ·  预演"
     typer.secho(msg, fg=typer.colors.GREEN)
+    _echo_upload_summary(res)
     typer.echo(f"  查看日志：lab logs {res.get('job_id')}")
+
+
+def _echo_upload_summary(res: dict) -> None:
+    """一行灰字汇报本次上传的文件数 / 体积 / 已略过的非运行时文件（IDE/文档/报告）。"""
+    files = res.get("upload_files")
+    if files is None:
+        return
+    parts = [f"上传 {files} 个文件", cli_ui.human_bytes(res.get("upload_bytes") or 0)]
+    skipped = res.get("upload_skipped") or 0
+    if skipped:
+        parts.append(f"已略过 {skipped} 个非运行时文件")
+    typer.secho("  " + "  ·  ".join(parts), fg=typer.colors.BRIGHT_BLACK)
 
 
 @app.command(help="清理实验在集群上的 checkpoint 与日志（不可恢复）")
@@ -355,7 +369,8 @@ def doctor() -> None:
 def _submit_post(action: str, exp_path: str, profile: Optional[str], flags: list[str], dry_run: bool) -> int:
     """把 export/eval 作业经服务端代理提交到集群（入口 scripts/post_train.sh）。"""
     cli_login.gate(action)
-    res = cli_login.submit_post_via_server(action, exp_path, profile, flags, ROOT)
+    with cli_ui.submit_progress() as reporter:
+        res = cli_login.submit_post_via_server(action, exp_path, profile, flags, ROOT, reporter=reporter)
     gpus = res.get("requested_gpus")
     label = "导出" if action == "export" else "评测"
     msg = f"✓ 已提交{label}  作业 {res.get('job_id')}"
@@ -364,6 +379,7 @@ def _submit_post(action: str, exp_path: str, profile: Optional[str], flags: list
     if res.get("dry_run"):
         msg += "  ·  预演"
     typer.secho(msg, fg=typer.colors.GREEN)
+    _echo_upload_summary(res)
     typer.echo(f"  查看日志：lab logs {res.get('job_id')}")
     return 0
 
@@ -689,7 +705,7 @@ def completion_install(
     typer.secho(f"✓ 已安装 {label} 补全 → {path}", fg=typer.colors.GREEN)
     typer.echo("  请重开终端或 source 对应配置文件后生效")
     if wrapper:
-        typer.echo(f"  在仓库根目录：./lab sub<Tab>、./lab submit <Tab>")
+        typer.echo("  在仓库根目录：./lab sub<Tab>、./lab submit <Tab>")
 
 
 app.add_typer(completion_app, name="completion")

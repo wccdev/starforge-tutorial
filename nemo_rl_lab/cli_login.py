@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import json
 import os
 import random
@@ -188,22 +189,81 @@ def git_provenance(repo_root: Path, exp_rel: str) -> dict:
     return {"git_commit": commit, "git_dirty": dirty, "config_sha": config_sha}
 
 
-def pack_working_dir(repo_root: Path) -> bytes:
-    """打包 working-dir 为 tar.gz：用 git 跟踪 + 未忽略文件（精确遵循 .gitignore）。"""
-    import io
-    import tarfile
+# 作业负载（上传给集群的 tar 包）不需要的「非运行时」产物：IDE 工具 / 文档 / 报告。
+# 这些照常入 git，只是不塞进作业包——训练/导出/评测都不会读它们，剔除后包更小、submit 更快。
+# 想让某类文件重新随作业上传，从这里删掉对应项即可。
+_UPLOAD_EXCLUDE_DIRS = (".cursor/", "docs/", "reports/")
+_UPLOAD_EXCLUDE_SUFFIXES = (".pdf",)
 
+
+def _is_upload_excluded(rel: str) -> bool:
+    """该相对路径是否属于「不随作业上传」的非运行时产物。"""
+    r = rel.replace("\\", "/")
+    if any(r == d.rstrip("/") or r.startswith(d) for d in _UPLOAD_EXCLUDE_DIRS):
+        return True
+    return r.lower().endswith(_UPLOAD_EXCLUDE_SUFFIXES)
+
+
+def list_working_files(repo_root: Path, *, with_stats: bool = False):
+    """作业负载文件清单：git 跟踪 + 未忽略（遵循 .gitignore），再剔除非运行时产物。
+
+    with_stats=True 时返回 (files, skipped_count)，否则只返回 files。
+    """
     listing = _git_out(["ls-files", "--cached", "--others", "--exclude-standard"], repo_root)
-    files = [f for f in listing.splitlines() if f.strip()]
+    raw = [f.strip() for f in listing.splitlines() if f.strip()]
+    files = [f for f in raw if not _is_upload_excluded(f)]
     if not files:
         cli_ui.fail("请在 git 仓库目录内运行，且存在可上传的文件。")
+    return (files, len(raw) - len(files)) if with_stats else files
+
+
+def pack_working_dir(repo_root: Path, files: Optional[list[str]] = None, on_add=None) -> bytes:
+    """打包 working-dir 为 tar.gz（默认用 list_working_files 的清单）。
+
+    on_add(n)：每加入一个文件回调一次，用于驱动进度条。
+    """
+    import tarfile
+
+    if files is None:
+        files = list_working_files(repo_root)
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
         for rel in files:
             p = repo_root / rel
             if p.is_file():  # 跳过已删除/软链异常
                 tar.add(p, arcname=rel)
+            if on_add:
+                on_add(1)
     return buf.getvalue()
+
+
+class _ProgressReader:
+    """把字节流包成「边读边回报」的类文件对象，供 urllib 流式上传时驱动进度条。
+
+    urllib/http.client 会分块调用 read() 直到读空；读空时触发 on_done（= 上传完毕、
+    开始等待服务端受理）。
+    """
+
+    def __init__(self, data: bytes, on_read=None, on_done=None):
+        self._buf = io.BytesIO(data)
+        self._total = len(data)
+        self._on_read = on_read
+        self._on_done = on_done
+        self._done_fired = False
+
+    def read(self, size: int = -1) -> bytes:
+        chunk = self._buf.read(size)
+        if chunk:
+            if self._on_read:
+                self._on_read(len(chunk))
+        elif not self._done_fired:
+            self._done_fired = True
+            if self._on_done:
+                self._on_done()
+        return chunk
+
+    def __len__(self) -> int:
+        return self._total
 
 
 def _bearer_request(server: str, method: str, path: str, *, data: Optional[bytes] = None,
@@ -220,35 +280,62 @@ def _bearer_request(server: str, method: str, path: str, *, data: Optional[bytes
 
 
 def submit_via_server(exp_rel: str, profile: Optional[str], repo_root: Path,
-                      server: Optional[str] = None, project: Optional[str] = None) -> dict:
-    """server 模式提交：打包上传 + 服务端注入密钥后代理提交，返回 {job_id, run_id, ...}。"""
+                      server: Optional[str] = None, project: Optional[str] = None,
+                      reporter=None) -> dict:
+    """server 模式提交：打包上传 + 服务端注入密钥后代理提交，返回 {job_id, run_id, ...}。
+
+    reporter：可选进度上报对象（见 cli_ui.submit_progress），驱动「打包 → 上传 → 受理」进度条。
+    返回值附带 upload_files / upload_skipped / upload_bytes 便于 CLI 展示。
+    """
     srv = current_server(server)
     meta = {"exp": exp_rel, "profile": profile or "", **git_provenance(repo_root, exp_rel)}
     if project:
         meta["project"] = project
-    blob = pack_working_dir(repo_root)
-    headers = {"Content-Type": "application/gzip", "X-Lab-Meta": json.dumps(meta, ensure_ascii=False)}
+    result = _upload_and_submit(srv, "/api/jobs", meta, repo_root, reporter, "提交失败，请稍后重试。")
+    return result
+
+
+def _upload_and_submit(srv: str, path: str, meta: dict, repo_root: Path, reporter,
+                       fail_msg: str) -> dict:
+    """通用：打包工作目录 → 流式上传 → 解析响应，全程可选驱动进度条。"""
+    files, skipped = list_working_files(repo_root, with_stats=True)
+    if reporter:
+        reporter.start_pack(len(files))
+    blob = pack_working_dir(
+        repo_root, files=files, on_add=(reporter.pack_tick if reporter else None)
+    )
+    headers = {
+        "Content-Type": "application/gzip",
+        "X-Lab-Meta": json.dumps(meta, ensure_ascii=False),
+        "Content-Length": str(len(blob)),
+    }
+    if reporter:
+        reporter.start_upload(len(blob))
+        data = _ProgressReader(blob, on_read=reporter.upload_tick, on_done=reporter.awaiting_server)
+    else:
+        data = blob
     try:
-        with _bearer_request(srv, "POST", "/api/jobs", data=blob, headers=headers, timeout=300.0) as r:
-            return json.loads(r.read() or b"{}")
+        with _bearer_request(srv, "POST", path, data=data, headers=headers, timeout=300.0) as r:
+            result = json.loads(r.read() or b"{}")
     except urllib.error.HTTPError as e:
-        cli_ui.fail_http(e, fallback="提交失败，请稍后重试。")
+        cli_ui.fail_http(e, fallback=fail_msg)
+    if reporter:
+        reporter.finish()
+    if isinstance(result, dict):
+        result.setdefault("upload_files", len(files))
+        result.setdefault("upload_skipped", skipped)
+        result.setdefault("upload_bytes", len(blob))
+    return result
 
 
 def submit_post_via_server(action: str, exp_rel: str, profile: Optional[str], flags: list[str],
-                           repo_root: Path, server: Optional[str] = None) -> dict:
+                           repo_root: Path, server: Optional[str] = None, reporter=None) -> dict:
     """server 模式训练后闭环（export/eval）：打包上传 → 服务端代理提交 post_train.sh。"""
     srv = current_server(server)
     meta = {"action": action, "exp": exp_rel, "profile": profile or "",
             "flags": flags, **git_provenance(repo_root, exp_rel)}
-    blob = pack_working_dir(repo_root)
-    headers = {"Content-Type": "application/gzip", "X-Lab-Meta": json.dumps(meta, ensure_ascii=False)}
-    try:
-        with _bearer_request(srv, "POST", "/api/post", data=blob, headers=headers, timeout=300.0) as r:
-            return json.loads(r.read() or b"{}")
-    except urllib.error.HTTPError as e:
-        label = "导出" if action == "export" else "评测"
-        cli_ui.fail_http(e, fallback=f"{label}提交失败，请稍后重试。")
+    label = "导出" if action == "export" else "评测"
+    return _upload_and_submit(srv, "/api/post", meta, repo_root, reporter, f"{label}提交失败，请稍后重试。")
 
 
 def clean_via_server(exp_rel: str, server: Optional[str] = None) -> dict:

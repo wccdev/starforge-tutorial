@@ -10,7 +10,6 @@ from enum import Enum
 from pathlib import Path
 
 import typer
-
 from typer._completion_shared import (
     get_completion_script,
     install_bash,
