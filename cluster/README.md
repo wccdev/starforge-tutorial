@@ -38,6 +38,8 @@ uv run python examples/run_grpo.py --config <base.yaml> \
 
 > `overrides.conf` 走 CLI override（进 NeMo-RL 配置）；`env.sh` 走进程环境变量（NCCL/Ray/PyTorch 这类不属于训练配置的开关）。两者互补。
 
+> **⚠️ 拓扑以服务端为权威（集中提交时）**：`cluster.num_nodes` / `cluster.gpus_per_node` 决定占几张卡、也决定配额计量。经中心化服务提交时，这两项由**服务端 profile 注册表**权威下发（`LAB_CLUSTER_NUM_NODES/GPUS_PER_NODE`），并在集群侧 `_run_experiment.sh` 里**覆盖** `overrides.conf` 的对应行——保证「实际占卡 == 服务端记账」，改本地文件的卡数不会影响集中提交的占卡与配额。要调整集中提交的拓扑，请让管理员改服务端注册表（`LAB_CLUSTER_PROFILES`）。`overrides.conf` 里的这两行只在**本地直跑**（无服务端注入）时生效。experiment 级的并行/调参（TP/PP、colocated 等）仍归研究员、放实验 config。
+
 ## 集群与 Ray
 
 集群的搭建与 Ray 起停由**集群管理员 / 中心化服务**负责，提交者无需关心：`lab submit` 把作业交给服务端，

@@ -46,6 +46,24 @@ read_conf() { [[ -f "$1" ]] && grep -vE '^[[:space:]]*(#|$)' "$1" || true; }
 # 集群/硬件 override（CLI，运行时按 profile 叠加）+ 产物落盘
 OVERRIDES=()
 while IFS= read -r l; do [[ -n "$l" ]] && OVERRIDES+=("$l"); done < <(read_conf "${PROFILE_CONF}")
+
+# 权威拓扑：中心化服务按 profile 下发 LAB_CLUSTER_NUM_NODES/GPUS_PER_NODE（配额计量以此为准）。
+# 有注入则剔除 overrides.conf 里的 cluster.num_nodes/gpus_per_node，改用服务端值——
+# 保证「实际占卡 == 服务端记账」，用户改上传文件的卡数无法绕过配额。
+# 本地直跑（无该环境变量）时行为不变，仍用 overrides.conf。
+if [[ -n "${LAB_CLUSTER_NUM_NODES:-}" && -n "${LAB_CLUSTER_GPUS_PER_NODE:-}" ]]; then
+  _kept=()
+  for _o in ${OVERRIDES[@]+"${OVERRIDES[@]}"}; do
+    case "$_o" in
+      cluster.num_nodes=*|cluster.gpus_per_node=*) ;;  # 丢弃文件里的拓扑
+      *) _kept+=("$_o") ;;
+    esac
+  done
+  OVERRIDES=(${_kept[@]+"${_kept[@]}"} \
+    "cluster.num_nodes=${LAB_CLUSTER_NUM_NODES}" \
+    "cluster.gpus_per_node=${LAB_CLUSTER_GPUS_PER_NODE}")
+  echo "[run] topology(服务端权威): num_nodes=${LAB_CLUSTER_NUM_NODES} gpus_per_node=${LAB_CLUSTER_GPUS_PER_NODE}"
+fi
 # 产物（checkpoint + 每步样本 jsonl + 日志）落盘位置。
 # 经服务端提交时 EXP_DIR 在 Ray 上传的临时包目录里（训练结束被清理、不回传本机），
 # 故由服务端注入 OUTPUT_ROOT（集群持久路径/共享盘）后产物落到
