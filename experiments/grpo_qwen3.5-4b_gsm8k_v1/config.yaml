@@ -82,6 +82,3 @@ logger:
   swanlab_enabled: true
   monitor_gpus: true
   num_val_samples_to_print: 3 # 每次验证把 3 条完整对话(含生成 token)打印到作业日志(ray job logs)
-  swanlab:
-    project: "grpo_qwen3.5-4b_gsm8k_v1"
-    name: "lora-lr2e4-dim16-noncolo"

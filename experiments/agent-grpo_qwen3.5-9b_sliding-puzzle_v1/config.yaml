@@ -68,6 +68,3 @@ logger:
   swanlab_enabled: true
   monitor_gpus: true
   num_val_samples_to_print: 3 # 每次验证把 3 条完整多轮对话打印到作业日志（lab logs / lab job logs）
-  swanlab:
-    project: "agent-grpo_qwen3.5-9b_sliding-puzzle_v1"
-    name: "h100-lora-2x2-g8"

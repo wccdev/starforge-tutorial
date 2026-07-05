@@ -107,6 +107,3 @@ logger:
   swanlab_enabled: true
   monitor_gpus: true
   num_val_samples_to_print: 16 # 每次验证把 16 条完整多轮对话(含检索)打印到作业日志；Web 面板分页查看
-  swanlab:
-    project: "qa-rl-compare" # 与 GRPO 版同 project，便于同图对比 GRPO vs MaxRL 两条曲线
-    name: "maxrl-multiturn-kb"

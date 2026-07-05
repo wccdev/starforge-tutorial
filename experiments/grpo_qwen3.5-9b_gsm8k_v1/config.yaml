@@ -4,9 +4,9 @@
 defaults:
   - ../../configs/base/grpo_math_1B.yaml
   - ../../configs/models/qwen3.5-9b.yaml
-  - ../../configs/base/grpo_megatron.yaml   # Megatron-Core 后端 + GB10 调优（删此行即切回 DTensor）
-  - ../../configs/base/grpo_lora.yaml       # LoRA（删此行即全参数，并把 lr 写回 megatron_cfg.optimizer）
-  - ../../configs/base/grpo_noncolocated.yaml  # 非 colocated 生成（1 卡生成 / 1 卡训练；删此行即回 colocated）
+  - ../../configs/base/grpo_megatron.yaml # Megatron-Core 后端 + GB10 调优（删此行即切回 DTensor）
+  - ../../configs/base/grpo_lora.yaml # LoRA（删此行即全参数，并把 lr 写回 megatron_cfg.optimizer）
+  - ../../configs/base/grpo_noncolocated.yaml # 非 colocated 生成（1 卡生成 / 1 卡训练；删此行即回 colocated）
 
 # ══════════════════════════════════════════════════════════════════════════
 #  调参速查 —— 你主要动【① 调参区】这几行。硬件/分布式在 cluster/<profile>，不在这。
@@ -23,20 +23,20 @@ defaults:
 
 # ───────────────────────────── ① 调参区（按需改）─────────────────────────────
 policy:
-  max_total_sequence_length: 1250      # 实测值（数学题）；显存够可调大
-  train_global_batch_size: 32          # = num_prompts_per_step * num_generations_per_prompt
+  max_total_sequence_length: 1250 # 实测值（数学题）；显存够可调大
+  train_global_batch_size: 32 # = num_prompts_per_step * num_generations_per_prompt
   generation_batch_size: 16
 
 grpo:
-  num_prompts_per_step: 4              # GB10 实测小 batch
+  num_prompts_per_step: 4 # GB10 实测小 batch
   num_generations_per_prompt: 8
-  max_rollout_turns: 1                 # 单轮：答一道题（与多轮 Agent 对照）
+  max_rollout_turns: 1 # 单轮：答一道题（与多轮 Agent 对照）
   max_num_steps: 500
   val_period: 50
   val_at_start: true
   val_at_end: true
   max_val_samples: 128
-  val_batch_size: 64                   # <= max_val_samples
+  val_batch_size: 64 # <= max_val_samples
 
 loss_fn:
   reference_policy_kl_penalty: 0.01 # 贴原模型力度；0=纯追奖励易退化，过大学不动
@@ -72,7 +72,4 @@ logger:
   tensorboard_enabled: false
   swanlab_enabled: true
   monitor_gpus: true
-  num_val_samples_to_print: 3   # 每次验证把 3 条完整对话(含生成 token)打印到作业日志(ray job logs)
-  swanlab:
-    project: "grpo_qwen3.5-9b_gsm8k_v1"
-    name: "lora-lr1e4-g8-kl0.01"
+  num_val_samples_to_print: 3 # 每次验证把 3 条完整对话(含生成 token)打印到作业日志(ray job logs)

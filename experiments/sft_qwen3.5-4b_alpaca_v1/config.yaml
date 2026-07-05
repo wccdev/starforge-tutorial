@@ -60,8 +60,5 @@ data:
 logger:
   wandb_enabled: false
   tensorboard_enabled: false
-  swanlab_enabled: true
+  swanlab_enabled: false
   monitor_gpus: true
-  swanlab:
-    project: "sft_qwen3.5-4b_alpaca_v1"
-    name: "lr5e6-bs32-ep3"

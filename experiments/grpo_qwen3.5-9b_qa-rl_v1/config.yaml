@@ -88,6 +88,3 @@ logger:
   swanlab_enabled: true
   monitor_gpus: true
   num_val_samples_to_print: 16 # 每次验证把 16 条完整对话(含生成 token)打印到作业日志(ray job logs)；Web 面板分页查看
-  swanlab:
-    project: "qa-rl-compare" # 与实验二同 project，便于在 SwanLab 同图对比两条曲线
-    name: "baseline-singleturn-notool"
