@@ -65,6 +65,6 @@ env:
 logger:
   wandb_enabled: false
   tensorboard_enabled: false
-  swanlab_enabled: true
+  swanlab_enabled: false
   monitor_gpus: true
   num_val_samples_to_print: 3 # 每次验证把 3 条完整多轮对话打印到作业日志（lab logs / lab job logs）
