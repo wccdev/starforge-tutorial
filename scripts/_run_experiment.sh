@@ -115,4 +115,4 @@ export RAY_OVERRIDE_JOB_RUNTIME_ENV=1
 # boot 脚本在上传的 working_dir(REPO_ROOT) 内，按路径调用即可，无需在 NeMo-RL venv 里装包。
 BOOT="${REPO_ROOT}/scripts/nemolab_boot.py"
 cd "${NEMO_RL_DIR}"
-exec uv run python "${BOOT}" "${ENTRY}" --config "${CONFIG}" "${OVERRIDES[@]}"
+exec uv run --no-sync python "${BOOT}" "${ENTRY}" --config "${CONFIG}" "${OVERRIDES[@]}"
