@@ -1,0 +1,17 @@
+# Cross-platform line endings. Shell scripts and cluster config run on Linux — must be LF.
+* text=auto
+
+*.sh text eol=lf
+*.conf text eol=lf
+/lab text eol=lf
+
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+*.py text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.jsonl text eol=lf
+*.md text eol=lf

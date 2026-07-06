@@ -1,0 +1,18 @@
+root = true
+
+[*]
+charset = utf-8
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{sh,conf}]
+end_of_line = lf
+
+[lab]
+end_of_line = lf
+
+[*.{cmd,bat}]
+end_of_line = crlf
+
+[*.{py,yaml,yml,toml,json,jsonl,md}]
+end_of_line = lf

@@ -47,6 +47,65 @@ def test_upload_kept_paths(rel):
     assert cli_login._is_upload_excluded(rel) is False
 
 
+@pytest.mark.parametrize(
+    "rel,expected",
+    [
+        ("experiments/x/run.sh", True),
+        ("cluster/h100/overrides.conf", True),
+        ("lab", True),
+        ("nemo_rl_lab/cli.py", False),
+        ("lab.cmd", False),
+    ],
+)
+def test_needs_unix_lf(rel, expected):
+    assert cli_login._needs_unix_lf(rel) is expected
+
+
+def test_normalize_unix_lf():
+    assert cli_login._normalize_unix_lf(b"a\r\nb\rc") == b"a\nb\nc"
+
+
+def test_pack_working_dir_normalizes_crlf_for_cluster_scripts(tmp_path):
+    run_sh = tmp_path / "experiments" / "demo" / "run.sh"
+    run_sh.parent.mkdir(parents=True)
+    run_sh.write_bytes(b"#!/bin/bash\r\nset -euo pipefail\r\n")
+    conf = tmp_path / "cluster" / "h100" / "overrides.conf"
+    conf.parent.mkdir(parents=True)
+    conf.write_bytes(b"cluster.num_nodes=1\r\n")
+    (tmp_path / "keep.py").write_text("print(1)\n", encoding="utf-8")
+
+    blob = cli_login.pack_working_dir(
+        tmp_path,
+        files=[
+            "experiments/demo/run.sh",
+            "cluster/h100/overrides.conf",
+            "keep.py",
+        ],
+    )
+    import io
+    import tarfile
+
+    with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as tar:
+        run_data = tar.extractfile("experiments/demo/run.sh").read()
+        conf_data = tar.extractfile("cluster/h100/overrides.conf").read()
+        py_data = tar.extractfile("keep.py").read()
+    assert run_data == b"#!/bin/bash\nset -euo pipefail\n"
+    assert conf_data == b"cluster.num_nodes=1\n"
+    assert py_data == b"print(1)\n"
+
+
+def test_repo_shell_scripts_use_lf_only():
+    """门禁：仓库内 .sh / lab 须 LF，配合 .gitattributes 防 Windows checkout 污染。"""
+    repo = Path(__file__).resolve().parents[1]
+    paths = sorted(repo.rglob("*.sh"))
+    lab = repo / "lab"
+    if lab.is_file():
+        paths.append(lab)
+    assert paths, "expected at least one shell entry in repo"
+    bad = [p.relative_to(repo) for p in paths if b"\r" in p.read_bytes()]
+    assert not bad, f"CRLF in Unix scripts (use LF): {', '.join(str(p) for p in bad)}"
+
+
 def test_list_working_files_filters_and_counts(monkeypatch):
     listing = "\n".join([
         "nemo_rl_lab/cli.py",

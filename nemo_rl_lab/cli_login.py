@@ -204,6 +204,21 @@ def _is_upload_excluded(rel: str) -> bool:
     return r.lower().endswith(_UPLOAD_EXCLUDE_SUFFIXES)
 
 
+# 集群 Linux 侧会 source/读取；Windows 工作区可能是 CRLF，上传前须规范为 LF。
+_UNIX_LF_SUFFIXES = (".sh", ".conf")
+_UNIX_LF_BASENAMES = frozenset({"lab"})
+
+
+def _needs_unix_lf(rel: str) -> bool:
+    r = rel.replace("\\", "/")
+    base = r.rsplit("/", 1)[-1]
+    return base in _UNIX_LF_BASENAMES or r.endswith(_UNIX_LF_SUFFIXES)
+
+
+def _normalize_unix_lf(data: bytes) -> bytes:
+    return data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+
+
 def list_working_files(repo_root: Path, *, with_stats: bool = False):
     """作业负载文件清单：git 跟踪 + 未忽略（遵循 .gitignore），再剔除非运行时产物。
 
@@ -230,8 +245,20 @@ def pack_working_dir(repo_root: Path, files: Optional[list[str]] = None, on_add=
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
         for rel in files:
             p = repo_root / rel
-            if p.is_file():  # 跳过已删除/软链异常
-                tar.add(p, arcname=rel)
+            if not p.is_file():  # 跳过已删除/软链异常
+                if on_add:
+                    on_add(1)
+                continue
+            arcname = rel.replace("\\", "/")
+            if _needs_unix_lf(rel):
+                data = _normalize_unix_lf(p.read_bytes())
+                info = tarfile.TarInfo(name=arcname)
+                info.size = len(data)
+                info.mtime = int(p.stat().st_mtime)
+                info.mode = p.stat().st_mode
+                tar.addfile(info, io.BytesIO(data))
+            else:
+                tar.add(p, arcname=arcname)
             if on_add:
                 on_add(1)
     return buf.getvalue()
