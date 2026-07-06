@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+import time
 import urllib.error
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -206,26 +207,66 @@ def human_bytes(n: float) -> str:
     return f"{n:.1f} GB"
 
 
+def format_elapsed(seconds: float) -> str:
+    """阶段耗时 → 紧凑可读（3.2s / 1m 05s）。"""
+    seconds = max(0.0, seconds)
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes, secs = divmod(int(seconds), 60)
+    if minutes < 60:
+        return f"{minutes}m {secs:02d}s"
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes:02d}m"
+
+
+def _stage_elapsed(stage: "_StageState") -> float:
+    if stage.started is None:
+        return 0.0
+    end = stage.finished if stage.finished is not None else time.monotonic()
+    return max(0.0, end - stage.started)
+
+
+@dataclass
+class _StageState:
+    key: str
+    label: str
+    status: str = "pending"  # pending | active | done
+    detail: str = ""
+    started: float | None = None
+    finished: float | None = None
+
+
 class _PlainReporter:
-    """无 rich / 非 TTY 时的降级上报：只在 stderr 打几行状态（不刷进度条）。"""
+    """无 rich / 非 TTY 时的降级上报：分阶段输出 + 完成耗时。"""
+
+    def __init__(self) -> None:
+        self._phase_started = time.monotonic()
+
+    def _mark_phase_done(self, label: str) -> None:
+        elapsed = format_elapsed(time.monotonic() - self._phase_started)
+        typer.secho(f"  ✓  {label}  {elapsed}", fg=typer.colors.GREEN, dim=True, err=True)
+        self._phase_started = time.monotonic()
 
     def start_pack(self, total: int) -> None:
-        typer.echo(f"  打包工作目录（{total} 个文件）…", err=True)
+        self._phase_started = time.monotonic()
+        typer.echo(f"  ·  打包工作目录（{total} 个文件）…", err=True)
 
     def pack_tick(self, n: int = 1) -> None:  # noqa: D401
         pass
 
     def start_upload(self, total_bytes: int) -> None:
-        typer.echo(f"  上传到 Lab 服务（{human_bytes(total_bytes)}）…", err=True)
+        self._mark_phase_done("打包完成")
+        typer.echo(f"  ·  上传到 Lab（{human_bytes(total_bytes)}）…", err=True)
 
     def upload_tick(self, n: int) -> None:
         pass
 
     def awaiting_server(self) -> None:
-        typer.echo("  服务端受理中…", err=True)
+        self._mark_phase_done("上传完成")
+        typer.echo("  ·  服务端受理（预检 / 配额 / Ray 提交）…", err=True)
 
     def finish(self) -> None:
-        pass
+        self._mark_phase_done("已受理")
 
     def __enter__(self):
         return self
@@ -234,65 +275,149 @@ class _PlainReporter:
         return False
 
 
-class _RichReporter:
-    """基于 rich 的炫酷双段进度条：📦 打包（按文件） → 🚀 上传（按字节）→ ⏳ 受理。"""
+class _PipelineReporter:
+    """Claude Code 风格垂直步骤条：已完成 ✓ + 当前 spinner + 右对齐耗时。"""
 
-    def __init__(self, progress):
-        self._p = progress
-        self._pack = None
-        self._upload = None
+    _ORDER = ("pack", "upload", "server")
+
+    def __init__(self, console) -> None:
+        self._console = console
+        self._live = None
+        self._pack_total = 0
+        self._pack_done = 0
+        self._upload_total = 0
+        self._upload_done = 0
+        self._stages = {
+            "pack": _StageState("pack", "打包工作目录"),
+            "upload": _StageState("upload", "上传到 Lab"),
+            "server": _StageState("server", "服务端受理"),
+        }
+
+    def _ensure_live(self) -> None:
+        if self._live is not None:
+            return
+        from rich.live import Live
+
+        self._live = Live(
+            self._render(),
+            console=self._console,
+            refresh_per_second=12,
+            transient=True,
+        )
+        self._live.__enter__()
+
+    def _activate(self, key: str, *, detail: str = "") -> None:
+        stage = self._stages[key]
+        stage.status = "active"
+        stage.started = time.monotonic()
+        stage.finished = None
+        stage.detail = detail
+        self._refresh()
+
+    def _complete(self, key: str, *, detail: str = "") -> None:
+        stage = self._stages[key]
+        stage.status = "done"
+        if stage.started is None:
+            stage.started = time.monotonic()
+        stage.finished = time.monotonic()
+        if detail:
+            stage.detail = detail
+        self._refresh()
+
+    def _refresh(self) -> None:
+        if self._live is not None:
+            self._live.update(self._render())
+
+    def _render(self):
+        from rich.spinner import Spinner
+        from rich.table import Table
+        from rich.text import Text
+
+        table = Table(show_header=False, box=None, padding=(0, 1), expand=False, pad_edge=False)
+        table.add_column(width=2, no_wrap=True)
+        table.add_column(min_width=14, no_wrap=True)
+        table.add_column(min_width=28)
+        table.add_column(justify="right", min_width=8, no_wrap=True)
+
+        table.add_row("", Text("lab submit", style="bold"), "", "")
+
+        for key in self._ORDER:
+            stage = self._stages[key]
+            if stage.status == "pending":
+                continue
+            elapsed = format_elapsed(_stage_elapsed(stage))
+            if stage.status == "done":
+                table.add_row(
+                    Text("✓", style="green"),
+                    Text(stage.label, style="dim"),
+                    Text(stage.detail, style="dim"),
+                    Text(elapsed, style="dim"),
+                )
+            else:
+                table.add_row(
+                    Spinner("dots", style="cyan", speed=0.85),
+                    Text(stage.label, style="bold cyan"),
+                    Text(stage.detail),
+                    Text(elapsed, style="bold cyan"),
+                )
+        return table
 
     def start_pack(self, total: int) -> None:
-        self._pack = self._p.add_task("📦 打包工作目录", total=max(total, 1), detail=f"0/{total} 文件")
+        self._ensure_live()
         self._pack_total = total
+        self._pack_done = 0
+        self._activate("pack", detail=f"0/{total} 文件")
 
     def pack_tick(self, n: int = 1) -> None:
-        if self._pack is None:
+        if self._stages["pack"].status != "active":
             return
-        self._p.advance(self._pack, n)
-        done = int(self._p.tasks[self._pack].completed)
-        self._p.update(self._pack, detail=f"{done}/{self._pack_total} 文件")
+        self._pack_done += n
+        self._stages["pack"].detail = f"{self._pack_done}/{self._pack_total} 文件"
+        self._refresh()
 
     def start_upload(self, total_bytes: int) -> None:
-        if self._pack is not None:  # 打包收尾，标记 100%
-            self._p.update(self._pack, completed=self._p.tasks[self._pack].total,
-                           detail=f"{self._pack_total}/{self._pack_total} 文件")
+        self._complete("pack", detail=f"{self._pack_total}/{self._pack_total} 文件")
         self._upload_total = total_bytes
-        self._upload = self._p.add_task(
-            "🚀 上传到 Lab", total=max(total_bytes, 1),
-            detail=f"0 B / {human_bytes(total_bytes)}",
-        )
+        self._upload_done = 0
+        self._activate("upload", detail=f"0 B / {human_bytes(total_bytes)}")
 
     def upload_tick(self, n: int) -> None:
-        if self._upload is None:
+        if self._stages["upload"].status != "active":
             return
-        self._p.advance(self._upload, n)
-        done = int(self._p.tasks[self._upload].completed)
-        self._p.update(self._upload, detail=f"{human_bytes(done)} / {human_bytes(self._upload_total)}")
+        self._upload_done += n
+        elapsed = _stage_elapsed(self._stages["upload"])
+        detail = f"{human_bytes(self._upload_done)} / {human_bytes(self._upload_total)}"
+        if elapsed >= 0.2 and self._upload_done > 0:
+            detail += f"  ·  {human_bytes(self._upload_done / elapsed)}/s"
+        self._stages["upload"].detail = detail
+        self._refresh()
 
     def awaiting_server(self) -> None:
-        if self._upload is None:
-            return
-        self._p.update(self._upload, description="⏳ 服务端受理中", completed=self._p.tasks[self._upload].total,
-                       detail=human_bytes(self._upload_total))
+        upload = self._stages["upload"]
+        upload_detail = human_bytes(self._upload_total)
+        elapsed = _stage_elapsed(upload)
+        if elapsed >= 0.2 and self._upload_total > 0:
+            upload_detail += f"  ·  {human_bytes(self._upload_total / elapsed)}/s"
+        self._complete("upload", detail=upload_detail)
+        self._activate("server", detail="预检 · 配额 · 提交")
 
     def finish(self) -> None:
-        if self._upload is not None:
-            self._p.update(self._upload, description="✅ 已受理")
+        self._complete("server", detail="完成")
 
     def __enter__(self):
-        self._p.__enter__()
         return self
 
     def __exit__(self, *exc):
-        return self._p.__exit__(*exc)
+        if self._live is not None:
+            return self._live.__exit__(*exc)
+        return False
 
 
 @contextmanager
 def submit_progress():
     """提交进度条上下文：`with submit_progress() as reporter: submit_via_server(..., reporter=reporter)`。
 
-    有 rich 且输出是 TTY 时用炫酷进度条；否则（CI / 管道 / 无 rich）降级为简短状态行。
+    有 rich 且输出是 TTY 时用垂直步骤条；否则（CI / 管道 / 无 rich）降级为分阶段状态行。
     """
     reporter = _make_reporter()
     with reporter as r:
@@ -304,22 +429,7 @@ def _make_reporter():
         return _PlainReporter()
     try:
         from rich.console import Console
-        from rich.progress import (
-            BarColumn,
-            Progress,
-            SpinnerColumn,
-            TextColumn,
-            TimeElapsedColumn,
-        )
     except Exception:  # noqa: BLE001
         return _PlainReporter()
-    progress = Progress(
-        SpinnerColumn(style="cyan"),
-        TextColumn("[bold]{task.description}"),
-        BarColumn(bar_width=26, complete_style="cyan", finished_style="green"),
-        TextColumn("[dim]{task.fields[detail]}"),
-        TimeElapsedColumn(),
-        console=Console(stderr=True),
-        transient=True,
-    )
-    return _RichReporter(progress)
+    console = Console(stderr=True, highlight=False, soft_wrap=False)
+    return _PipelineReporter(console)

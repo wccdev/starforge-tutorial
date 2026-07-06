@@ -106,6 +106,15 @@ def test_human_bytes(n, expected):
     assert cli_ui.human_bytes(n) == expected
 
 
+# --------------------------- 耗时格式 ---------------------------
+@pytest.mark.parametrize(
+    "seconds,expected",
+    [(0, "0.0s"), (3.2, "3.2s"), (59.9, "59.9s"), (60, "1m 00s"), (125, "2m 05s"), (3661, "1h 01m")],
+)
+def test_format_elapsed(seconds, expected):
+    assert cli_ui.format_elapsed(seconds) == expected
+
+
 # --------------------------- 降级 reporter 不炸 ---------------------------
 def test_plain_reporter_is_noop_safe():
     r = cli_ui._PlainReporter()
@@ -116,3 +125,34 @@ def test_plain_reporter_is_noop_safe():
         r.upload_tick(50)
         r.awaiting_server()
         r.finish()
+
+
+def test_pipeline_reporter_stages_and_timing():
+    """垂直步骤条：已完成 ✓、当前 spinner、服务端独立阶段。"""
+    import io
+
+    from rich.console import Console
+
+    console = Console(file=io.StringIO(), force_terminal=True, width=100)
+    reporter = cli_ui._PipelineReporter(console)
+    with reporter:
+        reporter.start_pack(2)
+        assert reporter._stages["pack"].status == "active"
+        reporter.pack_tick(2)
+        reporter.start_upload(2048)
+        assert reporter._stages["pack"].status == "done"
+        assert reporter._stages["upload"].status == "active"
+        reporter.upload_tick(2048)
+        reporter.awaiting_server()
+        assert reporter._stages["upload"].status == "done"
+        assert reporter._stages["server"].status == "active"
+        assert reporter._stages["server"].started is not None
+        assert reporter._stages["server"].started >= reporter._stages["upload"].finished
+        reporter.finish()
+        assert reporter._stages["server"].status == "done"
+    panel = reporter._render()
+    with console.capture() as capture:
+        console.print(panel)
+    rendered = capture.get()
+    assert "lab submit" in rendered
+    assert "服务端受理" in rendered
