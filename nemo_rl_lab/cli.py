@@ -204,8 +204,23 @@ def submit(
     # 打包 working-dir → 上传到中心化服务 → 服务端注入密钥/路径后代理提交（密钥/地址不外泄）。
     with cli_ui.submit_progress() as reporter:
         res = cli_login.submit_via_server(exp_path, profile, ROOT, project=project, reporter=reporter)
+    _echo_submit_result(res)
+
+
+def _echo_submit_result(res: dict, label: str = "") -> None:
+    """统一展示提交结果：排队（202，含卡型时段/容量原因）与直接提交两种形态。"""
     gpus = res.get("requested_gpus")
-    msg = f"✓ 已提交  作业 {res.get('job_id')}"
+    if res.get("queued"):
+        msg = f"⏳ 已排队{label}  run {res.get('run_id')}"
+        if gpus is not None:
+            msg += f"  ·  {gpus} GPU"
+        typer.secho(msg, fg=typer.colors.YELLOW)
+        if res.get("message"):
+            typer.secho(f"  {res['message']}", fg=typer.colors.BRIGHT_BLACK)
+        _echo_upload_summary(res)
+        typer.echo("  满足条件后自动提交；查看状态：lab job ls")
+        return
+    msg = f"✓ 已提交{label}  作业 {res.get('job_id')}"
     if gpus is not None:
         msg += f"  ·  {gpus} GPU"
     if res.get("dry_run"):
@@ -371,16 +386,7 @@ def _submit_post(action: str, exp_path: str, profile: Optional[str], flags: list
     cli_login.gate(action)
     with cli_ui.submit_progress() as reporter:
         res = cli_login.submit_post_via_server(action, exp_path, profile, flags, ROOT, reporter=reporter)
-    gpus = res.get("requested_gpus")
-    label = "导出" if action == "export" else "评测"
-    msg = f"✓ 已提交{label}  作业 {res.get('job_id')}"
-    if gpus is not None:
-        msg += f"  ·  {gpus} GPU"
-    if res.get("dry_run"):
-        msg += "  ·  预演"
-    typer.secho(msg, fg=typer.colors.GREEN)
-    _echo_upload_summary(res)
-    typer.echo(f"  查看日志：lab logs {res.get('job_id')}")
+    _echo_submit_result(res, label="导出" if action == "export" else "评测")
     return 0
 
 
@@ -629,6 +635,24 @@ def job_stop(
     cli_login.gate("job-stop")
     cli_login.job_control_via_server("stop", job_id)
     typer.secho("✓ 已停止作业", fg=typer.colors.GREEN)
+
+
+@job_app.command("pause", help="暂停作业（保留 checkpoint，可继续）")
+def job_pause(
+    job_id: str = typer.Argument(..., help="作业 ID"),
+) -> None:
+    cli_login.gate("job-pause")
+    cli_login.job_control_via_server("pause", job_id)
+    typer.secho("✓ 已暂停作业（恢复后从最近 checkpoint 继续，最多丢最近 save_period 步）", fg=typer.colors.GREEN)
+
+
+@job_app.command("resume", help="继续已暂停的作业（自动从最近 checkpoint 续训）")
+def job_resume(
+    job_id: str = typer.Argument(..., help="作业 ID"),
+) -> None:
+    cli_login.gate("job-resume")
+    res = cli_login.job_control_via_server("resume", job_id)
+    typer.secho(f"✓ {res.get('message') or '已加入恢复队列'}", fg=typer.colors.GREEN)
 
 
 @job_app.command("delete", help="删除某个已结束的作业记录（运行中需先 stop）")

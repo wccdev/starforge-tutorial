@@ -400,10 +400,10 @@ def list_my_jobs(server: Optional[str] = None, limit: int = 50) -> list[dict]:
 
 
 def job_control_via_server(action: str, job_id: str, server: Optional[str] = None) -> dict:
-    """停止 / 删除作业。"""
+    """停止 / 删除 / 暂停 / 继续作业。"""
     srv = current_server(server)
     path = f"/api/job/{action}?id={urllib.parse.quote(job_id)}"
-    labels = {"stop": "停止作业", "delete": "删除记录"}
+    labels = {"stop": "停止作业", "delete": "删除记录", "pause": "暂停作业", "resume": "继续作业"}
     try:
         with _bearer_request(srv, "POST", path) as r:
             return json.loads(r.read() or b"{}")
