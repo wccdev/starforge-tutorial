@@ -48,6 +48,10 @@ policy:
   generation:
     max_new_tokens: 512 # 检索 query 很短、题库答案也短；H200 的 4096 总预算留给资料，而不是冗长生成
     temperature: 0.8 # 比 1.0 收敛更稳，又保留足够 rollout 差异让动态采样工作
+    vllm_cfg:
+      # NeMo-RL v0.7 已知 Qwen3.5 + vLLM CUDA-graph/Ray 间歇 hang；正式训练优先使用 eager。
+      # 牺牲部分吞吐，避免数小时作业在若干 step 后 RayChannelTimeoutError。
+      enforce_eager: true
 
 grpo:
   num_prompts_per_step: 4
@@ -62,6 +66,8 @@ grpo:
   use_dynamic_sampling: true
   batch_multiplier: 2
   dynamic_sampling_max_gen_batches: 8
+  # v0.7：不要用达到生成上限、没有完成工具协议/答案的轨迹更新策略。
+  overlong_filtering: true
   max_rollout_turns: 3 # 常规为「一次定向检索 + 作答」；Preamble 要求首查无结果才允许第二次
   max_num_steps: 400 # 先在纯答题验证分上观察 8 个点；动态采样使每步有效，不再盲跑 800 步
   val_period: 50
@@ -109,6 +115,10 @@ env:
       answer_search_bonus: 0.05 # 保留很小的条件 bonus，鼓励不确定题先查、又不压过最终正确性
       search_bonus_min_score: 1.0
       no_answer_penalty: 0.2
+      # 原生 EnvironmentInterface 不支持 NeMo-Gym 专属 invalid_tool_call_advantage；
+      # 这里由环境在训练阶段惩罚坏格式/空搜索，eval 时 make_eval_cfg() 会清零。
+      format_error_penalty: 0.02
+      invalid_search_penalty: 0.02
       # H200 专用：默认 500 字会截掉 BM25 的后续高相关 chunk；4096 总序列预算下提高到 900。
       # 该值只覆盖本 Ray actor，不改其他实验的 DOCS_MAX_CHARS 环境变量。
       retrieval_max_chars: 900

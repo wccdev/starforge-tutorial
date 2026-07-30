@@ -1,9 +1,9 @@
 # configs/base — 供继承的基底配置
 
-这里是 **NeMo-RL v0.6.0 官方 example 配置的原样副本**（version-locked），作为所有实验
+这里是 **NeMo-RL v0.7.0 官方 example 配置的原样副本**（version-locked），作为所有实验
 `defaults` 继承的「祖父配置」。实验只写差异，调参不动这里。
 
-| 文件 | 来源（v0.6.0） | 用途 |
+| 文件 | 来源（v0.7.0） | 用途 |
 | --- | --- | --- |
 | `grpo_math_1B.yaml` | `examples/configs/grpo_math_1B.yaml` | GRPO 基底（最常用的祖父） |
 | `sft.yaml` | `examples/configs/sft.yaml` | SFT 基底 |

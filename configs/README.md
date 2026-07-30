@@ -1,6 +1,6 @@
 # configs/ — 配置继承体系
 
-NeMo-RL 0.6.0 **原生支持配置继承**（`nemo_rl/utils/config.py` 的 `load_config`）：配置里写
+NeMo-RL 0.7.0 **原生支持配置继承**（`nemo_rl/utils/config.py` 的 `load_config`）：配置里写
 `defaults: parent.yaml` 即可继承，支持多继承、嵌套继承、`${}` 插值、`_override_` 整段覆盖，
 再叠加命令行 Hydra override。官方自己就这么用（`grpo_sliding_puzzle.yaml` 继承 `grpo_math_1B.yaml`）。
 
@@ -10,7 +10,7 @@ NeMo-RL 0.6.0 **原生支持配置继承**（`nemo_rl/utils/config.py` 的 `load
 
 ```
 configs/
-├── base/      祖父：官方 v0.6.0 example 原样副本（version-locked，由 sync_base_configs.sh 同步，勿手改）
+├── base/      祖父：官方 v0.7.0 example 原样副本（version-locked，由 sync_base_configs.sh 同步，勿手改）
 │   ├── grpo_math_1B.yaml          # GRPO 基底
 │   ├── sft.yaml                   # SFT 基底
 │   ├── grpo_sliding_puzzle.yaml   # 多轮 Agent 基底（已继承 grpo_math_1B）
@@ -86,7 +86,7 @@ logger:
 不进 `config.yaml`，由 `cluster/<profile>/overrides.conf` 在运行时以 CLI override 叠加（见 `cluster/README.md`），
 这样切硬件（GB10 ↔ H200）不动实验配置。
 
-## 常用字段（0.6.0）
+## 常用字段（0.7.0）
 
 | 作用 | key |
 | --- | --- |

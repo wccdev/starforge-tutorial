@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# 实验启动·通用逻辑（NeMo-RL 0.6.0）——所有实验的 run.sh 都把通用部分收口到这里，
+# 实验启动·通用逻辑（NeMo-RL 0.7.0）——所有实验的 run.sh 都把通用部分收口到这里，
 # 单一事实来源：改一次，所有实验生效。各实验 run.sh 只声明自己的差异（主要是 ENTRY），
 # 然后 `exec bash scripts/_run_experiment.sh "${EXP_DIR}"`。
 #
 # 入参：$1 = 实验目录绝对路径（EXP_DIR）。
 # 约定的可选环境变量（由各实验 run.sh / 中心化服务在集群侧注入）：
 #   ENTRY            训练入口（不设则：本目录有 run.py 用之，否则 examples/run_grpo.py）
-#   NEMO_RL_DIR      容器内 NeMo-RL 0.6.0 源码目录（必填）
+#   NEMO_RL_DIR      容器内 NeMo-RL 0.7.0 源码目录（必填）
 #   CLUSTER_PROFILE  硬件 profile（不设则读实验自带 cluster 文件，再兜底 gb10-spark）
 #   OUTPUT_ROOT      产物根目录（不设则落到 EXP_DIR/outputs）；RUN_USER 再做多人隔离
 #   NRL_RUN_ID       单次训练 run id（中心化提交时注入）；产物落到 .../<实验名>/<run_id>
@@ -21,8 +21,8 @@ EXP_DIR="${1:?用法: _run_experiment.sh <实验目录绝对路径>（由各实�
 REPO_ROOT="$(cd "${EXP_DIR}/../.." && pwd)"
 EXP_NAME="$(basename "${EXP_DIR}")"
 
-# 本地 NeMo-RL 0.6.0 源码目录（必填）
-NEMO_RL_DIR="${NEMO_RL_DIR:?请设置 NEMO_RL_DIR 指向 NeMo-RL 0.6.0 源码目录}"
+# 本地 NeMo-RL 0.7.0 源码目录（必填）
+NEMO_RL_DIR="${NEMO_RL_DIR:?请设置 NEMO_RL_DIR 指向 NeMo-RL 0.7.0 源码目录}"
 
 # 硬件 profile：默认读本实验绑定的集群（同目录 cluster 文件，可选 cluster/ 下 h100 | gb10-spark | h200）。
 # 本实验超参（batch/seq/LoRA/并行度/显存）都是按该集群的卡调出来的，换卡通常要重调。

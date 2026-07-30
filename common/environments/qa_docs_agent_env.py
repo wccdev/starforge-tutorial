@@ -20,9 +20,9 @@
     - 超过 max_turns 仍无答案 → 判 0 结束
 
 奖励分两层：**最终判分**（qa 奖励，训练/验证共用）+ **检索 reward shaping**（检索即时奖励 / 检索后
-答对加成 / 不作答惩罚，**仅训练期**用于引导模型真的去用工具）。验证环境请用 `make_eval_cfg()` 派生
-cfg 单独建一个实例，把 shaping 归零——否则 NeMo-RL 的 validation/accuracy（= mean(total_reward)）
-会把「用了工具」的加分算成准确率，既虚高又无法与无工具 baseline 对比。
+答对加成 / 无效工具格式或不作答惩罚，**仅训练期**用于引导模型真的去用工具）。验证环境请用
+`make_eval_cfg()` 派生 cfg 单独建一个实例，把所有 shaping 归零——否则 NeMo-RL 的
+validation/accuracy（= mean(total_reward)）会把工具行为算成准确率，既虚高又无法与无工具 baseline 对比。
 """
 from __future__ import annotations
 
@@ -570,7 +570,13 @@ def _is_useful_retrieval(obs: str) -> bool:
 #   ① 「用了工具」本身就白送分（max_turns=3 时最多 +0.05×2 检索 + 0.1 加成 = +0.2 绝对值），验证分虚高；
 #   ② 与单轮无工具 baseline（qa-rl_v1，纯最终判分）不再同尺度，A/B 结论会被工具加分污染。
 # 故验证环境一律用 make_eval_cfg() 派生的 cfg。
-_SHAPING_KEYS = ("search_step_reward", "answer_search_bonus", "no_answer_penalty")
+_SHAPING_KEYS = (
+    "search_step_reward",
+    "answer_search_bonus",
+    "no_answer_penalty",
+    "format_error_penalty",
+    "invalid_search_penalty",
+)
 
 
 def make_eval_cfg(cfg: Optional[dict[str, Any]] = None) -> dict[str, Any]:
@@ -614,6 +620,11 @@ class QADocsAgentEnv(EnvironmentInterface[QADocsMetadata]):
         self.answer_search_bonus = float(self.cfg.get("answer_search_bonus", 0.1))
         self.search_bonus_min_score = float(self.cfg.get("search_bonus_min_score", 1.0))
         self.no_answer_penalty = float(self.cfg.get("no_answer_penalty", 0.2))
+        # NeMo-RL v0.7 的 invalid_tool_call_advantage 只支持 NeMo-Gym。
+        # 本实验走原生 EnvironmentInterface，因此在环境奖励层处理无标签输出和空 <search>，
+        # 并由 make_eval_cfg() 在验证时归零，避免污染 accuracy。
+        self.format_error_penalty = float(self.cfg.get("format_error_penalty", 0.0))
+        self.invalid_search_penalty = float(self.cfg.get("invalid_search_penalty", 0.0))
         # 与 QARewardEnv 同源：客观题走规则；简答 use_judge=true 走裁判、失败回退关键词覆盖率。
         if self.use_judge:
             from common.rewards.qa_judge_reward import qa_judge_reward_fn
@@ -687,12 +698,15 @@ class QADocsAgentEnv(EnvironmentInterface[QADocsMetadata]):
                 if _is_useful_retrieval(obs):
                     rewards[i] = self.search_step_reward
                     nm["did_search"] = True
+                elif not search_q:
+                    rewards[i] = -self.invalid_search_penalty
                 observations[i] = {"role": "environment", "content": f"[检索结果]\n{obs}"}
                 next_stops[i] = self.SEARCH_STOP_STRINGS
                 next_meta[i] = nm
                 continue
 
             # 4) 格式不对：提示并重试（计一轮）
+            rewards[i] = -self.format_error_penalty
             observations[i] = {
                 "role": "environment",
                 "content": (

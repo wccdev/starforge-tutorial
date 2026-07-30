@@ -30,9 +30,9 @@
 奖励分两层：
 
 - **最终判分**（训练/验证共用）：`\boxed{}` 里的答案交给同一套 qa 奖励（客观题规则 / 简答裁判），与 baseline 同源。
-- **检索 reward shaping（仅训练）**：不再对“查到任意资料”给分；仅在检索后答对时给很小的 `+answer_search_bonus`（0.05），超轮不作答 `−no_answer_penalty`（0.2）。这避免模型为刷即时 reward 无效重复检索。
+- **检索 reward shaping（仅训练）**：不再对“查到任意资料”给分；仅在检索后答对时给很小的 `+answer_search_bonus`（0.05），超轮不作答 `−no_answer_penalty`（0.2），无标签输出或空 `<search>` 各扣 `0.02`。这避免模型为刷即时 reward 无效重复检索。
 
-验证环境由 `run.py` 用 `make_eval_cfg()` 另建一个实例，把上面三项全部归零（检索后端与判分方式不变）。
+验证环境由 `run.py` 用 `make_eval_cfg()` 另建一个实例，把所有 shaping 项全部归零（检索后端与判分方式不变）。
 必须这样分开：NeMo-RL 的 `validation/accuracy` 就是 `mean(total_reward)`，而 `total_reward` 是**逐轮奖励的累加**——
 验证若照抄训练 cfg，「用了工具」本身也会改变奖励尺度，
 既看不出真实答题水平，也没法和无工具 baseline 同尺度比。所以：
@@ -95,8 +95,12 @@ lab submit grpo_qwen3.5-9b_qa-rl-agent_v1
 - **小 rollout**：`2 prompts × 8 generations = 16`，关闭动态采样，避免候选补采样导致瞬时内存翻倍。
 - **短多轮轨迹**：`seq=2048`、每轮最多 384 token、检索回灌 400 字、最多一次检索后作答。
 - **首跑跳过 reference policy**：`KL=0` 与 `skip_reference_policy_logprobs_calculation=true`，减少一份 9B logprob 的峰值；稳定后可用 CLI override `loss_fn.reference_policy_kl_penalty=0.01` 进行质量复跑。
+- **NeMo-RL v0.7 保护**：开启 `overlong_filtering`，并受益于 selected-token logprob 内存降低；不启用 PPO、CISPO、MOPD 或动态采样，它们会增加单 GB10 的模型/rollout 峰值。
+- **Qwen3.5 稳定性优先**：保留 `enforce_eager=true`，规避 v0.7 / vLLM 0.20 的 CUDA-graph/Ray 间歇 hang；比起吞吐，首跑先保证训练能完成。
 
 首跑只训练 100 步、每 25 步验证。若仍 OOM，按顺序降低：`max_total_sequence_length=1792` → `num_generations_per_prompt=4` 且 `train_global_batch_size=8` → `retrieval_max_chars=300`。
+
+> 运行镜像必须为 `nvcr.io/nvidia/nemo-rl:v0.7.0`（CUDA 13 / vLLM 0.20）；不要在 v0.6 容器内单独升级 Python 包。
 
 ## 看多轮检索轨迹
 

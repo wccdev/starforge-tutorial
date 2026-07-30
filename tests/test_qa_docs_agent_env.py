@@ -23,6 +23,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # 用 QADocsAgentEnv 的实验：它们的 grpo_train 必须收到两个不同的环境映射
 AGENT_RUNS = [
     "experiments/grpo_qwen3.5-9b_qa-rl-agent_v3/run.py",
+    "experiments/grpo_qwen3.5-9b_qa-rl-agent_gb10_v1/run.py",
     "experiments/maxrl_qwen3.5-9b_qa-rl-agent_v2/run.py",
 ]
 
@@ -33,6 +34,8 @@ TRAIN_CFG = {
     "answer_search_bonus": 0.1,
     "search_bonus_min_score": 1.0,
     "no_answer_penalty": 0.2,
+    "format_error_penalty": 0.02,
+    "invalid_search_penalty": 0.02,
 }
 
 
@@ -110,6 +113,8 @@ def test_make_eval_cfg_zeroes_shaping_only(env_mod):
     assert eval_cfg["search_step_reward"] == 0.0
     assert eval_cfg["answer_search_bonus"] == 0.0
     assert eval_cfg["no_answer_penalty"] == 0.0
+    assert eval_cfg["format_error_penalty"] == 0.0
+    assert eval_cfg["invalid_search_penalty"] == 0.0
     # 检索后端与判分方式必须保持一致，验证才只差「工具不加分」这一件事
     assert eval_cfg["use_judge"] is False
     assert eval_cfg["max_turns"] == 3
@@ -181,6 +186,27 @@ def test_retrieval_step_reward_is_train_only(env_mod, monkeypatch):
     assert run(env_mod.make_eval_cfg(TRAIN_CFG)) == pytest.approx(0.0)
 
 
+def test_bad_tool_format_penalty_is_train_only(env_mod):
+    """无标签输出和空 search 只在训练期扣分；验证必须仍是纯正确率。"""
+    metadata = [{
+        "expected_answer": "[single] B",
+        "query": "题面",
+        "num_turns": 0,
+        "max_turns": 3,
+        "did_search": False,
+    }]
+
+    for completion, expected in (("没有工具标签", -0.02), ("<search></search>", -0.02)):
+        train = env_mod.QADocsAgentEnv(cfg=TRAIN_CFG).step(
+            [[{"role": "assistant", "content": completion}]], metadata
+        )
+        evaluate = env_mod.QADocsAgentEnv(cfg=env_mod.make_eval_cfg(TRAIN_CFG)).step(
+            [[{"role": "assistant", "content": completion}]], metadata
+        )
+        assert train.rewards[0] == pytest.approx(expected)
+        assert evaluate.rewards[0] == pytest.approx(0.0)
+
+
 @pytest.mark.parametrize("rel_path", AGENT_RUNS)
 def test_run_script_passes_a_separate_val_env(rel_path):
     """守住接线：grpo_train 的第 7/8 个参数是 task_to_env / val_task_to_env，不能是同一个。
@@ -204,3 +230,30 @@ def test_run_script_passes_a_separate_val_env(rel_path):
         "验证要用 make_eval_cfg() 另建实例，否则检索加分会算进 validation/accuracy"
     )
     assert "make_eval_cfg" in source, f"{rel_path} 的验证环境应由 make_eval_cfg() 派生 cfg"
+
+
+@pytest.mark.parametrize(
+    "rel_path",
+    [
+        "experiments/grpo_qwen3.5-9b_qa-rl-agent_v3/run.py",
+        "experiments/grpo_qwen3.5-9b_qa-rl-agent_gb10_v1/run.py",
+    ],
+)
+def test_v07_setup_result_is_fully_unpacked(rel_path):
+    """v0.7 setup() 返回 13 项；漏掉 MOPD teacher 字段会在昂贵的 worker 初始化后才失败。"""
+    source = (REPO_ROOT / rel_path).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    setup_assignments = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and isinstance(node.value, ast.Call)
+        and isinstance(node.value.func, ast.Name)
+        and node.value.func.id == "setup"
+    ]
+    assert len(setup_assignments) == 1
+    target = setup_assignments[0].targets[0]
+    assert isinstance(target, ast.Tuple)
+    assert len(target.elts) == 13, (
+        f"{rel_path} 必须完整解包 NeMo-RL v0.7 setup() 的 13 项返回值"
+    )

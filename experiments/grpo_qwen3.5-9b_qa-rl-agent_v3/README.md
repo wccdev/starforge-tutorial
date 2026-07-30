@@ -30,9 +30,9 @@
 奖励分两层：
 
 - **最终判分**（训练/验证共用）：`\boxed{}` 里的答案交给同一套 qa 奖励（客观题规则 / 简答裁判），与 baseline 同源。
-- **检索 reward shaping（仅训练）**：不再对“查到任意资料”给分；仅在检索后答对时给很小的 `+answer_search_bonus`（0.05），超轮不作答 `−no_answer_penalty`（0.2）。这避免模型为刷即时 reward 无效重复检索。
+- **检索 reward shaping（仅训练）**：不再对“查到任意资料”给分；仅在检索后答对时给很小的 `+answer_search_bonus`（0.05），超轮不作答 `−no_answer_penalty`（0.2），无标签输出或空 `<search>` 各扣 `0.02`。这避免模型为刷即时 reward 无效重复检索。
 
-验证环境由 `run.py` 用 `make_eval_cfg()` 另建一个实例，把上面三项全部归零（检索后端与判分方式不变）。
+验证环境由 `run.py` 用 `make_eval_cfg()` 另建一个实例，把所有 shaping 项全部归零（检索后端与判分方式不变）。
 必须这样分开：NeMo-RL 的 `validation/accuracy` 就是 `mean(total_reward)`，而 `total_reward` 是**逐轮奖励的累加**——
 验证若照抄训练 cfg，「用了工具」本身也会改变奖励尺度，
 既看不出真实答题水平，也没法和无工具 baseline 同尺度比。所以：
@@ -97,8 +97,12 @@ lab submit grpo_qwen3.5-9b_qa-rl-agent_v1
 - **DAPO dynamic sampling**：每步先生成 `8×16` 个候选，只保留奖励有成败差异的 4 个 prompt 组训练；没有梯度的全对/全错组不消耗更新。
 - **H200 序列预算**：`seq=4096`、每轮 `max_new_tokens=512`、单次检索最多回灌 900 字，优先保证“检索一次后能完整作答”，而不是长文本生成。
 - **参考策略锚定**：`KL=0.02` 加入 Reinforce++ 的 token reward，压制策略漂移和重复格式。
+- **NeMo-RL v0.7 长轨迹保护**：`overlong_filtering=true` 丢弃撞到生成上限的未完成轨迹；v0.7 的 GRPO selected-token logprob 内存优化可降低长序列训练压力。
+- **Qwen3.5 vLLM 稳定性优先**：v0.7 / vLLM 0.20 有 CUDA-graph/Ray 间歇 hang 的上游已知问题，因此 H200 profile 强制 `enforce_eager=true`。吞吐会下降；确认上游修复前不要改回 false。
 
 运行时关注 `train/approx_entropy`、`train/advantages/max`、`dynamic_sampling_num_gen_batches` 和纯答题 `validation/accuracy`。若动态采样频繁达到 8 个补采样批次，说明当前题目过易或过难，应先改善题目难度混合，而不是提高学习率。
+
+> 运行镜像必须为 `nvcr.io/nvidia/nemo-rl:v0.7.0`（CUDA 13 / vLLM 0.20）；不要在 v0.6 容器内单独升级 Python 包。
 
 ## 看多轮检索轨迹
 

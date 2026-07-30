@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 训练后闭环（在【集群容器内】执行）：把 NeMo-RL 0.6.0 的 checkpoint 转成 HF 格式（export）、
+# 训练后闭环（在【集群容器内】执行）：把 NeMo-RL 0.7.0 的 checkpoint 转成 HF 格式（export）、
 # 或对 checkpoint 跑独立评测（eval）。由 `lab export` / `lab eval` 经 ray job submit 调起，
 # 也可在 head 容器里直接 `bash scripts/post_train.sh ...` 跑。薄封装官方脚本（单一事实来源）：
 #   - 转换： examples/converters/convert_dcp_to_hf.py（DTensor）/ convert_megatron_to_hf.py（Megatron, --extra mcore）
@@ -26,7 +26,7 @@ shift 2
 EXP_REL="${EXP_REL%/}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-NEMO_RL_DIR="${NEMO_RL_DIR:?请设置 NEMO_RL_DIR 指向容器内 NeMo-RL 0.6.0 源码目录}"
+NEMO_RL_DIR="${NEMO_RL_DIR:?请设置 NEMO_RL_DIR 指向容器内 NeMo-RL 0.7.0 源码目录}"
 EXP_NAME="$(basename "${EXP_REL}")"
 
 # ---------- 解析 flags ----------

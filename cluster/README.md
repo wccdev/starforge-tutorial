@@ -48,27 +48,27 @@ uv run python examples/run_grpo.py --config <base.yaml> \
 
 ## 依赖与环境
 
-本仓库以 **NVIDIA NeMo-RL 0.6.0** 为训练框架；NeMo-RL 用 **`uv`** 管理依赖与运行（`uv run python ...`）。依赖按**架构**分别维护，强烈建议用 **NeMo-RL 官方容器镜像**跑训练，避免手装 CUDA / wheel 踩坑。
+本仓库以 **NVIDIA NeMo-RL 0.7.0** 为训练框架；NeMo-RL 用 **`uv`** 管理依赖与运行（`uv run python ...`）。依赖按**架构**分别维护，强烈建议用 **NeMo-RL 官方容器镜像**跑训练，避免手装 CUDA / wheel 踩坑。
 
 | 硬件 profile | 架构 | 安装方式 |
 | --- | --- | --- |
 | `gb10-spark` | aarch64 + Blackwell | aarch64 容器 / wheel |
 | `h100` / `h200` | x86_64 + Hopper | x86_64 容器 / wheel |
 
-### 集群容器内：NeMo-RL 0.6.0
+### 集群容器内：NeMo-RL 0.7.0
 
 训练框架**预装在容器镜像里**，不随作业上传。容器内的 NeMo-RL 路径（`NEMO_RL_DIR`，必须是**容器内**绝对路径）由中心化服务在集群侧注入。
 
 若需自行克隆 / 升级 NeMo-RL（容器内执行）：
 
 ```bash
-git clone --branch v0.6.0 https://github.com/NVIDIA-NeMo/RL.git NeMo-RL
+git clone --branch v0.7.0 https://github.com/NVIDIA-NeMo/RL.git NeMo-RL
 cd NeMo-RL
 uv sync
 uv run python examples/run_grpo.py --help   # 验证
 ```
 
-> 具体容器 tag、各 backend（DTensor / Megatron）的额外依赖以 v0.6.0 官方文档为准。
+> 使用 `nvcr.io/nvidia/nemo-rl:v0.7.0`（CUDA 13）；各 backend（DTensor / Megatron）的额外依赖以 v0.7.0 官方文档为准。
 > 源码与容器 fingerprint 不一致时，见 NeMo-RL 文档的 `NRL_FORCE_REBUILD_VENVS` / 重建镜像说明。
 
 ### 本机：开发期依赖

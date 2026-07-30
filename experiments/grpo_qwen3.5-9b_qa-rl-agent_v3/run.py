@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# 题库「多轮 + 本地文档检索」Agent GRPO 训练脚本（NeMo-RL 0.6.0）。
+# 题库「多轮 + 本地文档检索」Agent GRPO 训练脚本（NeMo-RL 0.7.0）。
 #
 # 这是与单轮 baseline（grpo_qwen3.5-9b_qa-rl_v1）做 A/B 对比的【对照组 / treatment】：
 #   同一份题库数据 / 模型 / LoRA / batch / seq / 裁判奖励，唯一差异是——
@@ -191,8 +191,8 @@ def main():
     val_task_to_env = {TASK_NAME: val_env}
     print("训练环境带检索 reward shaping；验证环境已归零 → validation/accuracy = 纯答题得分")
 
-    # NeMo-RL main：setup() 返回 11 个值（新增第 3 位 nemo_gym actor，cluster 变为
-    # (train_cluster, inference_cluster) 元组）。未使用的用 _ 前缀占位。
+    # NeMo-RL v0.7：setup() 返回 13 个值。末尾两个 MOPD teacher worker 字段在普通同步
+    # GRPO 中未使用，但必须解包；否则所有 worker 初始化完后会因 tuple 长度不匹配而失败。
     (
         policy,
         policy_generation,
@@ -205,6 +205,8 @@ def main():
         checkpointer,
         grpo_state,
         master_config,
+        _teacher_worker_groups,
+        _alias_to_group_alias,
     ) = setup(config, tokenizer, train_dataset, val_dataset)
 
     grpo_train(

@@ -59,7 +59,8 @@ policy:
     temperature: 0.8
     vllm_cfg:
       gpu_memory_utilization: 0.30 # colocated 下给训练模型/LoRA 预留 70% 统一显存
-      enforce_eager: true # GB10 避免 CUDA graph 编译额外峰值
+      # Qwen3.5 + vLLM 0.20 的上游 CUDA-graph/Ray hang workaround；牺牲吞吐换可完成性。
+      enforce_eager: true
 
 grpo:
   num_prompts_per_step: 2
@@ -71,6 +72,8 @@ grpo:
   use_dynamic_sampling: false # 禁用 H200 档的 2 倍候选扩张，避免单 GB10 rollout 峰值 OOM
   batch_multiplier: 1
   skip_reference_policy_logprobs_calculation: true
+  # v0.7：丢弃达到生成上限的轨迹，防止未完成回答把错误梯度带入训练，也减少长 KV 轨迹的后续开销。
+  overlong_filtering: true
   max_rollout_turns: 2 # 一次定向检索 + 一次作答；环境与此保持一致
   max_num_steps: 100 # 先跑通并取 4 个验证点；稳定后再以 CLI override 增至 200
   val_period: 25
@@ -117,6 +120,9 @@ env:
       answer_search_bonus: 0.05 # 保留很小的条件 bonus，鼓励不确定题先查、又不压过最终正确性
       search_bonus_min_score: 1.0
       no_answer_penalty: 0.2
+      # 原生 QADocs 环境的 v0.7 兼容工具格式约束；验证实例会由 make_eval_cfg() 自动归零。
+      format_error_penalty: 0.02
+      invalid_search_penalty: 0.02
       # GB10：检索回灌也会写入整条 rollout；400 字通常足够两个 BM25 片段且保留最终作答空间。
       retrieval_max_chars: 400
 
