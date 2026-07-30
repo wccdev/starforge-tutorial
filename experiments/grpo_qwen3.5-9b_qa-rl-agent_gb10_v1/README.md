@@ -20,7 +20,7 @@
 | 工具 | 无 | `<search>关键词</search>` → 容器内 BM25 检索本地 markdown（可切 grep） |
 | 环境 | `common/environments/qa_env.py` `QARewardEnv` | `common/environments/qa_docs_agent_env.py` `QADocsAgentEnv` |
 | 奖励 | qa 规则 + 简答裁判 | **同源**（最终答案复用同一套 qa 奖励）；训练另加检索 shaping，**验证不加**（见下节） |
-| 数据 / 模型 / LoRA / batch | —— 完全一致 —— | 同一数据 / 模型；DTensor LoRA，有效 batch 16 |
+| 数据 / 模型 / LoRA / batch | —— 完全一致 —— | 同一数据 / 模型；Megatron LoRA，有效 batch 16 |
 | seq | 1536 | 2048（GB10 统一内存保守档） |
 
 模型作答协议：检索用 `<search>关键词</search>`；作答把要点放入 `\boxed{...}`（与基线同一答案格式，保证判分一致）。
@@ -91,13 +91,13 @@ lab submit grpo_qwen3.5-9b_qa-rl-agent_v1
 
 ## 单 GB10 防 OOM 配置
 
-- **DTensor + LoRA**：仅训练 rank-8 adapter，避免全参 Adam 状态占用 GB10 的统一 128GB 内存。
+- **Megatron-Core + LoRA**：仅训练 rank-8 adapter，避免全参 Adam 状态占用 GB10 的统一 128GB 内存。
 - **小 rollout**：`2 prompts × 8 generations = 16`，关闭动态采样，避免候选补采样导致瞬时内存翻倍。
+- **Megatron generation**：不启动 vLLM，避开 GB10 上 vLLM colocated sleep/refit 的 CUDA 崩溃；`generation_batch_size=4`、4 GiB 中间 buffer、关闭 generation CUDA graphs。
 - **短多轮轨迹**：`seq=2048`、每轮最多 384 token、检索回灌 400 字、最多一次检索后作答。
 - **首跑跳过 reference policy**：`KL=0` 与 `skip_reference_policy_logprobs_calculation=true`，减少一份 9B logprob 的峰值；稳定后可用 CLI override `loss_fn.reference_policy_kl_penalty=0.01` 进行质量复跑。
-- **GB10 NVML 兼容**：`refit_buffer_size_gb=4` 固定训练→vLLM 权重同步 staging buffer，绕过 GB10 上不支持 `nvmlDeviceGetMemoryInfo` 的驱动路径。
 - **NeMo-RL v0.7 保护**：开启 `overlong_filtering`，并受益于 selected-token logprob 内存降低；不启用 PPO、CISPO、MOPD 或动态采样，它们会增加单 GB10 的模型/rollout 峰值。
-- **Qwen3.5 稳定性优先**：保留 `enforce_eager=true`，规避 v0.7 / vLLM 0.20 的 CUDA-graph/Ray 间歇 hang；比起吞吐，首跑先保证训练能完成。
+- **Qwen3.5 稳定性优先**：此档不再使用 vLLM；若需恢复 vLLM generation，必须先解决其 sleep/refit CUDA 错误。
 
 首跑只训练 100 步、每 25 步验证。若仍 OOM，按顺序降低：`max_total_sequence_length=1792` → `num_generations_per_prompt=4` 且 `train_global_batch_size=8` → `retrieval_max_chars=300`。
 

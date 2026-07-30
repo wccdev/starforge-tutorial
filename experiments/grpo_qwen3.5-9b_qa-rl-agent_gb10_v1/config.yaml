@@ -9,7 +9,10 @@
 defaults:
   - ../../configs/base/grpo_math_1B.yaml
   - ../../configs/models/qwen3.5-9b.yaml
-  # 单 GB10：DTensor + LoRA。不要引入 grpo_megatron / grpo_lora（它们配置的是 Megatron PEFT）。
+  # 单 GB10：Megatron-Core + Megatron LoRA，并使用 Megatron generation。
+  # 不能只切 policy 后端：那仍会进入 vLLM 的 sleep/refit 路径。
+  - ../../configs/base/grpo_megatron.yaml
+  - ../../configs/base/grpo_lora.yaml
 
 # ══════════════════════════════════════════════════════════════════════════
 #  调参速查 —— 你主要动【① 调参区】这几行。硬件/分布式在 cluster/<profile>，不在这。
@@ -17,7 +20,7 @@ defaults:
 #  ⚠️ 这是对比实验 treatment：batch/模型/LoRA/裁判须与 qa-rl_v1 严格一致，核心变量是「多轮+检索」。
 #     注：seq 有意比 baseline 大（1536→3072）——多轮轨迹要装下「检索回灌+作答」，1536 会截断答案、反而不公平。
 # ──────────────────────────────────────────────────────────────────────────
-#  DTensor LoRA                            只训练 adapter，避免 9B 全参 Adam 状态占满 GB10 统一内存
+#  Megatron LoRA                           只训练 adapter，避免 9B 全参 Adam 状态占满 GB10 统一内存
 #  num_generations_per_prompt / prompts    两者相乘等于 train_global_batch_size；OOM 优先减这两项
 #  max_rollout_turns / env.qa_docs.cfg.max_turns  多轮上限（两者须对齐）。多→更吃内存
 #  max_total_sequence_length (policy)     ★整条多轮轨迹(prompt+所有轮+所有检索回灌)的总预算，不是每轮。
@@ -38,33 +41,22 @@ policy:
   max_total_sequence_length: 2048
   train_global_batch_size: 16 # = 2 prompts × 8 generations；GB10 的稳定起跑档
   train_micro_batch_size: 1
-  generation_batch_size: 8
-  # GB10 NVML 不支持查询可用显存；不给固定值时 NeMo-RL 会在首次 refit 前调用
-  # nvmlDeviceGetMemoryInfo() 自动估算 staging buffer，从而报 NVMLError_NotSupported。
-  # 4 GiB 是官方 Qwen GRPO 配方的保守 buffer，绕过探测且足够 LoRA 权重同步。
-  refit_buffer_size_gb: 4
-  dtensor_cfg:
-    enabled: true
-    cpu_offload: false # GB10 是统一内存，offload 不会创造额外物理内存，反而易触发 host OOM
-    activation_checkpointing: true
-    sequence_parallel: false
-    lora_cfg:
-      enabled: true
-      match_all_linear: true
-      dim: 8
-      alpha: 16
-      dropout: 0.0
-  optimizer:
-    kwargs:
-      lr: 1.0e-4
-      weight_decay: 0.0
+  # Megatron generation 每次只处理 4 条，避免单 GB10 在 decode/prefill 阶段产生高峰值。
+  generation_batch_size: 4
   generation:
+    # 彻底绕开 vLLM 的 colocated sleep/refit 路径；generation 复用 Megatron policy。
+    backend: megatron
     max_new_tokens: 384 # 早期模型单轮写满会耗尽 KV；384 足够输出搜索动作或短答案
     temperature: 0.8
-    vllm_cfg:
-      gpu_memory_utilization: 0.30 # colocated 下给训练模型/LoRA 预留 70% 统一显存
-      # Qwen3.5 + vLLM 0.20 的上游 CUDA-graph/Ray hang workaround；牺牲吞吐换可完成性。
-      enforce_eager: true
+    mcore_generation_config:
+      # 单 GB10：关闭 generation CUDA graphs，缩小 KV/refit 中间 buffer，优先稳定而非吞吐。
+      cuda_graph_impl: none
+      inference_cuda_graph_scope: none
+      buffer_size_gb: 4
+      num_cuda_graphs: 0
+      max_tokens: 4096
+      enable_chunked_prefill: true
+      enable_prefix_caching: false
 
 grpo:
   num_prompts_per_step: 2
@@ -109,7 +101,7 @@ env:
     cfg:
       # true：简答题最终答案用裁判 LLM（需 JUDGE_* 环境变量；连不上自动回退关键词覆盖率）
       # false：全部走规则判分，零成本、无需裁判端点。与 baseline 必须一致才公平。
-      use_judge: true
+      use_judge: false
       max_turns: 2 # 与 grpo.max_rollout_turns 对齐：一次检索后必须作答
       # ── 检索 reward shaping【仅训练生效】：只奖励「检索帮助答对」，不奖励“随便查到一段资料”──
       #    search_step_reward   每次「真取回资料」的即时奖励。R1-Searcher 第二阶段会移除它，防止刷检索。
