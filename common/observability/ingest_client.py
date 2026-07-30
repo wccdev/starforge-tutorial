@@ -73,6 +73,18 @@ class IngestClient:
         except Exception:
             pass
 
+    def send_environment_nodes(self, nodes: list[dict]) -> bool:
+        """上报作业各节点的静态硬件。返回是否送达，失败由调用方决定是否重试。
+
+        这里不走队列：它一个作业只发一次，排队反而要多维护一条重投路径。
+        """
+        try:
+            self._post("environment/nodes", {"run_id": self.run_id, "nodes": nodes})
+            return True
+        except Exception as e:
+            print(f"NeMoLab environment nodes upload failed: {e}")
+            return False
+
     def enqueue_log(self, chunk: str) -> None:
         if not chunk:
             return

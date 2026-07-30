@@ -19,6 +19,15 @@ def collect_environment() -> dict[str, Any]:
     }
 
 
+def collect_node_hardware() -> dict[str, Any]:
+    """本机静态硬件 + 主机名。设计为可被 `ray.remote` 派到任意节点上就地执行。
+
+    与 `collect_environment` 的区别是不带 overview/packages：那些是 driver 进程的
+    上下文（命令行、cwd、pip 列表），远端节点上采了也没有意义。
+    """
+    return {"hostname": socket.gethostname(), **_collect_hardware()}
+
+
 def _collect_overview() -> dict[str, Any]:
     os_pretty = None
     freedesktop = getattr(platform, "freedesktop_os_release", None)

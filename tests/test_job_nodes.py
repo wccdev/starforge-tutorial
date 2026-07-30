@@ -53,6 +53,30 @@ def test_discover_falls_back_to_driver_when_no_actors(monkeypatch):
     assert nodes == {"driver-node"}
 
 
+def test_discover_without_driver_fallback_returns_empty(monkeypatch):
+    """静态硬件快照用严格模式：查不到 actor 就返回空集，让调用方下次再试。
+
+    那份数据会长期留在作业详情页上，把 driver（异构集群里通常是 head）的硬件写进去，
+    一次就错到底——宁可晚几秒。
+    """
+    monkeypatch.setattr(job_nodes, "current_ray_node_id", lambda: "driver-node")
+
+    def _list(**kwargs):
+        return []
+
+    assert discover_job_node_ids(list_actors=_list, job_id="j1", driver_fallback=False) == set()
+
+
+def test_discover_without_driver_fallback_still_returns_actor_nodes(monkeypatch):
+    monkeypatch.setattr(job_nodes, "current_ray_node_id", lambda: "driver-node")
+
+    def _list(**kwargs):
+        return [_Actor("worker-node")]
+
+    nodes = discover_job_node_ids(list_actors=_list, job_id="j1", driver_fallback=False)
+    assert nodes == {"worker-node"}
+
+
 def test_discover_includes_driver_when_it_runs_actor(monkeypatch):
     """driver 节点同时承载本 job 的 actor（单机作业）时仍应计入。"""
     monkeypatch.setattr(job_nodes, "current_ray_node_id", lambda: "node-a")

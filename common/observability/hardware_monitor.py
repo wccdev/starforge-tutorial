@@ -15,6 +15,7 @@ import time
 from datetime import datetime, timezone
 from typing import Literal
 
+from common.observability.env_probe import collect_node_hardware
 from common.observability.hw_probe import DEFAULT_MIN_MEM_MIB, collect_hw_snapshot
 from common.observability.job_nodes import (
     current_ray_node_id,
@@ -26,6 +27,7 @@ from common.observability.util import scalarize_metric
 
 MonitorScope = Literal["local", "job", "cluster"]
 NODE_DISCOVERY_TTL = 60.0
+ENV_PROBE_TIMEOUT = 30.0
 
 
 class HardwareMonitor:
@@ -49,6 +51,7 @@ class HardwareMonitor:
         self._thread: threading.Thread | None = None
         self._node_cache: tuple[float, set[str]] | None = None
         self._pid_cache: tuple[float, frozenset[int]] | None = None
+        self._env_nodes_sent = False
 
     def start(self) -> None:
         if self.scope in ("job", "cluster"):
@@ -88,7 +91,61 @@ class HardwareMonitor:
                     self._samples_collected += 1
             except Exception as e:
                 print(f"NeMoLab hardware monitor error: {e}")
+            try:
+                self._report_env_nodes_once()
+            except Exception as e:
+                print(f"NeMoLab environment nodes probe error: {e}")
             time.sleep(self._sleep_interval())
+
+    def _report_env_nodes_once(self) -> None:
+        """作业节点就绪后，采一次各节点静态硬件并上报。
+
+        启动时 session 采的那份环境快照来自 driver 进程，异构集群里 driver 常驻 head，
+        于是「系统硬件」永远显示 head 那台机器——作业 pin 到 GB10 却显示 8 卡 H200 就是
+        这么来的。这里复用监控已有的节点发现，把快照重新采到真正跑 actor 的机器上。
+
+        挂在监控循环里而不是启动时采，是因为要等 actor 起来才知道作业落在哪些节点；
+        发现不到就静默跳过，下一拍再试。
+        """
+        if self._env_nodes_sent or self.scope != "job":
+            return
+        if not hasattr(self.ingest, "send_environment_nodes"):
+            self._env_nodes_sent = True  # 老版本 IngestClient，别每拍都白试一遍
+            return
+
+        import ray
+
+        if not ray.is_initialized():
+            return
+        # 严格模式：宁可这拍不报，也不要把 driver 的硬件当成训练节点写进去——
+        # 这份数据会长期留在作业详情页上，写错一次就一直错下去。
+        node_ids = sorted(discover_job_node_ids(driver_fallback=False))
+        if not node_ids:
+            return
+
+        nodes = self._collect_nodes_env(node_ids)
+        if nodes and self.ingest.send_environment_nodes(nodes):
+            self._env_nodes_sent = True
+
+    def _collect_nodes_env(self, node_ids: list[str]) -> list[dict]:
+        import ray
+        from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
+
+        remote_collect = ray.remote(num_cpus=0)(collect_node_hardware)
+        futures = [
+            remote_collect.options(
+                scheduling_strategy=NodeAffinitySchedulingStrategy(
+                    node_id=node_id, soft=False
+                )
+            ).remote()
+            for node_id in node_ids
+        ]
+        # 带超时：这是挂在监控线程里的一次性任务，某个节点卡住不能连带把硬件时序也停掉。
+        snapshots = ray.get(futures, timeout=ENV_PROBE_TIMEOUT)
+        return [
+            {"node_id": node_id, **snap}
+            for node_id, snap in zip(node_ids, snapshots, strict=False)
+        ]
 
     def _collect(self) -> list[dict]:
         if self.scope == "local":

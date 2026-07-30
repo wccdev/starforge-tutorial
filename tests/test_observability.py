@@ -61,6 +61,42 @@ def test_ingest_client_requeues_on_failure():
     assert client._metric_q.qsize() == 1
 
 
+def test_send_environment_nodes_reports_delivery():
+    calls = []
+
+    def _post(url, json=None, headers=None, timeout=None):
+        calls.append((url, json))
+        return _resp_ok()
+
+    client = IngestClient("http://host/api/ingest", "run-1", "tok", flush_interval=999)
+    nodes = [{"node_id": "n1", "hostname": "spark-gb10-1", "cpu": {"cores": 20}}]
+    with patch("requests.post", _post):
+        assert client.send_environment_nodes(nodes) is True
+
+    assert calls[0][0] == "http://host/api/ingest/environment/nodes"
+    assert calls[0][1] == {"run_id": "run-1", "nodes": nodes}
+
+
+def test_send_environment_nodes_reports_failure():
+    """返回 False 而不是抛异常：调用方靠它决定下一拍要不要重发。"""
+
+    def _boom(url, json=None, headers=None, timeout=None):
+        raise RuntimeError("network down")
+
+    client = IngestClient("http://host/api/ingest", "run-1", "tok", flush_interval=999)
+    with patch("requests.post", _boom):
+        assert client.send_environment_nodes([{"node_id": "n1"}]) is False
+
+
+def test_collect_node_hardware_is_self_contained():
+    """远端节点上跑的探针只带硬件 + 主机名：overview/packages 是 driver 的上下文。"""
+    from common.observability.env_probe import collect_node_hardware
+
+    snap = collect_node_hardware()
+    assert snap["hostname"]
+    assert set(snap) <= {"hostname", "cpu", "gpu"}
+
+
 def test_logger_enqueues_metrics(monkeypatch):
     monkeypatch.setenv("NEMOLAB_ENDPOINT", "http://host/api/ingest")
     monkeypatch.setenv("NEMOLAB_RUN_ID", "run-1")

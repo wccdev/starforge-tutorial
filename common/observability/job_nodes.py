@@ -36,16 +36,21 @@ def discover_job_node_ids(
     *,
     list_actors: Callable | None = None,
     job_id: str | None = None,
+    driver_fallback: bool = True,
 ) -> set[str]:
     """返回本作业【实际运行 actor】的 Ray node_id 集合。
 
     只统计承载本 job alive actor 的节点（= 真正跑训练/生成的 GPU worker）。
     纯 driver/head 节点（不跑本 job 的 actor，其 GPU 与本次训练无关）不计入，
     否则监控面板会把那台无关机器的 GPU 也画成一条线（单机单卡作业却出现两条线的根因）。
-    仅当查不到任何 actor 节点时（作业刚启动、或 State API 暂不可用）才回退到
-    driver 所在节点兜底，保证面板不至于全空。
+
+    Args:
+        driver_fallback: 查不到任何 actor 节点时（作业刚启动、或 State API 暂不可用）
+            是否回退到 driver 所在节点。时序监控要开着，宁可先画 driver 也别让面板全空；
+            静态硬件快照要关掉，因为那份数据会长期留在页面上，写错一次就一直错下去，
+            此时返回空集、留给调用方下次再试才是对的。
     """
-    cur = current_ray_node_id()
+    cur = current_ray_node_id() if driver_fallback else None
 
     jid = job_id or runtime_ray_job_id()
     if not jid:
