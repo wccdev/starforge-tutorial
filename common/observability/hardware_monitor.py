@@ -30,6 +30,8 @@ MonitorScope = Literal["local", "job", "cluster"]
 NODE_DISCOVERY_TTL = 60.0
 ENV_PROBE_TIMEOUT = 30.0
 ENV_PROBE_MAX_ATTEMPTS = 5
+# 描述「某个进程」而非「某台机器」的指标；只有在 driver 上采才说得通。
+PROCESS_METRIC_KEYS = frozenset({"cpu.thds", "mem.proc", "mem.proc.pct"})
 
 
 class HardwareMonitor:
@@ -178,9 +180,7 @@ class HardwareMonitor:
         now = time.time()
         if self._node_cache and now - self._node_cache[0] < NODE_DISCOVERY_TTL:
             return self._node_cache[1]
-        # 并上 GPU placement group 的落点：本集群的 GB10 节点 dashboard agent 是坏的，
-        # 那边的 actor 在 state API 里查不到，只靠 actor 发现会把整台训练机漏掉。
-        ids = discover_job_node_ids() | discover_gpu_node_ids()
+        ids = self._training_node_ids()
         self._node_cache = (now, ids)
         return ids
 
@@ -207,10 +207,33 @@ class HardwareMonitor:
             points.extend(
                 self._collect_local_hw(node_id=current, job_pids=job_pids)
             )
+        else:
+            # driver 不在训练节点上（异构集群常态：driver 在 head，训练在 GB10）。
+            # 这台机器的 CPU/内存跟训练无关，不该画进面板——单机单卡作业却出现两条线
+            # 就是这么来的。但 driver 自己的进程指标是真实且唯一的：远端探针量到的
+            # 「进程内存」其实是探针任务自己，只能在这里采。
+            points.extend(self._collect_driver_process_hw())
         remote = sorted(nid for nid in node_ids if nid != current)
         if remote:
             points.extend(self._collect_nodes_hw(remote, job_pids=job_pids))
         return points
+
+    def _collect_driver_process_hw(self) -> list[dict]:
+        """仅 driver 进程自身的指标，不含所在机器的整机指标。"""
+        snap = collect_hw_snapshot(job_pids=frozenset(), min_mem_mib=self.min_mem_mib)
+        metrics = {
+            key: value
+            for key, value in (snap.get("metrics") or {}).items()
+            if key in PROCESS_METRIC_KEYS
+        }
+        if not metrics:
+            return []
+        return _snap_to_points(
+            {"metrics": metrics},
+            ts=datetime.now(timezone.utc).isoformat(),
+            node_id=current_ray_node_id(),
+            worker_id=snap.get("hostname") or socket.gethostname(),
+        )
 
     def _collect_local_hw(
         self,
@@ -250,7 +273,11 @@ class HardwareMonitor:
                     scheduling_strategy=NodeAffinitySchedulingStrategy(
                         node_id=node_id, soft=False
                     )
-                ).remote(job_pids=pid_arg, min_mem_mib=self.min_mem_mib)
+                ).remote(
+                    job_pids=pid_arg,
+                    min_mem_mib=self.min_mem_mib,
+                    include_process=False,
+                )
             )
         snapshots = ray.get(futures)
         for node_id, snap in zip(node_ids, snapshots, strict=False):

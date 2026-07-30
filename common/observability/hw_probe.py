@@ -20,20 +20,31 @@ def collect_local_hw(
     *,
     job_pids: frozenset[int] | None = None,
     min_mem_mib: float = DEFAULT_MIN_MEM_MIB,
+    include_process: bool = True,
 ) -> dict[str, Any]:
+    """本机硬件指标。
+
+    Args:
+        include_process: 是否带上进程级指标（cpu.thds / mem.proc / mem.proc.pct）。
+            这些指标读的是 `psutil.Process()`，也就是**当前进程**。在 driver 上跑就是
+            训练主进程，有意义；被派到远端节点当 Ray task 跑，量到的却是探针任务自己
+            （实测 113 MiB，而 vLLM worker 是几十个 GB），挂在「进程内存」标签下纯属误导。
+            所以远端采集要关掉，只保留机器级指标。
+    """
     metrics: dict[str, Any] = {}
     gpu_uuids: dict[int, str] = {}
     try:
         import psutil
 
         metrics["cpu.pct"] = float(psutil.cpu_percent(interval=None))
-        metrics["cpu.thds"] = float(psutil.Process().num_threads())
         vm = psutil.virtual_memory()
-        proc = psutil.Process()
         metrics["mem.pct"] = float(vm.percent)
-        metrics["mem.proc"] = float(proc.memory_info().rss) / (1024**2)
-        metrics["mem.proc.pct"] = float(proc.memory_percent())
         metrics["mem.proc.avail"] = float(vm.available) / (1024**2)
+        if include_process:
+            proc = psutil.Process()
+            metrics["cpu.thds"] = float(proc.num_threads())
+            metrics["mem.proc"] = float(proc.memory_info().rss) / (1024**2)
+            metrics["mem.proc.pct"] = float(proc.memory_percent())
     except Exception:
         pass
 
@@ -101,6 +112,7 @@ def collect_hw_snapshot(
     *,
     job_pids: frozenset[int] | list[int] | None = None,
     min_mem_mib: float | None = None,
+    include_process: bool = True,
 ) -> dict[str, Any]:
     pids: frozenset[int] | None
     if job_pids is None:
@@ -110,7 +122,9 @@ def collect_hw_snapshot(
     else:
         pids = frozenset(int(x) for x in job_pids)
     mem_mib = DEFAULT_MIN_MEM_MIB if min_mem_mib is None else float(min_mem_mib)
-    hw = collect_local_hw(job_pids=pids, min_mem_mib=mem_mib)
+    hw = collect_local_hw(
+        job_pids=pids, min_mem_mib=mem_mib, include_process=include_process
+    )
     return {
         "hostname": socket.gethostname(),
         "pid": os.getpid(),
