@@ -62,13 +62,7 @@ def _collect_hardware() -> dict[str, Any]:
 def _collect_cpu() -> dict[str, Any] | None:
     brand = _cpu_brand()
     cores = multiprocessing.cpu_count()
-    memory_gb = None
-    try:
-        import psutil
-
-        memory_gb = round(psutil.virtual_memory().total / (1024**3))
-    except Exception:
-        pass
+    memory_gb = _system_memory_gb()
     if not brand and not cores and memory_gb is None:
         return None
     return {
@@ -101,36 +95,72 @@ def _collect_nvidia_gpu() -> dict[str, Any] | None:
     except Exception:
         return None
     try:
-        driver = pynvml.nvmlSystemGetDriverVersion()
-        if isinstance(driver, bytes):
-            driver = driver.decode("utf-8")
         count = pynvml.nvmlDeviceGetCount()
-        devices = []
-        for i in range(count):
-            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
-            name = pynvml.nvmlDeviceGetName(handle)
-            if isinstance(name, bytes):
-                name = name.decode("utf-8")
-            mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
-            devices.append(
-                {
-                    "index": i,
-                    "name": name,
-                    "memory_gb": round(int(mem.total) / (1024**3)),
-                }
-            )
         return {
             "vendor": "nvidia",
-            "driver_version": driver,
+            "driver_version": _nvml_text(pynvml.nvmlSystemGetDriverVersion),
             "cuda_version": _cuda_version(),
             "count": count,
-            "devices": devices,
+            "devices": [d for d in (_describe_gpu(pynvml, i) for i in range(count)) if d],
         }
+    except Exception:
+        return None
     finally:
         try:
             pynvml.nvmlShutdown()
         except Exception:
             pass
+
+
+def _describe_gpu(pynvml: Any, index: int) -> dict[str, Any] | None:
+    """单张卡的静态描述。任何一项查不到都不应拖垮整份快照。
+
+    尤其是显存：GB10 / DGX Spark 用统一内存，没有独立显存，NVML 会直接返回 NotSupported。
+    """
+    try:
+        handle = pynvml.nvmlDeviceGetHandleByIndex(index)
+    except Exception:
+        return None
+    name = _nvml_text(pynvml.nvmlDeviceGetName, handle)
+    return {
+        "index": index,
+        "name": name or f"GPU {index}",
+        "memory_gb": _gpu_memory_gb(handle),
+    }
+
+
+def _gpu_memory_gb(handle: Any) -> float | None:
+    """单卡显存容量（GB）。
+
+    统一内存架构下 NVML 查不到显存，此时用系统内存顶上：那本来就是这块 GPU 能用的
+    全部容量（DGX Spark 标称的 128 GB 即由此而来），比留空更贴近事实。
+    """
+    from common.observability.hw_probe import nvml_memory
+
+    mem = nvml_memory(handle)
+    total = getattr(mem, "total", None) if mem is not None else None
+    if total:
+        return round(int(total) / (1024**3))
+    return _system_memory_gb()
+
+
+def _system_memory_gb() -> float | None:
+    try:
+        import psutil
+
+        return round(psutil.virtual_memory().total / (1024**3))
+    except Exception:
+        return None
+
+
+def _nvml_text(fn: Any, *args: Any) -> str | None:
+    try:
+        raw = fn(*args)
+    except Exception:
+        return None
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", errors="replace")
+    return str(raw).strip() or None
 
 
 def _cuda_version() -> str | None:

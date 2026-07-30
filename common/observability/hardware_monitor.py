@@ -28,6 +28,7 @@ from common.observability.util import scalarize_metric
 MonitorScope = Literal["local", "job", "cluster"]
 NODE_DISCOVERY_TTL = 60.0
 ENV_PROBE_TIMEOUT = 30.0
+ENV_PROBE_MAX_ATTEMPTS = 5
 
 
 class HardwareMonitor:
@@ -52,6 +53,7 @@ class HardwareMonitor:
         self._node_cache: tuple[float, set[str]] | None = None
         self._pid_cache: tuple[float, frozenset[int]] | None = None
         self._env_nodes_sent = False
+        self._env_nodes_attempts = 0
 
     def start(self) -> None:
         if self.scope in ("job", "cluster"):
@@ -94,7 +96,12 @@ class HardwareMonitor:
             try:
                 self._report_env_nodes_once()
             except Exception as e:
-                print(f"NeMoLab environment nodes probe error: {e}")
+                self._env_nodes_attempts += 1
+                if self._env_nodes_attempts >= ENV_PROBE_MAX_ATTEMPTS:
+                    self._env_nodes_sent = True  # 放弃，别把训练日志刷满
+                    print(f"NeMoLab environment nodes probe gave up after {self._env_nodes_attempts} tries: {e}")
+                else:
+                    print(f"NeMoLab environment nodes probe error: {e}")
             time.sleep(self._sleep_interval())
 
     def _report_env_nodes_once(self) -> None:
