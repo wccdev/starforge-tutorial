@@ -88,6 +88,89 @@ def test_discover_includes_driver_when_it_runs_actor(monkeypatch):
     assert nodes == {"node-a", "node-b"}
 
 
+def _pg(job_id: str, state: str, bundles: list[dict], name: str = ""):
+    """字段对齐 `ray list placement-groups --detail` 的真实输出。"""
+    return SimpleNamespace(
+        placement_group_id="pg-1", name=name, creator_job_id=job_id, state=state, bundles=bundles
+    )
+
+
+def _bundle(node_id: str, **resources):
+    return {"unit_resources": resources, "node_id": node_id}
+
+
+def test_gpu_nodes_from_placement_groups():
+    def _list(**kwargs):
+        return [
+            _pg("j1", "CREATED", [_bundle("node-gb10", GPU=1.0, CPU=2.0)], "grpo_policy_cluster-node0")
+        ]
+
+    nodes = job_nodes.discover_gpu_node_ids(list_placement_groups=_list, job_id="j1")
+    assert nodes == {"node-gb10"}
+
+
+def test_gpu_nodes_ignore_cpu_only_bundles():
+    """NeMo-RL 建 venv 时按节点铺开的 STRICT_SPREAD 组是纯 CPU 的，不算训练节点。
+
+    回归：把这组算进去，head 就会被当成训练机，页面显示成 8 卡 H200。
+    """
+
+    def _list(**kwargs):
+        return [
+            _pg("j1", "CREATED", [_bundle("node-gb10", GPU=1.0, CPU=2.0)]),
+            _pg(
+                "j1",
+                "CREATED",
+                [_bundle("node-head", CPU=1.0), _bundle("node-gb10", CPU=1.0), _bundle("node-b", CPU=1.0)],
+            ),
+        ]
+
+    nodes = job_nodes.discover_gpu_node_ids(list_placement_groups=_list, job_id="j1")
+    assert nodes == {"node-gb10"}
+
+
+def test_gpu_nodes_ignore_other_jobs_and_removed_groups():
+    def _list(**kwargs):
+        return [
+            _pg("other", "CREATED", [_bundle("node-head", GPU=8.0)]),
+            _pg("j1", "REMOVED", [_bundle("node-stale", GPU=1.0)]),
+            _pg("j1", "CREATED", [_bundle("node-gb10", GPU=1.0)]),
+        ]
+
+    nodes = job_nodes.discover_gpu_node_ids(list_placement_groups=_list, job_id="j1")
+    assert nodes == {"node-gb10"}
+
+
+def test_gpu_nodes_accept_dict_shaped_state_api():
+    """state API 时而给 dataclass 时而给 dict，两种都得能取。"""
+
+    def _list(**kwargs):
+        return [
+            {
+                "creator_job_id": "j1",
+                "state": "CREATED",
+                "bundles": [{"unit_resources": {"GPU": 1.0}, "node_id": "node-gb10"}],
+            }
+        ]
+
+    nodes = job_nodes.discover_gpu_node_ids(list_placement_groups=_list, job_id="j1")
+    assert nodes == {"node-gb10"}
+
+
+def test_gpu_nodes_empty_when_pending_placement_has_no_node_yet():
+    def _list(**kwargs):
+        return [_pg("j1", "PENDING", [{"unit_resources": {"GPU": 1.0}, "node_id": None}])]
+
+    assert job_nodes.discover_gpu_node_ids(list_placement_groups=_list, job_id="j1") == set()
+
+
+def test_gpu_nodes_empty_when_state_api_unavailable():
+    def _list(**kwargs):
+        raise RuntimeError("state API down")
+
+    assert job_nodes.discover_gpu_node_ids(list_placement_groups=_list, job_id="j1") == set()
+
+
 def test_runtime_ray_job_id_env_fallback(monkeypatch):
     monkeypatch.setenv("RAY_JOB_ID", "env-job")
     fake_ray = SimpleNamespace(

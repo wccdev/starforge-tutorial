@@ -19,6 +19,7 @@ from common.observability.env_probe import collect_node_hardware
 from common.observability.hw_probe import DEFAULT_MIN_MEM_MIB, collect_hw_snapshot
 from common.observability.job_nodes import (
     current_ray_node_id,
+    discover_gpu_node_ids,
     discover_job_node_ids,
     discover_job_pids,
 )
@@ -52,8 +53,9 @@ class HardwareMonitor:
         self._thread: threading.Thread | None = None
         self._node_cache: tuple[float, set[str]] | None = None
         self._pid_cache: tuple[float, frozenset[int]] | None = None
-        self._env_nodes_sent = False
-        self._env_nodes_attempts = 0
+        self._env_nodes_reported: list[str] = []
+        self._env_nodes_failures = 0
+        self._env_nodes_disabled = False
 
     def start(self) -> None:
         if self.scope in ("job", "cluster"):
@@ -94,45 +96,53 @@ class HardwareMonitor:
             except Exception as e:
                 print(f"NeMoLab hardware monitor error: {e}")
             try:
-                self._report_env_nodes_once()
+                self._sync_env_nodes()
             except Exception as e:
-                self._env_nodes_attempts += 1
-                if self._env_nodes_attempts >= ENV_PROBE_MAX_ATTEMPTS:
-                    self._env_nodes_sent = True  # 放弃，别把训练日志刷满
-                    print(f"NeMoLab environment nodes probe gave up after {self._env_nodes_attempts} tries: {e}")
+                self._env_nodes_failures += 1
+                if self._env_nodes_failures >= ENV_PROBE_MAX_ATTEMPTS:
+                    self._env_nodes_disabled = True  # 放弃，别把训练日志刷满
+                    print(f"NeMoLab environment nodes probe gave up after {self._env_nodes_failures} tries: {e}")
                 else:
                     print(f"NeMoLab environment nodes probe error: {e}")
             time.sleep(self._sleep_interval())
 
-    def _report_env_nodes_once(self) -> None:
-        """作业节点就绪后，采一次各节点静态硬件并上报。
+    def _sync_env_nodes(self) -> None:
+        """把作业运行节点的静态硬件采回来上报；节点集合变了就重报。
 
         启动时 session 采的那份环境快照来自 driver 进程，异构集群里 driver 常驻 head，
         于是「系统硬件」永远显示 head 那台机器——作业 pin 到 GB10 却显示 8 卡 H200 就是
-        这么来的。这里复用监控已有的节点发现，把快照重新采到真正跑 actor 的机器上。
+        这么来的。这里把快照重新采到真正跑训练的机器上。
 
-        挂在监控循环里而不是启动时采，是因为要等 actor 起来才知道作业落在哪些节点；
-        发现不到就静默跳过，下一拍再试。
+        为什么要持续同步而不是采一次就锁定：监控线程比 GPU worker 早起来（实测早 6 秒），
+        第一拍看到的往往只是 driver 侧的辅助 actor。锁定第一次的结果，就等于把启动过程中
+        某个瞬间的残缺视图当成最终答案钉死——上一版正是这么把 head 写死的。
         """
-        if self._env_nodes_sent or self.scope != "job":
+        if self._env_nodes_disabled or self.scope != "job":
             return
         if not hasattr(self.ingest, "send_environment_nodes"):
-            self._env_nodes_sent = True  # 老版本 IngestClient，别每拍都白试一遍
+            self._env_nodes_disabled = True  # 老版本 IngestClient，别每拍都白试一遍
             return
 
         import ray
 
         if not ray.is_initialized():
             return
-        # 严格模式：宁可这拍不报，也不要把 driver 的硬件当成训练节点写进去——
-        # 这份数据会长期留在作业详情页上，写错一次就一直错下去。
-        node_ids = sorted(discover_job_node_ids(driver_fallback=False))
-        if not node_ids:
+        node_ids = sorted(self._training_node_ids())
+        if not node_ids or node_ids == self._env_nodes_reported:
             return
 
         nodes = self._collect_nodes_env(node_ids)
         if nodes and self.ingest.send_environment_nodes(nodes):
-            self._env_nodes_sent = True
+            self._env_nodes_reported = node_ids
+
+    def _training_node_ids(self) -> set[str]:
+        """本作业真正跑训练的节点。"""
+        gpu_nodes = discover_gpu_node_ids()
+        if gpu_nodes:
+            return gpu_nodes
+        # 没有 GPU placement group（纯 CPU 作业，或 PG 还没建起来）时退回 actor 落点。
+        # 不允许回退到 driver：宁可这拍不报，也别把 head 的硬件当成训练节点。
+        return discover_job_node_ids(driver_fallback=False)
 
     def _collect_nodes_env(self, node_ids: list[str]) -> list[dict]:
         import ray
@@ -168,7 +178,9 @@ class HardwareMonitor:
         now = time.time()
         if self._node_cache and now - self._node_cache[0] < NODE_DISCOVERY_TTL:
             return self._node_cache[1]
-        ids = discover_job_node_ids()
+        # 并上 GPU placement group 的落点：本集群的 GB10 节点 dashboard agent 是坏的，
+        # 那边的 actor 在 state API 里查不到，只靠 actor 发现会把整台训练机漏掉。
+        ids = discover_job_node_ids() | discover_gpu_node_ids()
         self._node_cache = (now, ids)
         return ids
 

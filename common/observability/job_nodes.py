@@ -89,6 +89,65 @@ def discover_job_node_ids(
     return nodes
 
 
+def discover_gpu_node_ids(
+    *,
+    list_placement_groups: Callable | None = None,
+    job_id: str | None = None,
+) -> set[str]:
+    """返回本作业的 GPU placement group 落在哪些节点，即真正跑训练的机器。
+
+    比 actor 列表更贴近「训练在哪台机器上」这个问题，两个层面都更靠得住：
+
+    语义上，GPU bundle 的落点就是训练节点。而 actor 是不分闲忙的——NeMo-RL 建 venv 时
+    会用 STRICT_SPREAD 在每个节点铺一组 CPU-only actor，driver 侧也常驻辅助 actor，
+    这些落在 head 完全正常，却会让 head 被当成训练节点（作业 pin 在 GB10、页面显示
+    8 卡 H200 的直接原因）。
+
+    可靠性上，PG 的 bundle 落点由 GCS 记账，不依赖各节点的 dashboard agent；agent 挂掉
+    的节点上，actor 明细是查不全的。
+    """
+    jid = job_id or runtime_ray_job_id()
+    if not jid:
+        return set()
+
+    if list_placement_groups is None:
+        try:
+            from ray.util.state import list_placement_groups as _list_pgs
+
+            list_placement_groups = _list_pgs
+        except Exception:
+            return set()
+
+    try:
+        groups = list_placement_groups(limit=500, detail=True, timeout=5)
+    except Exception:
+        return set()
+
+    nodes: set[str] = set()
+    for pg in groups or []:
+        if str(_field(pg, "creator_job_id") or "") != jid:
+            continue
+        if str(_field(pg, "state") or "").upper() == "REMOVED":
+            continue
+        for bundle in _field(pg, "bundles") or []:
+            resources = _field(bundle, "unit_resources") or {}
+            try:
+                wants_gpu = float(resources.get("GPU") or 0) > 0
+            except (TypeError, ValueError):
+                wants_gpu = False
+            node_id = _field(bundle, "node_id")
+            if wants_gpu and node_id:
+                nodes.add(str(node_id))
+    return nodes
+
+
+def _field(obj: object, name: str):
+    """state API 时而给 dataclass 时而给 dict，两种都得能取。"""
+    if isinstance(obj, dict):
+        return obj.get(name)
+    return getattr(obj, name, None)
+
+
 def discover_job_pids(
     *,
     list_actors: Callable | None = None,
