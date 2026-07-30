@@ -1,4 +1,4 @@
-# grpo_qwen3.5-9b_qa-rl-agent_v1（对比实验 · 实验二 / treatment）
+# grpo_qwen3.5-9b_qa-rl-agent_v3（H200 优化版 · 实验二 / treatment）
 
 用 **GRPO** 在自有**技术培训考题题库**上强化训练 **Qwen 3.5 9B**。**多轮**：模型回答前可多次调用 `<search>`，由环境在**集群容器内**对本地资料目录做 **BM25** 检索 **markdown** 文件，拿到资料再作答。
 
@@ -20,8 +20,8 @@
 | 工具 | 无 | `<search>关键词</search>` → 容器内 BM25 检索本地 markdown（可切 grep） |
 | 环境 | `common/environments/qa_env.py` `QARewardEnv` | `common/environments/qa_docs_agent_env.py` `QADocsAgentEnv` |
 | 奖励 | qa 规则 + 简答裁判 | **同源**（最终答案复用同一套 qa 奖励）；训练另加检索 shaping，**验证不加**（见下节） |
-| 数据 / 模型 / LoRA / batch | —— 完全一致 —— | —— 完全一致 —— |
-| seq | 1536 | 1536（与 baseline 对齐；baseline 1536 都会 ~step280 OOM，agent 多轮更吃内存，故不上 2048） |
+| 数据 / 模型 / LoRA / batch | —— 完全一致 —— | 同一数据 / 模型 / LoRA；为多轮轨迹使用有效 batch 64 |
+| seq | 1536 | 4096（H200 141GB：容纳检索回灌，避免答案被截断） |
 
 模型作答协议：检索用 `<search>关键词</search>`；作答把要点放入 `\boxed{...}`（与基线同一答案格式，保证判分一致）。
 
@@ -30,11 +30,11 @@
 奖励分两层：
 
 - **最终判分**（训练/验证共用）：`\boxed{}` 里的答案交给同一套 qa 奖励（客观题规则 / 简答裁判），与 baseline 同源。
-- **检索 reward shaping（仅训练）**：真取回资料每次 `+search_step_reward`（0.05）、检索过且答对一次性 `+answer_search_bonus`（0.1）、超轮不作答 `−no_answer_penalty`（0.2）。作用是让模型真的去查资料，而不是退化成闭卷瞎猜。
+- **检索 reward shaping（仅训练）**：不再对“查到任意资料”给分；仅在检索后答对时给很小的 `+answer_search_bonus`（0.05），超轮不作答 `−no_answer_penalty`（0.2）。这避免模型为刷即时 reward 无效重复检索。
 
 验证环境由 `run.py` 用 `make_eval_cfg()` 另建一个实例，把上面三项全部归零（检索后端与判分方式不变）。
 必须这样分开：NeMo-RL 的 `validation/accuracy` 就是 `mean(total_reward)`，而 `total_reward` 是**逐轮奖励的累加**——
-验证若照抄训练 cfg，「用了工具」本身就白送分（本配置 `max_turns=3`，最多虚高 `0.05×2 + 0.1 = 0.2` 绝对值），
+验证若照抄训练 cfg，「用了工具」本身也会改变奖励尺度，
 既看不出真实答题水平，也没法和无工具 baseline 同尺度比。所以：
 
 - `validation/accuracy` = 纯答题得分（1.0 答对 / 0.0 答错或超轮不答），可直接与 baseline 对比；
@@ -54,7 +54,7 @@ DOCS_RETRIEVER=bm25          # 检索后端：bm25（默认）| grep
 DOCS_DIR=/data/docs          # 资料根目录（含子目录），只搜其中 markdown。须是【容器内】真实存在的路径
 DOCS_GLOB=*.md               # 只搜哪些文件，默认只搜 markdown
 DOCS_TOP_K=3                 # 最多回灌几个命中片段（grep 按文件聚合 / bm25 按 chunk）
-DOCS_MAX_CHARS=500           # 单次检索回灌进上下文的总字符上限（GB10 seq=1536 多轮防 OOM）
+DOCS_MAX_CHARS=500           # 全局默认；本实验会以 cfg 中 retrieval_max_chars=900 覆盖该 actor
 # —— BM25 专用 ——
 DOCS_CHUNK_LINES=12          # 检索单元(chunk)大小：超长段落按多少行切窗
 BM25_K1=1.5                  # 词频饱和系数
@@ -89,18 +89,16 @@ grep -rinI --include="*.md" -C2 "随便挑一道题里的关键词" /data/docs |
 lab submit grpo_qwen3.5-9b_qa-rl-agent_v1
 ```
 
-## GB10 显存提醒（重要）
+## H200 优化：稳定在线检索 RL
 
-baseline 实测 **seq=1536 都会在 ~step280 被 Ray(host RAM) OOM**；agent 多轮每步堆更多 rollout 进内存，
-seq=2048 会必崩且崩更早。所以本实验把**所有可调项都对齐到 baseline 的最省档**，且**唯一变量仍是「多轮+检索」**：
+旧版 GRPO 曾在 reward 全 0 / 全 1 的组内因标准差归一化而产生极端 advantage，导致熵塌缩和复读。本版使用：
 
-- `num_prompts_per_step=4` / `num_generations_per_prompt=4` / `train_global_batch_size=16`（与 baseline 严格一致，勿动，动了破坏对比）
-- `max_total_sequence_length=1536`（与 baseline 一致）
-- `max_rollout_turns=3` + `env.qa_docs.cfg.max_turns=3`（收紧轮数省内存）
-- `DOCS_MAX_CHARS=500`（单次检索回灌字符上限，env 可调；见上 `DOCS_*` 一节）
+- **Reinforce++**：按 prompt 均值去基线，再在有效 token 上全局归一化；避免组标准差接近 0 时的数值爆炸。R1-Searcher 的检索 Agent 也采用这一估计器。
+- **DAPO dynamic sampling**：每步先生成 `8×16` 个候选，只保留奖励有成败差异的 4 个 prompt 组训练；没有梯度的全对/全错组不消耗更新。
+- **H200 序列预算**：`seq=4096`、每轮 `max_new_tokens=512`、单次检索最多回灌 900 字，优先保证“检索一次后能完整作答”，而不是长文本生成。
+- **参考策略锚定**：`KL=0.02` 加入 Reinforce++ 的 token reward，压制策略漂移和重复格式。
 
-任务 ~100-200 步即收敛，`val_period=50` 在 50/100/150/200/250 都有验证点 → 即便 ~step280 崩，250 步前的对比曲线已可用（和 baseline 同样窗口）。
-**仍 OOM 再按序降**：`max_turns→2` → `DOCS_MAX_CHARS→400` → `seq→1280`。**batch 任何时候都不要动。**
+运行时关注 `train/approx_entropy`、`train/advantages/max`、`dynamic_sampling_num_gen_batches` 和纯答题 `validation/accuracy`。若动态采样频繁达到 8 个补采样批次，说明当前题目过易或过难，应先改善题目难度混合，而不是提高学习率。
 
 ## 看多轮检索轨迹
 

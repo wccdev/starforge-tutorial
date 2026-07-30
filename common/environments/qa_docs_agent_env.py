@@ -593,8 +593,12 @@ class QADocsAgentEnv(EnvironmentInterface[QADocsMetadata]):
     SEARCH_STOP_STRINGS = ["</search>"]
 
     def __init__(self, cfg: Optional[dict[str, Any]] = None):
+        global DOCS_MAX_CHARS
         self.cfg = cfg or {}
         self.use_judge = bool(self.cfg.get("use_judge", True))
+        retrieval_max_chars = self.cfg.get("retrieval_max_chars")
+        if retrieval_max_chars is not None:
+            DOCS_MAX_CHARS = int(retrieval_max_chars)
         # ── 检索 reward shaping（鼓励模型真的去用工具，而不是退化成闭卷瞎猜）──
         # 观测到的问题：奖励只看最终 \boxed 对错，对「检索动作」零回报，且 grep 偶有噪声，
         # 于是 RL 把策略收敛到「不检索、直接答常识题」→ 准确率早早卡在 ~62%、专有知识题系统性全错。
