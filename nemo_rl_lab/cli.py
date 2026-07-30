@@ -219,6 +219,7 @@ def _echo_submit_result(res: dict, label: str = "") -> None:
             typer.secho(f"  {res['message']}", fg=typer.colors.BRIGHT_BLACK)
         _echo_upload_summary(res)
         typer.echo("  满足条件后自动提交；查看状态：lab job ls")
+        _echo_submit_warnings(res)
         return
     msg = f"✓ 已提交{label}  作业 {res.get('job_id')}"
     if gpus is not None:
@@ -228,6 +229,16 @@ def _echo_submit_result(res: dict, label: str = "") -> None:
     typer.secho(msg, fg=typer.colors.GREEN)
     _echo_upload_summary(res)
     typer.echo(f"  查看日志：lab logs {res.get('job_id')}")
+    _echo_submit_warnings(res)
+
+
+def _echo_submit_warnings(res: dict) -> None:
+    """服务端下发的 profile 告警：提交受理了，但目标卡型/拓扑与集群实际情况对不上。
+
+    典型是集群里根本没有该卡型（作业会一直 PENDING）。走 stderr，便于在管道里也醒目。
+    """
+    for w in res.get("warnings") or []:
+        cli_ui.emit_warning(str(w))
 
 
 def _echo_upload_summary(res: dict) -> None:

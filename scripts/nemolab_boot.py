@@ -23,13 +23,14 @@ def main() -> int:
         return 2
 
     # 卡型 pin：独立于可观测性（本地直跑也可能需要 pin；由 NRL_PIN_RESOURCE 控制，
-    # 未设则 no-op）。放在 import 训练入口前，确保补丁先于 RayVirtualCluster 实例化生效。
-    try:
+    # 未设则 no-op）。放在 import 训练入口前，确保补丁先于 placement group 创建生效。
+    #
+    # 这里刻意不吞异常：pin 失效意味着作业会跑到错误的卡型上、绕过时段闸门、挤爆
+    # 别人的显存，比作业当场失败严重得多。
+    if os.environ.get("NRL_PIN_RESOURCE", "").strip():
         from common.ray_pin import apply_pin_patch
 
         apply_pin_patch()
-    except Exception as e:  # pin 是调度优化，任何异常都不应影响训练
-        print(f"[nemolab] pin patch skipped: {e}")
 
     try:
         from common.observability.session import start_observability

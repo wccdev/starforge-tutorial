@@ -215,3 +215,22 @@ def test_pipeline_reporter_stages_and_timing():
     rendered = capture.get()
     assert "lab submit" in rendered
     assert "服务端受理" in rendered
+
+
+def test_emit_error_stops_progress_first():
+    """出错文案必须在步骤条停掉之后才输出，否则会被 Live 的下一帧擦掉（提交失败无提示）。"""
+    import io
+
+    from rich.console import Console
+
+    console = Console(file=io.StringIO(), force_terminal=True, width=100)
+    reporter = cli_ui._PipelineReporter(console)
+    with reporter:
+        reporter.start_pack(1)
+        reporter.awaiting_server()
+        assert reporter._live is not None
+        assert cli_ui._active_progress is reporter
+        cli_ui.emit_error("提交失败", body="配额不足")
+        assert reporter._live is None  # Live 已停，后续输出不会被覆盖
+        assert cli_ui._active_progress is None
+    assert cli_ui._active_progress is None

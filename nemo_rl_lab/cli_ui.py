@@ -136,6 +136,7 @@ def emit_error(
     hint: str = "",
 ) -> None:
     """向 stderr 输出一块结构化错误（不退出）。"""
+    stop_active_progress()
     typer.echo("", err=True)
     typer.secho(f"  ✗  {title}", fg=typer.colors.RED, bold=True, err=True)
     if items:
@@ -154,6 +155,7 @@ def emit_error(
 
 
 def emit_warning(title: str, *, body: str = "", hint: str = "") -> None:
+    stop_active_progress()
     typer.secho(f"  !  {title}", fg=typer.colors.YELLOW, bold=True, err=True)
     if body:
         for line in body.splitlines():
@@ -198,6 +200,20 @@ def fail_http(e: urllib.error.HTTPError, *, fallback: str, title: str = "") -> N
 
 
 # ----------------------------- 提交进度条（打包 → 上传 → 受理）-----------------------------
+# 当前活跃的进度显示。rich Live 每秒重绘十余次，重绘会把光标移回步骤条顶部并擦掉下方内容——
+# 若在 Live 运行期间直接往 stderr 打错误（提交被服务端拒绝就是这条路径），文案会被下一帧覆盖，
+# 用户只剩一个退出码。因此所有 emit_* 都先停掉进度显示，再输出。
+_active_progress: Optional[object] = None
+
+
+def stop_active_progress() -> None:
+    """停掉当前进度显示（若有），让后续 stderr 输出不会被重绘覆盖。"""
+    global _active_progress
+    reporter, _active_progress = _active_progress, None
+    if reporter is not None:
+        reporter.stop()  # type: ignore[attr-defined]
+
+
 def human_bytes(n: float) -> str:
     """字节数 → 人类可读（1023 B / 5.8 MB）。"""
     for unit in ("B", "KB", "MB", "GB"):
@@ -268,10 +284,19 @@ class _PlainReporter:
     def finish(self) -> None:
         self._mark_phase_done("已受理")
 
+    def stop(self) -> None:
+        pass
+
     def __enter__(self):
+        global _active_progress
+        _active_progress = self
         return self
 
     def __exit__(self, *exc):
+        global _active_progress
+        if _active_progress is self:
+            _active_progress = None
+        self.stop()
         return False
 
 
@@ -404,12 +429,21 @@ class _PipelineReporter:
     def finish(self) -> None:
         self._complete("server", detail="完成")
 
+    def stop(self) -> None:
+        live, self._live = self._live, None
+        if live is not None:
+            live.__exit__(None, None, None)
+
     def __enter__(self):
+        global _active_progress
+        _active_progress = self
         return self
 
     def __exit__(self, *exc):
-        if self._live is not None:
-            return self._live.__exit__(*exc)
+        global _active_progress
+        if _active_progress is self:
+            _active_progress = None
+        self.stop()
         return False
 
 
