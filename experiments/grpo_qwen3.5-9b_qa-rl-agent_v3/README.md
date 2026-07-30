@@ -19,11 +19,26 @@
 | 轮数 | 单轮（答一次即结束） | 多轮（`max_rollout_turns=3`） |
 | 工具 | 无 | `<search>关键词</search>` → 容器内 BM25 检索本地 markdown（可切 grep） |
 | 环境 | `common/environments/qa_env.py` `QARewardEnv` | `common/environments/qa_docs_agent_env.py` `QADocsAgentEnv` |
-| 奖励 | qa 规则 + 简答裁判 | **同源**（最终答案复用同一套 qa 奖励） |
+| 奖励 | qa 规则 + 简答裁判 | **同源**（最终答案复用同一套 qa 奖励）；训练另加检索 shaping，**验证不加**（见下节） |
 | 数据 / 模型 / LoRA / batch | —— 完全一致 —— | —— 完全一致 —— |
 | seq | 1536 | 1536（与 baseline 对齐；baseline 1536 都会 ~step280 OOM，agent 多轮更吃内存，故不上 2048） |
 
 模型作答协议：检索用 `<search>关键词</search>`；作答把要点放入 `\boxed{...}`（与基线同一答案格式，保证判分一致）。
+
+## 奖励：训练带检索加分，验证不带
+
+奖励分两层：
+
+- **最终判分**（训练/验证共用）：`\boxed{}` 里的答案交给同一套 qa 奖励（客观题规则 / 简答裁判），与 baseline 同源。
+- **检索 reward shaping（仅训练）**：真取回资料每次 `+search_step_reward`（0.05）、检索过且答对一次性 `+answer_search_bonus`（0.1）、超轮不作答 `−no_answer_penalty`（0.2）。作用是让模型真的去查资料，而不是退化成闭卷瞎猜。
+
+验证环境由 `run.py` 用 `make_eval_cfg()` 另建一个实例，把上面三项全部归零（检索后端与判分方式不变）。
+必须这样分开：NeMo-RL 的 `validation/accuracy` 就是 `mean(total_reward)`，而 `total_reward` 是**逐轮奖励的累加**——
+验证若照抄训练 cfg，「用了工具」本身就白送分（本配置 `max_turns=3`，最多虚高 `0.05×2 + 0.1 = 0.2` 绝对值），
+既看不出真实答题水平，也没法和无工具 baseline 同尺度比。所以：
+
+- `validation/accuracy` = 纯答题得分（1.0 答对 / 0.0 答错或超轮不答），可直接与 baseline 对比；
+- `train/reward` 含 shaping，会 >1.0，**不要**拿它当准确率读。
 
 ## 本地文档检索接入 · BM25 / grep（`common/environments/qa_docs_agent_env.py` 的 `docs_search()`）
 

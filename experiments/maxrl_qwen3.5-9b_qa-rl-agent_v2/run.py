@@ -39,7 +39,7 @@ from nemo_rl.utils.config import (
 from nemo_rl.utils.logger import get_next_experiment_dir
 
 from common.algorithms.maxrl import install_maxrl_estimator
-from common.environments.qa_docs_agent_env import QADocsAgentEnv
+from common.environments.qa_docs_agent_env import QADocsAgentEnv, make_eval_cfg
 
 TASK_NAME = "qa_docs"
 STOP_STRINGS = ["</search>"]  # 生成到 </search> 即停，让环境返回检索结果；直接作答则生成到 EOS
@@ -169,7 +169,7 @@ def main():
     output_key = data_cfg.get("output_key", "expected_answer")
     system_prompt = data_cfg.get("system_prompt") or None
 
-    env_cfg = config.env[TASK_NAME]["cfg"]
+    env_cfg = dict(config.env[TASK_NAME]["cfg"])
     max_turns = int(env_cfg.get("max_turns", config.grpo["max_rollout_turns"]))
 
     train_dataset = QADocsJsonlDataset(
@@ -182,8 +182,14 @@ def main():
     )
     print(f"训练集 {len(train_dataset)} 条，验证集 {len(val_dataset)} 条（每条可多轮检索，max_turns={max_turns}）")
 
-    env = QADocsAgentEnv.options(num_gpus=0).remote(cfg=dict(env_cfg))
-    task_to_env = {TASK_NAME: env}
+    # 训练/验证用两个实例：检索与判分完全相同，只有 reward shaping 不同（训练带、验证归零）。
+    # NeMo-RL 的 validation/accuracy = mean(total_reward)（逐轮奖励累加），验证若带 shaping 则
+    # 「用了工具」本身白送分 → 验证分虚高，且与 GRPO v3 / 无工具 baseline 不再同尺度。
+    train_env = QADocsAgentEnv.options(num_gpus=0).remote(cfg=env_cfg)
+    val_env = QADocsAgentEnv.options(num_gpus=0).remote(cfg=make_eval_cfg(env_cfg))
+    task_to_env = {TASK_NAME: train_env}
+    val_task_to_env = {TASK_NAME: val_env}
+    print("训练环境带检索 reward shaping；验证环境已归零 → validation/accuracy = 纯答题得分")
 
     # NeMo-RL main：setup() 返回 11 个值（新增第 3 位 nemo_gym actor，cluster 变为
     # (train_cluster, inference_cluster) 元组）。未使用的用 _ 前缀占位。
@@ -213,7 +219,7 @@ def main():
         tokenizer,
         loss_fn,
         task_to_env,
-        task_to_env,
+        val_task_to_env,
         logger,
         checkpointer,
         grpo_state,

@@ -13,4 +13,5 @@ from common.environments.qa_docs_agent_env import (  # noqa: F401
     QADocsAgentEnv,
     QADocsMetadata,
     docs_search,
+    make_eval_cfg,
 )

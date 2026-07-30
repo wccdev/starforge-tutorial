@@ -82,12 +82,15 @@ env:
       # false：全部走规则判分，零成本、无需裁判端点。与 baseline 必须一致才公平。
       use_judge: true
       max_turns: 3 # 与 grpo.max_rollout_turns 对齐
-      # ── 检索 reward shaping：让模型真正用上 <search>，而不是退化成闭卷瞎猜（卡 ~62% 的主因）──
+      # ── 检索 reward shaping【仅训练生效】：让模型真正用上 <search>，而不是退化成闭卷瞎猜（卡 ~62% 的主因）──
       #    search_step_reward   每次「真取回资料」的即时奖励（远小于答对 1.0，仅作探索引导）
       #    answer_search_bonus  「检索过且最终答对」的一次性加成（奖励靠检索拿分而非蒙）
       #    search_bonus_min_score 触发上面加成的最低 base 分（1.0=只奖励完全答对）
       #    no_answer_penalty    超 max_turns 仍不作答的惩罚（让「只检索不答」净收益为负，防刷分）
-      # ⚠️ 若要与 baseline 做「唯一变量=能否检索」的严格对比，把下面三项全设 0 即回到纯最终判分。
+      # ★ 验证时这几项由 run.py 用 make_eval_cfg() 自动归零（验证环境是另一个实例）：
+      #   工具使用是训练手段、不是答题正确性，算进 validation/accuracy（=mean(total_reward)）会虚高，
+      #   也会让与无工具 baseline 的对比失真。所以下面的值只影响训练曲线，不影响验证分。
+      # ⚠️ 若要连训练也回到纯最终判分（唯一变量=能否检索的严格对比），把下面三项全设 0。
       search_step_reward: 0.05
       answer_search_bonus: 0.1
       search_bonus_min_score: 1.0

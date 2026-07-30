@@ -35,7 +35,7 @@ from nemo_rl.utils.config import (
 )
 from nemo_rl.utils.logger import get_next_experiment_dir
 
-from common.environments.qa_docs_agent_env import QADocsAgentEnv
+from common.environments.qa_docs_agent_env import QADocsAgentEnv, make_eval_cfg
 
 TASK_NAME = "qa_docs"
 STOP_STRINGS = ["</search>"]  # 生成到 </search> 即停，让环境返回检索结果；直接作答则生成到 EOS
@@ -165,7 +165,7 @@ def main():
     output_key = data_cfg.get("output_key", "expected_answer")
     system_prompt = data_cfg.get("system_prompt") or None
 
-    env_cfg = config.env[TASK_NAME]["cfg"]
+    env_cfg = dict(config.env[TASK_NAME]["cfg"])
     max_turns = int(env_cfg.get("max_turns", config.grpo["max_rollout_turns"]))
 
     train_dataset = QADocsJsonlDataset(
@@ -178,8 +178,17 @@ def main():
     )
     print(f"训练集 {len(train_dataset)} 条，验证集 {len(val_dataset)} 条（每条可多轮检索，max_turns={max_turns}）")
 
-    env = QADocsAgentEnv.options(num_gpus=0).remote(cfg=dict(env_cfg))
-    task_to_env = {TASK_NAME: env}
+    # 训练环境与验证环境用【两个实例】：检索后端、判分方式完全相同，只有 reward shaping 不同。
+    #   训练：带 shaping（检索即时奖励 / 检索后答对加成 / 不作答惩罚）——引导模型真的去查资料。
+    #   验证：make_eval_cfg() 把 shaping 归零，只留最终判分。
+    # 必须分开：NeMo-RL 的 validation/accuracy 就是 mean(total_reward)，而 total_reward 是逐轮奖励累加，
+    # 若验证也带 shaping，则「用了工具」本身白送分（本配置最多 +0.2 绝对值），验证分虚高，
+    # 且与单轮无工具 baseline（qa-rl_v1，纯最终判分）不再同尺度，A/B 结论会被工具加分污染。
+    train_env = QADocsAgentEnv.options(num_gpus=0).remote(cfg=env_cfg)
+    val_env = QADocsAgentEnv.options(num_gpus=0).remote(cfg=make_eval_cfg(env_cfg))
+    task_to_env = {TASK_NAME: train_env}
+    val_task_to_env = {TASK_NAME: val_env}
+    print("训练环境带检索 reward shaping；验证环境已归零 → validation/accuracy = 纯答题得分")
 
     # NeMo-RL main：setup() 返回 11 个值（新增第 3 位 nemo_gym actor，cluster 变为
     # (train_cluster, inference_cluster) 元组）。未使用的用 _ 前缀占位。
@@ -205,7 +214,7 @@ def main():
         tokenizer,
         loss_fn,
         task_to_env,
-        task_to_env,
+        val_task_to_env,
         logger,
         checkpointer,
         grpo_state,

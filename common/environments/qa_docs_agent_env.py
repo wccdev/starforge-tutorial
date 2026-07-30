@@ -18,6 +18,11 @@
     - 含 <search>…</search>  → 跑 grep 检索本地文档，返回命中片段，继续下一轮
     - 都没有                 → 提示格式，继续（计一轮）
     - 超过 max_turns 仍无答案 → 判 0 结束
+
+奖励分两层：**最终判分**（qa 奖励，训练/验证共用）+ **检索 reward shaping**（检索即时奖励 / 检索后
+答对加成 / 不作答惩罚，**仅训练期**用于引导模型真的去用工具）。验证环境请用 `make_eval_cfg()` 派生
+cfg 单独建一个实例，把 shaping 归零——否则 NeMo-RL 的 validation/accuracy（= mean(total_reward)）
+会把「用了工具」的加分算成准确率，既虚高又无法与无工具 baseline 对比。
 """
 from __future__ import annotations
 
@@ -557,6 +562,29 @@ def _is_useful_retrieval(obs: str) -> bool:
     return bool(s) and not s.startswith(_SEARCH_FAIL_PREFIXES)
 
 
+# ==================== 训练 / 验证的 reward shaping 分离（验证必须用 make_eval_cfg）====================
+# 下面这几项是【训练期的探索引导】，不属于「答得对不对」：search_step_reward / answer_search_bonus
+# 会把分数抬到 1.0 以上，no_answer_penalty 会压到 0 以下。
+# 而 NeMo-RL 的 validation/accuracy 直接就是 mean(total_reward)，total_reward 又是**逐轮奖励的累加**
+# （见 nemo_rl/experience/rollouts.py），所以验证若照抄训练 cfg：
+#   ① 「用了工具」本身就白送分（max_turns=3 时最多 +0.05×2 检索 + 0.1 加成 = +0.2 绝对值），验证分虚高；
+#   ② 与单轮无工具 baseline（qa-rl_v1，纯最终判分）不再同尺度，A/B 结论会被工具加分污染。
+# 故验证环境一律用 make_eval_cfg() 派生的 cfg。
+_SHAPING_KEYS = ("search_step_reward", "answer_search_bonus", "no_answer_penalty")
+
+
+def make_eval_cfg(cfg: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    """由训练 env cfg 派生【验证 / 评测用】cfg：reward shaping 全部归零，只保留最终答案判分。
+
+    检索后端与判分方式（use_judge / max_turns 等）与训练完全一致——验证与训练的唯一差异是
+    「用不用工具不再额外加分或扣分」：答对就是 1.0，答错 0.0，超轮不作答也是 0.0。
+    于是 validation/accuracy 就是纯粹的答题得分，可直接与无工具 baseline 对比。
+    """
+    out = dict(cfg or {})
+    out.update(dict.fromkeys(_SHAPING_KEYS, 0.0))
+    return out
+
+
 # ============================ 环境 ============================
 @ray.remote  # pragma: no cover
 class QADocsAgentEnv(EnvironmentInterface[QADocsMetadata]):
@@ -575,8 +603,9 @@ class QADocsAgentEnv(EnvironmentInterface[QADocsMetadata]):
         #   answer_search_bonus   最终答对(≥min)且轨迹检索过的一次性加成（奖励"靠检索答对"）。
         #   search_bonus_min_score  触发上面 bonus 的最低 base 分（默认 1.0=只对完全答对加成）。
         #   no_answer_penalty     超 max_turns 仍无 \boxed 的惩罚（让"光检索不答"净收益为负，防 reward hacking）。
-        # ⚠️ 这几项默认开启以让 treatment 真正用上检索；若要与 baseline 做「唯一变量=能否检索」的严格对比，
-        #    把 search_step_reward / answer_search_bonus / no_answer_penalty 全设 0 即回到纯最终判分。
+        # ⚠️ 这几项只该作用在【训练】：它们是探索引导，不是答题正确性。
+        #    验证/评测请用 make_eval_cfg(cfg) 另建一个环境实例（shaping 全零），否则 validation/accuracy
+        #    会把「用了工具」的加分算进去而虚高，也无法与无工具 baseline 同尺度对比。
         self.search_step_reward = float(self.cfg.get("search_step_reward", 0.05))
         self.answer_search_bonus = float(self.cfg.get("answer_search_bonus", 0.1))
         self.search_bonus_min_score = float(self.cfg.get("search_bonus_min_score", 1.0))
