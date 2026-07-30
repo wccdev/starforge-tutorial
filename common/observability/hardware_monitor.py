@@ -205,7 +205,9 @@ class HardwareMonitor:
         points: list[dict] = []
         if current and current in node_ids:
             points.extend(
-                self._collect_local_hw(node_id=current, job_pids=job_pids)
+                self._collect_local_hw(
+                    node_id=current, job_pids=job_pids, gpu_fallback=True
+                )
             )
         else:
             # driver 不在训练节点上（异构集群常态：driver 在 head，训练在 GB10）。
@@ -215,7 +217,11 @@ class HardwareMonitor:
             points.extend(self._collect_driver_process_hw())
         remote = sorted(nid for nid in node_ids if nid != current)
         if remote:
-            points.extend(self._collect_nodes_hw(remote, job_pids=job_pids))
+            # 这批节点是发现逻辑认定的训练节点，本身就是「这台机器在跑本作业」的证据，
+            # 所以允许它们在 PID 归属查空时退回显存启发式认卡。
+            points.extend(
+                self._collect_nodes_hw(remote, job_pids=job_pids, gpu_fallback=True)
+            )
         return points
 
     def _collect_driver_process_hw(self) -> list[dict]:
@@ -240,10 +246,12 @@ class HardwareMonitor:
         *,
         node_id: str | None = None,
         job_pids: frozenset[int] | None = None,
+        gpu_fallback: bool = False,
     ) -> list[dict]:
         snap = collect_hw_snapshot(
             job_pids=job_pids,
             min_mem_mib=self.min_mem_mib,
+            gpu_fallback=gpu_fallback,
         )
         ts = datetime.now(timezone.utc).isoformat()
         worker_id = snap.get("hostname") or socket.gethostname()
@@ -256,6 +264,7 @@ class HardwareMonitor:
         node_ids: list[str],
         *,
         job_pids: frozenset[int] | None,
+        gpu_fallback: bool = False,
     ) -> list[dict]:
         import ray
         from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
@@ -277,6 +286,7 @@ class HardwareMonitor:
                     job_pids=pid_arg,
                     min_mem_mib=self.min_mem_mib,
                     include_process=False,
+                    gpu_fallback=gpu_fallback,
                 )
             )
         snapshots = ray.get(futures)

@@ -218,3 +218,74 @@ def test_collect_local_hw_reports_uuid_for_job_gpus(monkeypatch):
     assert "gpu.0.mem.value" in out["metrics"]
     assert "gpu.1.mem.value" not in out["metrics"]
     assert out["gpu_uuids"] == {0: "GPU-physical-1"}
+
+
+class _TwoGpus:
+    """两张卡：0 号闲着，1 号显存吃满。默认不提供 compute-process 接口。"""
+
+    NVML_TEMPERATURE_GPU = 0
+    used_by_index = {0: 10, 1: 50_000}
+
+    @staticmethod
+    def nvmlInit():
+        return None
+
+    @staticmethod
+    def nvmlShutdown():
+        return None
+
+    @staticmethod
+    def nvmlDeviceGetCount():
+        return 2
+
+    @staticmethod
+    def nvmlDeviceGetHandleByIndex(i):
+        return i
+
+    @staticmethod
+    def nvmlDeviceGetUtilizationRates(_h):
+        return SimpleNamespace(gpu=90, memory=20)
+
+    @classmethod
+    def nvmlDeviceGetMemoryInfo(cls, h, version=None):
+        return _Mem(used=int(cls.used_by_index[int(h)] * (1024**2)))
+
+    @staticmethod
+    def nvmlDeviceGetUUID(h):
+        return f"GPU-{h}"
+
+
+def test_no_gpu_metrics_when_pid_attribution_empty_and_no_fallback(monkeypatch):
+    """默认行为不变：认不出归属就不报，避免把别人的卡算到自己头上。"""
+    monkeypatch.setitem(__import__("sys").modules, "pynvml", _TwoGpus())
+    monkeypatch.setattr(hw_probe, "_gpu_compute_pids", lambda _h: set())
+
+    out = hw_probe.collect_local_hw(job_pids=frozenset())
+
+    assert not [k for k in out["metrics"] if k.startswith("gpu.")]
+
+
+def test_gpu_fallback_recovers_metrics_when_pids_unavailable(monkeypatch):
+    """节点归属已由 placement group 证明时，PID 查空应退回显存启发式，而不是整机不报。
+
+    GB10 节点的 dashboard agent 挂了，list_actors 查不到那边的 actor，job_pids 恒为空。
+    """
+    monkeypatch.setitem(__import__("sys").modules, "pynvml", _TwoGpus())
+    monkeypatch.setattr(hw_probe, "_gpu_compute_pids", lambda _h: set())
+
+    out = hw_probe.collect_local_hw(job_pids=frozenset(), gpu_fallback=True)
+
+    # 只认出忙着的那张（物理 1 号），且重新编号为 gpu.0
+    assert out["metrics"]["gpu.0.pct"] == 90.0
+    assert out["gpu_uuids"] == {0: "GPU-1"}
+    assert "gpu.1.pct" not in out["metrics"]
+
+
+def test_gpu_fallback_not_used_when_pid_attribution_works(monkeypatch):
+    """PID 能认出卡时不该顺带把邻居的卡也收进来。"""
+    monkeypatch.setitem(__import__("sys").modules, "pynvml", _TwoGpus())
+    monkeypatch.setattr(hw_probe, "_gpu_compute_pids", lambda h: {42} if int(h) == 0 else set())
+
+    out = hw_probe.collect_local_hw(job_pids=frozenset({42}), gpu_fallback=True)
+
+    assert out["gpu_uuids"] == {0: "GPU-0"}

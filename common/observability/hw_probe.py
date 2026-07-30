@@ -21,10 +21,13 @@ def collect_local_hw(
     job_pids: frozenset[int] | None = None,
     min_mem_mib: float = DEFAULT_MIN_MEM_MIB,
     include_process: bool = True,
+    gpu_fallback: bool = False,
 ) -> dict[str, Any]:
     """本机硬件指标。
 
     Args:
+        gpu_fallback: PID 归属认不出任何 GPU 时，是否退回显存启发式认卡。仅在调用方
+            已确知本节点属于该作业时开启（见下方选卡处的说明）。
         include_process: 是否带上进程级指标（cpu.thds / mem.proc / mem.proc.pct）。
             这些指标读的是 `psutil.Process()`，也就是**当前进程**。在 driver 上跑就是
             训练主进程，有意义；被派到远端节点当 Ray task 跑，量到的却是探针任务自己
@@ -54,14 +57,24 @@ def collect_local_hw(
         pynvml.nvmlInit()
         try:
             n = pynvml.nvmlDeviceGetCount()
-            out_idx = 0
+            handles = []
             for physical in range(n):
                 try:
-                    handle = pynvml.nvmlDeviceGetHandleByIndex(physical)
+                    handles.append(pynvml.nvmlDeviceGetHandleByIndex(physical))
                 except Exception:
                     continue
-                if not _gpu_belongs_to_job(handle, job_pids, min_mem_mib):
-                    continue
+            selected = [
+                h for h in handles if _gpu_belongs_to_job(h, job_pids, min_mem_mib)
+            ]
+            if not selected and gpu_fallback and job_pids is not None:
+                # PID 归属一张卡都没认出来，但调用方已经另有证据说这台机器在跑本作业
+                # （GPU placement group 的 bundle 落在这里）。PID 查空多半是 state API
+                # 看不到这个节点的 actor（dashboard agent 挂了），不是真的没在用卡——
+                # 此时宁可用显存启发式认卡，也好过把整台训练机的 GPU 指标全丢掉。
+                selected = [
+                    h for h in handles if _gpu_belongs_to_job(h, None, min_mem_mib)
+                ]
+            for out_idx, handle in enumerate(selected):
                 uuid = _gpu_uuid(handle)
                 if uuid:
                     gpu_uuids[out_idx] = uuid
@@ -96,7 +109,6 @@ def collect_local_hw(
                         metrics[f"gpu.{out_idx}.mem.time"] = float(util.memory)
                     except Exception:
                         pass
-                out_idx += 1
         finally:
             try:
                 pynvml.nvmlShutdown()
@@ -113,6 +125,7 @@ def collect_hw_snapshot(
     job_pids: frozenset[int] | list[int] | None = None,
     min_mem_mib: float | None = None,
     include_process: bool = True,
+    gpu_fallback: bool = False,
 ) -> dict[str, Any]:
     pids: frozenset[int] | None
     if job_pids is None:
@@ -123,7 +136,10 @@ def collect_hw_snapshot(
         pids = frozenset(int(x) for x in job_pids)
     mem_mib = DEFAULT_MIN_MEM_MIB if min_mem_mib is None else float(min_mem_mib)
     hw = collect_local_hw(
-        job_pids=pids, min_mem_mib=mem_mib, include_process=include_process
+        job_pids=pids,
+        min_mem_mib=mem_mib,
+        include_process=include_process,
+        gpu_fallback=gpu_fallback,
     )
     return {
         "hostname": socket.gethostname(),

@@ -35,7 +35,7 @@ def monitor(monkeypatch):
 def _fake_local(monkeypatch):
     """替掉本机探针，返回可区分的机器级 + 进程级指标。"""
 
-    def _collect(*, job_pids=None, min_mem_mib=0.0, include_process=True):
+    def _collect(*, job_pids=None, min_mem_mib=0.0, include_process=True, gpu_fallback=False):
         metrics = {"cpu.pct": 5.0, "mem.pct": 5.2, "mem.proc.avail": 1957322.0}
         if include_process:
             metrics |= {"cpu.thds": 63.0, "mem.proc": 1285.0, "mem.proc.pct": 0.06}
@@ -47,9 +47,15 @@ def _fake_local(monkeypatch):
 def _fake_remote(monkeypatch, seen: list[dict] | None = None):
     """替掉远端 fan-out，记录调用参数并返回 spark-2 的机器级指标。"""
 
-    def _collect_nodes(node_ids, *, job_pids):
+    def _collect_nodes(node_ids, *, job_pids, gpu_fallback=False):
         if seen is not None:
-            seen.append({"node_ids": list(node_ids), "job_pids": job_pids})
+            seen.append(
+                {
+                    "node_ids": list(node_ids),
+                    "job_pids": job_pids,
+                    "gpu_fallback": gpu_fallback,
+                }
+            )
         return [
             {
                 "key": key,
@@ -92,7 +98,7 @@ def test_remote_probe_does_not_report_its_own_process(monkeypatch, monitor):
     _fake_local(monkeypatch)
     captured: dict = {}
 
-    def _collect(*, job_pids=None, min_mem_mib=0.0, include_process=True):
+    def _collect(*, job_pids=None, min_mem_mib=0.0, include_process=True, gpu_fallback=False):
         captured["include_process"] = include_process
         return {"hostname": "spark-2", "pid": 9, "metrics": {"cpu.pct": 11.2}, "gpu_uuids": {}}
 
@@ -162,3 +168,5 @@ def test_gpu_placement_decides_which_machines_are_charted(monkeypatch, monitor):
     monitor._collect()
 
     assert seen[0]["node_ids"] == [GB10]
+    # PG 认定的训练节点，允许在 PID 归属查空时退回显存启发式认卡
+    assert seen[0]["gpu_fallback"] is True
