@@ -39,6 +39,10 @@ policy:
   train_global_batch_size: 16 # = 2 prompts × 8 generations；GB10 的稳定起跑档
   train_micro_batch_size: 1
   generation_batch_size: 8
+  # GB10 NVML 不支持查询可用显存；不给固定值时 NeMo-RL 会在首次 refit 前调用
+  # nvmlDeviceGetMemoryInfo() 自动估算 staging buffer，从而报 NVMLError_NotSupported。
+  # 4 GiB 是官方 Qwen GRPO 配方的保守 buffer，绕过探测且足够 LoRA 权重同步。
+  refit_buffer_size_gb: 4
   dtensor_cfg:
     enabled: true
     cpu_offload: false # GB10 是统一内存，offload 不会创造额外物理内存，反而易触发 host OOM

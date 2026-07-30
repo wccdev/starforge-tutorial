@@ -95,6 +95,7 @@ lab submit grpo_qwen3.5-9b_qa-rl-agent_v1
 - **小 rollout**：`2 prompts × 8 generations = 16`，关闭动态采样，避免候选补采样导致瞬时内存翻倍。
 - **短多轮轨迹**：`seq=2048`、每轮最多 384 token、检索回灌 400 字、最多一次检索后作答。
 - **首跑跳过 reference policy**：`KL=0` 与 `skip_reference_policy_logprobs_calculation=true`，减少一份 9B logprob 的峰值；稳定后可用 CLI override `loss_fn.reference_policy_kl_penalty=0.01` 进行质量复跑。
+- **GB10 NVML 兼容**：`refit_buffer_size_gb=4` 固定训练→vLLM 权重同步 staging buffer，绕过 GB10 上不支持 `nvmlDeviceGetMemoryInfo` 的驱动路径。
 - **NeMo-RL v0.7 保护**：开启 `overlong_filtering`，并受益于 selected-token logprob 内存降低；不启用 PPO、CISPO、MOPD 或动态采样，它们会增加单 GB10 的模型/rollout 峰值。
 - **Qwen3.5 稳定性优先**：保留 `enforce_eager=true`，规避 v0.7 / vLLM 0.20 的 CUDA-graph/Ray 间歇 hang；比起吞吐，首跑先保证训练能完成。
 
