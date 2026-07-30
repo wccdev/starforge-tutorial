@@ -1,0 +1,128 @@
+# 题库「多轮 + 本地文档检索」Agent GRPO 实验：qwen3.5-9b 在自有技术培训考题上做强化训练。
+# 继承官方单轮基底 grpo_math_1B + qwen3.5-9b 片段，只写差异。
+# 奖励是自定义环境 QADocsAgentEnv（common/environments/qa_docs_agent_env.py），由本目录 run.py 实例化
+# （task_name=qa_docs，读取 env.qa_docs.cfg）。最终判分复用 common/rewards 的 qa 奖励（与单轮实验同源）。
+#
+# ★ 单台 DGX Spark GB10 的保守运行档：目标是 9B 多轮检索 RL 不 OOM、可稳定完成训练。
+#   这不是与 H200 / baseline 的严格公平消融：为适配 GB10，刻意缩小了 rollout、长度和验证 batch。
+#   ⚠️ 资料目录由 DOCS_DIR 控制（默认 /data/docs）；目录不存在时 <search> 返回占位提示，流程可跑通但拿不到资料。
+defaults:
+  - ../../configs/base/grpo_math_1B.yaml
+  - ../../configs/models/qwen3.5-9b.yaml
+  # 单 GB10：DTensor + LoRA。不要引入 grpo_megatron / grpo_lora（它们配置的是 Megatron PEFT）。
+
+# ══════════════════════════════════════════════════════════════════════════
+#  调参速查 —— 你主要动【① 调参区】这几行。硬件/分布式在 cluster/<profile>，不在这。
+#  本实验目标集群：见同目录 cluster 文件；下列数值按该卡显存调，换卡 lab submit --profile 覆盖（通常要重调）。
+#  ⚠️ 这是对比实验 treatment：batch/模型/LoRA/裁判须与 qa-rl_v1 严格一致，核心变量是「多轮+检索」。
+#     注：seq 有意比 baseline 大（1536→3072）——多轮轨迹要装下「检索回灌+作答」，1536 会截断答案、反而不公平。
+# ──────────────────────────────────────────────────────────────────────────
+#  DTensor LoRA                            只训练 adapter，避免 9B 全参 Adam 状态占满 GB10 统一内存
+#  num_generations_per_prompt / prompts    两者相乘等于 train_global_batch_size；OOM 优先减这两项
+#  max_rollout_turns / env.qa_docs.cfg.max_turns  多轮上限（两者须对齐）。多→更吃内存
+#  max_total_sequence_length (policy)     ★整条多轮轨迹(prompt+所有轮+所有检索回灌)的总预算，不是每轮。
+#                                          多轮必须比 baseline 大：1536 连「搜一次+作答」都塞不下，会在写 \boxed 前被截断
+#  max_num_steps / val_period (grpo)      训多久 / 多久验证一次
+# ══════════════════════════════════════════════════════════════════════════
+
+# ───────────────────────────── ① 调参区（按需改）─────────────────────────────
+policy:
+  # 用已完整缓存的 base 模型（与基线 qa-rl_v1 必须一致，对比才公平）。
+  model_name: "Qwen/Qwen3.5-9B-Base"
+  tokenizer:
+    name: "Qwen/Qwen3.5-9B-Base"
+  # ⚠️ 这是【整条多轮轨迹】的总预算：prompt + preamble + 所有轮生成 + 所有检索回灌，全部累加。
+  #    1536（=baseline 单轮值）对多轮是错的：仅「prompt(~550)+搜一次(≤512)+回灌(~300)+作答(~512)」
+  #    就 ≈1900>1536 → 在写 \boxed 前被截断 → 判 0。这正是初始 truncation_rate 0.6~0.9、准确率仅 15% 的根因。
+  #    GB10 的 CPU/GPU 共用 128GB 内存；2048 只容纳「一次检索回灌 + 最终作答」，不支持长链多次搜索。
+  max_total_sequence_length: 2048
+  train_global_batch_size: 16 # = 2 prompts × 8 generations；GB10 的稳定起跑档
+  train_micro_batch_size: 1
+  generation_batch_size: 8
+  dtensor_cfg:
+    enabled: true
+    cpu_offload: false # GB10 是统一内存，offload 不会创造额外物理内存，反而易触发 host OOM
+    activation_checkpointing: true
+    sequence_parallel: false
+    lora_cfg:
+      enabled: true
+      match_all_linear: true
+      dim: 8
+      alpha: 16
+      dropout: 0.0
+  optimizer:
+    kwargs:
+      lr: 1.0e-4
+      weight_decay: 0.0
+  generation:
+    max_new_tokens: 384 # 早期模型单轮写满会耗尽 KV；384 足够输出搜索动作或短答案
+    temperature: 0.8
+    vllm_cfg:
+      gpu_memory_utilization: 0.30 # colocated 下给训练模型/LoRA 预留 70% 统一显存
+      enforce_eager: true # GB10 避免 CUDA graph 编译额外峰值
+
+grpo:
+  num_prompts_per_step: 2
+  num_generations_per_prompt: 8
+  # R++ 保留全局归一化的稳定性；GB10 起跑档跳过 reference policy，减少一份 9B logprob 内存。
+  adv_estimator:
+    name: reinforce_plus_plus
+    minus_baseline: true
+  use_dynamic_sampling: false # 禁用 H200 档的 2 倍候选扩张，避免单 GB10 rollout 峰值 OOM
+  batch_multiplier: 1
+  skip_reference_policy_logprobs_calculation: true
+  max_rollout_turns: 2 # 一次定向检索 + 一次作答；环境与此保持一致
+  max_num_steps: 100 # 先跑通并取 4 个验证点；稳定后再以 CLI override 增至 200
+  val_period: 25
+  val_at_start: true
+  val_at_end: true
+  max_val_samples: 64
+  val_batch_size: 16
+
+loss_fn:
+  # 首跑不载入 reference policy，显著减少显存/统一内存压力；确认稳定后再以 0.01 做质量复跑。
+  reference_policy_kl_penalty: 0.0
+  use_kl_in_reward: false
+
+# ────────────────────────── ② 一般不动（数据 / 检索判分环境 / 日志）──────────────────────────
+# run.py 读取以下键自建数据集（与 baseline 同一份题库；run.py 会在 query 前加"可检索"说明）。
+data:
+  shuffle: true
+  input_key: query
+  output_key: expected_answer
+  system_prompt: null
+  # 题库在集群共享盘的绝对路径（容器内可达）。私有题库不随包上传（.gitignore），故在此显式指定；
+  # run.py 优先用服务端注入的环境变量 QA_RL_DATA_DIR，没有才用这里。
+  data_dir: /data/datasets/qa_rl
+
+# 自定义多轮检索判分环境；_override_ 整段替换基底的 env（math）。
+env:
+  _override_: true
+  qa_docs:
+    cfg:
+      # true：简答题最终答案用裁判 LLM（需 JUDGE_* 环境变量；连不上自动回退关键词覆盖率）
+      # false：全部走规则判分，零成本、无需裁判端点。与 baseline 必须一致才公平。
+      use_judge: true
+      max_turns: 2 # 与 grpo.max_rollout_turns 对齐：一次检索后必须作答
+      # ── 检索 reward shaping【仅训练生效】：只奖励「检索帮助答对」，不奖励“随便查到一段资料”──
+      #    search_step_reward   每次「真取回资料」的即时奖励。R1-Searcher 第二阶段会移除它，防止刷检索。
+      #    answer_search_bonus  「检索过且最终答对」的一次性加成（奖励靠检索拿分而非蒙）
+      #    search_bonus_min_score 触发上面加成的最低 base 分（1.0=只奖励完全答对）
+      #    no_answer_penalty    超 max_turns 仍不作答的惩罚（让「只检索不答」净收益为负，防刷分）
+      # ★ 验证时这几项由 run.py 用 make_eval_cfg() 自动归零（验证环境是另一个实例）：
+      #   工具使用是训练手段、不是答题正确性，算进 validation/accuracy（=mean(total_reward)）会虚高，
+      #   也会让与无工具 baseline 的对比失真。所以下面的值只影响训练曲线，不影响验证分。
+      # ⚠️ 若要连训练也回到纯最终判分（唯一变量=能否检索的严格对比），把下面三项全设 0。
+      search_step_reward: 0.0 # 不再给无关检索白送分；检索价值由“检索后答对”证明
+      answer_search_bonus: 0.05 # 保留很小的条件 bonus，鼓励不确定题先查、又不压过最终正确性
+      search_bonus_min_score: 1.0
+      no_answer_penalty: 0.2
+      # GB10：检索回灌也会写入整条 rollout；400 字通常足够两个 BM25 片段且保留最终作答空间。
+      retrieval_max_chars: 400
+
+logger:
+  wandb_enabled: false
+  tensorboard_enabled: false
+  swanlab_enabled: false
+  monitor_gpus: true
+  num_val_samples_to_print: 3 # 减少多轮完整轨迹在 driver 日志与内存中的暂存
