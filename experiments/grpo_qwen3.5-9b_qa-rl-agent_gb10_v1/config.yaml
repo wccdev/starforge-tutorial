@@ -52,9 +52,9 @@ policy:
   generation:
     # Qwen3.5 = GDN 混合架构：Megatron generation 无 decode（#3010），必须用 vLLM。
     backend: vllm
-    # 384 时 truncation_rate 常到 0.75~1.0；配合 overlong_filtering 会把有效样本滤到 0~2，
-    # R++ 在极少样本上归一化 → advantage 爆到 ±1e4 → 下一步 backward NaN。
-    max_new_tokens: 256
+    # 256 会把 truncation 锁在 0.75~1.0：模型搜完写不完 \boxed{} → reward 塌到 format_error≈-0.02，
+    # 全员同分后 advantage/grad=0，再也爬不回来。384 + overlong_filtering + advantage_clip 更稳。
+    max_new_tokens: 384
     temperature: 0.8
     vllm_cfg:
       # GB10 colocated：vLLM 在 Megatron 尚未加载时按整卡 free×util 预分配；
@@ -82,9 +82,9 @@ grpo:
   use_dynamic_sampling: false # 禁用 H200 档的 2 倍候选扩张，避免单 GB10 rollout 峰值 OOM
   batch_multiplier: 1
   skip_reference_policy_logprobs_calculation: true
-  # H200 有 16 gens + dynamic sampling，滤掉超长仍够样本。GB10 只有 4 gens：
-  # Step3 truncation_rate=1 时会滤光 → train 全 mask → grad NaN。先关，靠更短 max_new_tokens 控长。
-  overlong_filtering: false
+  # 必须开：关掉后 truncated 未作答轨迹仍进训练，会把策略推向「写满长度→format_error=-0.02」。
+  # 与 advantage_clip 联用，避免「滤太狠 → 有效样本过少 → advantage 爆炸 NaN」。
+  overlong_filtering: true
   max_rollout_turns: 2 # 一次定向检索 + 一次作答；环境与此保持一致
   max_num_steps: 100 # 先跑通并取 4 个验证点；稳定后再以 CLI override 增至 200
   val_period: 25
