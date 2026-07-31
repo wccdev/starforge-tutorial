@@ -41,8 +41,8 @@ policy:
   max_total_sequence_length: 2048
   train_global_batch_size: 16 # = 2 prompts × 8 generations；GB10 的稳定起跑档
   train_micro_batch_size: 1
-  # vLLM colocated 每次只处理 4 条，降低单 GB10 统一内存峰值。
-  generation_batch_size: 4
+  # 训练侧 chunk；vLLM 路径上验证更吃 val_batch_size（见下）。
+  generation_batch_size: 2
   # colocated refit：Qwen3.5-9B embed_tokens ≈1.9GiB。
   # NeMo-RL 内部会 //2 做 ping-pong 双缓冲，所以这里要设 ≥ 2×最大单参数（≥3.8 → 取 4）。
   # GB10 上 NVML/cudaMemGetInfo 估 free 偏小，不能靠 auto(=free×0.3)。
@@ -53,9 +53,11 @@ policy:
     max_new_tokens: 384 # 早期模型单轮写满会耗尽 KV；384 足够输出搜索动作或短答案
     temperature: 0.8
     vllm_cfg:
-      # GB10 保守档：关 CUDA graph；util 略低于 H200 成功档（0.40），给训练侧留余量。
+      # GB10 colocated：vLLM 在 Megatron 尚未加载时按整卡 free×util 预分配；
+      # 生成时两者同时 awake（Megatron≈18GB + vLLM weights/KV），0.30 会在首轮 prefill 把
+      # VllmGenerationWorker 打崩（ActorUnavailableError / Socket closed，无 Python OOM 栈）。
       enforce_eager: true
-      gpu_memory_utilization: 0.30
+      gpu_memory_utilization: 0.22
       max_model_len: 2048
     vllm_kwargs:
       # Qwen3.5 配置带视觉槽位；文本 RL 显式关掉，避免 vLLM 按 VLM 预分配。
@@ -81,7 +83,8 @@ grpo:
   val_at_start: true
   val_at_end: true
   max_val_samples: 64
-  val_batch_size: 16
+  # 验证会一次把整批丢给 vLLM；16 路并发 prefill 在 Megatron 仍驻留时易把 actor 打死。
+  val_batch_size: 2
 
 loss_fn:
   # 首跑不载入 reference policy，显著减少显存/统一内存压力；确认稳定后再以 0.01 做质量复跑。
