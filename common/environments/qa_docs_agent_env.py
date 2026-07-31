@@ -578,6 +578,7 @@ _SHAPING_KEYS = (
     "search_step_reward",
     "answer_search_bonus",
     "no_answer_penalty",
+    "no_search_answer_penalty",
     "format_error_penalty",
     "invalid_search_penalty",
 )
@@ -624,6 +625,9 @@ class QADocsAgentEnv(EnvironmentInterface[QADocsMetadata]):
         self.answer_search_bonus = float(self.cfg.get("answer_search_bonus", 0.1))
         self.search_bonus_min_score = float(self.cfg.get("search_bonus_min_score", 1.0))
         self.no_answer_penalty = float(self.cfg.get("no_answer_penalty", 0.2))
+        # 闭卷直接 \boxed 作答的惩罚：防止「检索 0 回报 + 选择题可蒙对」把策略推向不用工具。
+        # 默认 0 保持旧行为；GB10 等 agent 实验可显式设 >0。验证由 make_eval_cfg 归零。
+        self.no_search_answer_penalty = float(self.cfg.get("no_search_answer_penalty", 0.0))
         # NeMo-RL v0.7 的 invalid_tool_call_advantage 只支持 NeMo-Gym。
         # 本实验走原生 EnvironmentInterface，因此在环境奖励层处理无标签输出和空 <search>，
         # 并由 make_eval_cfg() 在验证时归零，避免污染 accuracy。
@@ -721,7 +725,7 @@ class QADocsAgentEnv(EnvironmentInterface[QADocsMetadata]):
             next_stops[i] = self.SEARCH_STOP_STRINGS
             next_meta[i] = nm
 
-        # 批量判分给出最终答案的样本；「检索后答对」额外加成（奖励"靠检索拿分"而非瞎猜）。
+        # 批量判分给出最终答案的样本；「检索后答对」额外加成，「未检索就作答」训练期扣分。
         if final_idx:
             scores = self._reward_fn(final_q, final_comp, final_exp)
             for i, s, searched in zip(final_idx, scores, final_searched):
@@ -731,8 +735,14 @@ class QADocsAgentEnv(EnvironmentInterface[QADocsMetadata]):
                     if (searched and r >= self.search_bonus_min_score)
                     else 0.0
                 )
-                rewards[i] = r + bonus
-                tag = f"  (+检索加成 {bonus:.3f})" if bonus else ""
+                skip_pen = 0.0 if searched else self.no_search_answer_penalty
+                rewards[i] = r + bonus - skip_pen
+                tags: list[str] = []
+                if bonus:
+                    tags.append(f"+检索加成 {bonus:.3f}")
+                if skip_pen:
+                    tags.append(f"-未检索 {skip_pen:.3f}")
+                tag = f"  ({'; '.join(tags)})" if tags else ""
                 observations[i] = {"role": "environment", "content": f"得分: {r:.3f}{tag}"}
 
         return EnvironmentReturn(

@@ -30,7 +30,7 @@
 奖励分两层：
 
 - **最终判分**（训练/验证共用）：`\boxed{}` 里的答案交给同一套 qa 奖励（客观题规则 / 简答裁判），与 baseline 同源。
-- **检索 reward shaping（仅训练）**：不再对“查到任意资料”给分；仅在检索后答对时给很小的 `+answer_search_bonus`（0.05），超轮不作答 `−no_answer_penalty`（0.2），无标签输出或空 `<search>` 各扣 `0.02`。这避免模型为刷即时 reward 无效重复检索。
+- **检索 reward shaping（仅训练）**：有效检索 `+search_step_reward`（0.05）；检索后满分 `+answer_search_bonus`（0.15）；**未检索就作答** `−no_search_answer_penalty`（0.1，压过闭卷蒙对捷径）；超轮不作答 `−no_answer_penalty`（0.2）；坏格式/空 search 各扣 `0.02`。验证侧 shaping 全零。
 
 验证环境由 `run.py` 用 `make_eval_cfg()` 另建一个实例，把所有 shaping 项全部归零（检索后端与判分方式不变）。
 必须这样分开：NeMo-RL 的 `validation/accuracy` 就是 `mean(total_reward)`，而 `total_reward` 是**逐轮奖励的累加**——

@@ -34,6 +34,7 @@ TRAIN_CFG = {
     "answer_search_bonus": 0.1,
     "search_bonus_min_score": 1.0,
     "no_answer_penalty": 0.2,
+    "no_search_answer_penalty": 0.1,
     "format_error_penalty": 0.02,
     "invalid_search_penalty": 0.02,
 }
@@ -113,6 +114,7 @@ def test_make_eval_cfg_zeroes_shaping_only(env_mod):
     assert eval_cfg["search_step_reward"] == 0.0
     assert eval_cfg["answer_search_bonus"] == 0.0
     assert eval_cfg["no_answer_penalty"] == 0.0
+    assert eval_cfg["no_search_answer_penalty"] == 0.0
     assert eval_cfg["format_error_penalty"] == 0.0
     assert eval_cfg["invalid_search_penalty"] == 0.0
     # 检索后端与判分方式必须保持一致，验证才只差「工具不加分」这一件事
@@ -131,6 +133,24 @@ def test_train_gives_search_bonus_but_eval_does_not(env_mod):
     assert _answer_turn(
         env_mod, env_mod.make_eval_cfg(TRAIN_CFG), completion=r"根据资料 \boxed{B}", did_search=True
     ) == pytest.approx(1.0)
+
+
+def test_no_search_answer_penalty_is_train_only(env_mod):
+    """未检索就作答：训练扣分压过闭卷捷径；验证仍是纯判分（答对=1.0）。"""
+    assert _answer_turn(
+        env_mod, TRAIN_CFG, completion=r"\boxed{B}", did_search=False
+    ) == pytest.approx(0.9)
+    assert _answer_turn(
+        env_mod, env_mod.make_eval_cfg(TRAIN_CFG), completion=r"\boxed{B}", did_search=False
+    ) == pytest.approx(1.0)
+    # 检索后答对净收益应高于闭卷答对，避免策略退化为不用工具
+    searched = _answer_turn(
+        env_mod, TRAIN_CFG, completion=r"\boxed{B}", did_search=True
+    )
+    closed = _answer_turn(
+        env_mod, TRAIN_CFG, completion=r"\boxed{B}", did_search=False
+    )
+    assert searched > closed
 
 
 def test_wrong_answer_scores_zero_in_both(env_mod):
