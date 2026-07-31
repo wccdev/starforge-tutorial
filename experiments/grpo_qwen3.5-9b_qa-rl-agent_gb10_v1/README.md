@@ -93,11 +93,11 @@ lab submit grpo_qwen3.5-9b_qa-rl-agent_v1
 
 - **Megatron-Core + LoRA**：仅训练 rank-8 adapter，避免全参 Adam 状态占用 GB10 的统一 128GB 内存。
 - **小 rollout**：`2 prompts × 8 generations = 16`，关闭动态采样，避免候选补采样导致瞬时内存翻倍。
-- **Megatron generation**：不启动 vLLM，避开 GB10 上 vLLM colocated sleep/refit 的 CUDA 崩溃；`generation_batch_size=4`、4 GiB 中间 buffer、关闭 generation CUDA graphs。
+- **vLLM generation**：Qwen3.5 含 GDN，Megatron generation 上游未实现 decode（NeMo-RL #3010），不可用。训练仍走 Megatron；生成用 vLLM + `enforce_eager` + `gpu_memory_utilization=0.35` + `limit_mm_per_prompt={image:0,video:0}`。
 - **短多轮轨迹**：`seq=2048`、每轮最多 384 token、检索回灌 400 字、最多一次检索后作答。
 - **首跑跳过 reference policy**：`KL=0` 与 `skip_reference_policy_logprobs_calculation=true`，减少一份 9B logprob 的峰值；稳定后可用 CLI override `loss_fn.reference_policy_kl_penalty=0.01` 进行质量复跑。
 - **NeMo-RL v0.7 保护**：开启 `overlong_filtering`，并受益于 selected-token logprob 内存降低；不启用 PPO、CISPO、MOPD 或动态采样，它们会增加单 GB10 的模型/rollout 峰值。
-- **Qwen3.5 稳定性优先**：此档不再使用 vLLM；若需恢复 vLLM generation，必须先解决其 sleep/refit CUDA 错误。
+- **若 vLLM colocated 再崩**：先把 `gpu_memory_utilization` 降到 0.30，再减 `num_generations_per_prompt`。
 
 首跑只训练 100 步、每 25 步验证。若仍 OOM，按顺序降低：`max_total_sequence_length=1792` → `num_generations_per_prompt=4` 且 `train_global_batch_size=8` → `retrieval_max_chars=300`。
 

@@ -9,8 +9,8 @@
 defaults:
   - ../../configs/base/grpo_math_1B.yaml
   - ../../configs/models/qwen3.5-9b.yaml
-  # 单 GB10：Megatron-Core + Megatron LoRA，并使用 Megatron generation。
-  # 不能只切 policy 后端：那仍会进入 vLLM 的 sleep/refit 路径。
+  # 单 GB10：训练用 Megatron-Core + LoRA；生成必须用 vLLM。
+  # Qwen3.5 含 GDN，Megatron generation 上游未实现 decode（NeMo-RL #3010），不可用。
   - ../../configs/base/grpo_megatron.yaml
   - ../../configs/base/grpo_lora.yaml
 
@@ -41,22 +41,23 @@ policy:
   max_total_sequence_length: 2048
   train_global_batch_size: 16 # = 2 prompts × 8 generations；GB10 的稳定起跑档
   train_micro_batch_size: 1
-  # Megatron generation 每次只处理 4 条，避免单 GB10 在 decode/prefill 阶段产生高峰值。
+  # vLLM colocated 每次只处理 4 条，降低单 GB10 统一内存峰值。
   generation_batch_size: 4
   generation:
-    # 彻底绕开 vLLM 的 colocated sleep/refit 路径；generation 复用 Megatron policy。
-    backend: megatron
+    # Qwen3.5 = GDN 混合架构：Megatron generation 无 decode（#3010），必须用 vLLM。
+    backend: vllm
     max_new_tokens: 384 # 早期模型单轮写满会耗尽 KV；384 足够输出搜索动作或短答案
     temperature: 0.8
-    mcore_generation_config:
-      # 单 GB10：关闭 generation CUDA graphs，缩小 KV/refit 中间 buffer，优先稳定而非吞吐。
-      cuda_graph_impl: none
-      inference_cuda_graph_scope: none
-      buffer_size_gb: 4
-      num_cuda_graphs: 0
-      max_tokens: 4096
-      enable_chunked_prefill: true
-      enable_prefix_caching: false
+    vllm_cfg:
+      # GB10 保守档：关 CUDA graph；util 略低于 H200 成功档（0.40），给训练侧留余量。
+      enforce_eager: true
+      gpu_memory_utilization: 0.30
+      max_model_len: 2048
+    vllm_kwargs:
+      # Qwen3.5 配置带视觉槽位；文本 RL 显式关掉，避免 vLLM 按 VLM 预分配。
+      limit_mm_per_prompt:
+        image: 0
+        video: 0
 
 grpo:
   num_prompts_per_step: 2
