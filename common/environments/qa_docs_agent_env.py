@@ -533,15 +533,19 @@ class QADocsMetadata(TypedDict, total=False):
 
 
 def _extract_tag(text: str, tag: str) -> Optional[str]:
-    """取最后一个 <tag>...</tag> 的内容；没有则 None。"""
+    """取最后一个 <tag>...</tag> 的内容；没有开标签则 None。
+
+    闭标签缺失时仍取开标签后全文：NeMo-RL / vLLM 用 stop_strings=["</search>"] 截断时，
+    默认常不把 </search> 写进生成文本，若这里要求成对标签会误判「格式不对」，
+    白白烧掉一轮（GB10 max_turns=2 时几乎等于检索失败）。
+    """
     open_t, close_t = f"<{tag}>", f"</{tag}>"
     s = text.rfind(open_t)
     if s == -1:
         return None
     e = text.find(close_t, s + len(open_t))
-    if e == -1:
-        return None
-    return text[s + len(open_t):e].strip()
+    body = text[s + len(open_t) : (e if e != -1 else None)].strip()
+    return body if body else ("" if e != -1 else None)
 
 
 def _last_assistant_text(message_log: LLMMessageLogType) -> str:

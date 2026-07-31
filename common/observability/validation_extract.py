@@ -3,6 +3,7 @@ from __future__ import annotations
 
 
 def _role_text(message_log: list, role: str) -> str:
+    """拼接某 role 的全部轮次；多轮用分隔线，避免「格式不对」与「[检索结果]」粘成一段误读。"""
     parts: list[str] = []
     want = role.upper()
     for msg in message_log:
@@ -13,7 +14,7 @@ def _role_text(message_log: list, role: str) -> str:
             content = msg.get("content")
             if content is not None:
                 parts.append(str(content))
-    return "\n".join(parts).strip()
+    return "\n---\n".join(parts).strip()
 
 
 def extract_message_log_samples(

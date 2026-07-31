@@ -186,6 +186,33 @@ def test_retrieval_step_reward_is_train_only(env_mod, monkeypatch):
     assert run(env_mod.make_eval_cfg(TRAIN_CFG)) == pytest.approx(0.0)
 
 
+def test_search_without_close_tag_still_retrieves(env_mod, monkeypatch):
+    """vLLM stop_strings=['</search>'] 常不把闭标签写入生成文本；不能因此误判格式不对。"""
+    seen: list[str] = []
+
+    def fake_search(q: str) -> str:
+        seen.append(q)
+        return "【cmp.md】\nL12: 主抛去除大部分铜层"
+
+    monkeypatch.setattr(env_mod, "docs_search", fake_search)
+    env = env_mod.QADocsAgentEnv(cfg=env_mod.make_eval_cfg(TRAIN_CFG))
+    ret = env.step(
+        [[{"role": "assistant", "content": "先查一下\n<search>CMP 铜 去除"}]],
+        [{
+            "expected_answer": "[single] B",
+            "query": "题面",
+            "num_turns": 0,
+            "max_turns": 2,
+            "did_search": False,
+        }],
+    )
+    assert seen == ["CMP 铜 去除"]
+    assert ret.terminateds[0] is False
+    assert ret.metadata[0]["did_search"] is True
+    assert "[检索结果]" in ret.observations[0]["content"]
+    assert "格式不对" not in ret.observations[0]["content"]
+
+
 def test_bad_tool_format_penalty_is_train_only(env_mod):
     """无标签输出和空 search 只在训练期扣分；验证必须仍是纯正确率。"""
     metadata = [{
