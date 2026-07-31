@@ -43,10 +43,10 @@ policy:
   train_micro_batch_size: 1
   # vLLM colocated 每次只处理 4 条，降低单 GB10 统一内存峰值。
   generation_batch_size: 4
-  # colocated refit：Qwen3.5-9B embed_tokens ≈1.9GiB；GB10 上 NVML/cudaMemGetInfo
-  # 估出的 free 偏小，auto buffer(=free×0.3) 会只剩 ~300MiB 然后 assert。
-  # 显式固定 ≥ 最大单参数，避免走坏掉的 auto 路径。
-  refit_buffer_size_gb: 3
+  # colocated refit：Qwen3.5-9B embed_tokens ≈1.9GiB。
+  # NeMo-RL 内部会 //2 做 ping-pong 双缓冲，所以这里要设 ≥ 2×最大单参数（≥3.8 → 取 4）。
+  # GB10 上 NVML/cudaMemGetInfo 估 free 偏小，不能靠 auto(=free×0.3)。
+  refit_buffer_size_gb: 4
   generation:
     # Qwen3.5 = GDN 混合架构：Megatron generation 无 decode（#3010），必须用 vLLM。
     backend: vllm
