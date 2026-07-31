@@ -93,7 +93,8 @@ lab submit grpo_qwen3.5-9b_qa-rl-agent_v1
 
 - **Megatron-Core + LoRA**：仅训练 rank-8 adapter，避免全参 Adam 状态占用 GB10 的统一 128GB 内存。
 - **小 rollout**：`2 prompts × 8 generations = 16`，关闭动态采样，避免候选补采样导致瞬时内存翻倍。
-- **vLLM generation**：Qwen3.5 含 GDN，Megatron generation 上游未实现 decode（NeMo-RL #3010），不可用。训练仍走 Megatron；生成用 vLLM + `enforce_eager` + `gpu_memory_utilization=0.35` + `limit_mm_per_prompt={image:0,video:0}`。
+- **vLLM generation**：Qwen3.5 含 GDN，Megatron generation 上游未实现 decode（NeMo-RL #3010），不可用。训练仍走 Megatron；生成用 vLLM + `enforce_eager` + `gpu_memory_utilization=0.30` + `limit_mm_per_prompt={image:0,video:0}`。
+- **refit_buffer_size_gb=3**：colocated 权重回流时 IPC buffer 必须 ≥ `embed_tokens`（~1.9GiB）；GB10 上 NVML/cudaMemGetInfo 估 free 偏小，不能靠 auto(=free×0.3)。
 - **短多轮轨迹**：`seq=2048`、每轮最多 384 token、检索回灌 400 字、最多一次检索后作答。
 - **首跑跳过 reference policy**：`KL=0` 与 `skip_reference_policy_logprobs_calculation=true`，减少一份 9B logprob 的峰值；稳定后可用 CLI override `loss_fn.reference_policy_kl_penalty=0.01` 进行质量复跑。
 - **NeMo-RL v0.7 保护**：开启 `overlong_filtering`，并受益于 selected-token logprob 内存降低；不启用 PPO、CISPO、MOPD 或动态采样，它们会增加单 GB10 的模型/rollout 峰值。

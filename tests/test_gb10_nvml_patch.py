@@ -91,12 +91,26 @@ def test_pynvml_fallback_uses_cuda_mem_get_info(monkeypatch):
     fake_torch = _fake_torch(raise_nvml=True, mem_get_info=(7 * 1024**3, 20 * 1024**3))
     monkeypatch.setitem(sys.modules, "pynvml", fake_nvml)
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setattr(patch, "_read_meminfo", lambda: (0, 0))
 
     assert patch.apply_pynvml_patch() is True
     info = fake_nvml.nvmlDeviceGetMemoryInfo(handle=0)
     assert info.free == 7 * 1024**3
     assert info.total == 20 * 1024**3
     assert info.used == 13 * 1024**3
+
+
+def test_uma_prefers_memavailable_over_tiny_cuda_free(monkeypatch):
+    """复现 refit buffer 过小：cuda free~1GiB，但系统还有几十 GiB MemAvailable。"""
+    monkeypatch.setattr(
+        patch, "_read_meminfo", lambda: (128 * 1024**3, 80 * 1024**3)
+    )
+    fake_torch = _fake_torch(raise_nvml=True, mem_get_info=(1 * 1024**3, 20 * 1024**3))
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+
+    info = patch._uma_memory_info()
+    assert info.free == 80 * 1024**3
+    assert info.total == 128 * 1024**3
 
 
 def test_pynvml_passthrough_when_supported(monkeypatch):
@@ -137,6 +151,7 @@ def test_nemo_rl_get_free_memory_bytes_fallback(monkeypatch):
 
     fake_torch = _fake_torch(raise_nvml=True, mem_get_info=(5 * 1024**3, 16 * 1024**3))
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setattr(patch, "_read_meminfo", lambda: (0, 0))
 
     assert patch.apply_nemo_rl_nvml_patch() is True
     assert nrl_nvml.get_free_memory_bytes(0) == float(5 * 1024**3)
@@ -147,6 +162,7 @@ def test_worker_setup_is_idempotent(monkeypatch):
     fake_torch = _fake_torch(raise_nvml=True, allocated=7, mem_get_info=(1, 2))
     monkeypatch.setitem(sys.modules, "pynvml", fake_nvml)
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
+    monkeypatch.setattr(patch, "_read_meminfo", lambda: (0, 0))
 
     patch.worker_setup()
     patch.worker_setup()

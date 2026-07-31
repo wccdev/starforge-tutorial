@@ -41,19 +41,8 @@ def enabled() -> bool:
     return pin == "acc_gb10"
 
 
-def _uma_memory_info() -> SimpleNamespace:
-    """UMA 回退：优先 CUDA runtime，再退到 /proc/meminfo。"""
-    try:
-        import torch
-
-        if torch.cuda.is_available():
-            free, total = torch.cuda.mem_get_info()
-            used = max(int(total) - int(free), 0)
-            return SimpleNamespace(total=int(total), free=int(free), used=used)
-    except Exception:
-        pass
-
-    total = free = 0
+def _read_meminfo() -> tuple[int, int]:
+    """返回 (MemTotal, MemAvailable) 字节；读不到则 (0, 0)。"""
     try:
         with open("/proc/meminfo", encoding="utf-8") as f:
             vals: dict[str, int] = {}
@@ -63,8 +52,33 @@ def _uma_memory_info() -> SimpleNamespace:
                     vals[parts[0].rstrip(":")] = int(parts[1]) * 1024
         total = vals.get("MemTotal", 0)
         free = vals.get("MemAvailable", vals.get("MemFree", 0))
+        return total, free
+    except Exception:
+        return 0, 0
+
+
+def _uma_memory_info() -> SimpleNamespace:
+    """UMA 回退：合并 CUDA runtime 与 /proc/meminfo。
+
+    GB10 上 cudaMemGetInfo 常把 free 估得很小（模型占住后只剩几百 MiB），
+    会导致 colocated refit 的 auto buffer(=free×0.3) 小于 embed 权重而 assert。
+    有 MemAvailable 时用它做 free；total 取两者较大值。
+    """
+    sys_total, sys_free = _read_meminfo()
+    cuda_total = cuda_free = 0
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            cuda_free, cuda_total = (int(x) for x in torch.cuda.mem_get_info())
     except Exception:
         pass
+
+    total = max(cuda_total, sys_total)
+    # UMA：系统 MemAvailable 通常比 cudaMemGetInfo.free 更接近「还能再分多少」。
+    free = max(cuda_free, sys_free)
+    if free <= 0 and cuda_free > 0:
+        free = cuda_free
     used = max(total - free, 0)
     return SimpleNamespace(total=total, free=free, used=used)
 
