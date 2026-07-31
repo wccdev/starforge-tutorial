@@ -22,3 +22,11 @@ export RAY_memory_monitor_refresh_ms=2000
 
 # --- PyTorch 显存分配（缓解碎片，训练时生效） ---
 export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128,garbage_collection_threshold:0.8
+
+# --- GB10 NVML 兜底（训练作业侧；ray start 不用改）---
+# 统一内存上 nvmlDeviceGetMemoryInfo → Not Supported；Megatron log_gpu_memory
+# 会因此在 prepare_for_generation 炸掉。lab 经 Ray worker_process_setup_hook
+# 给 torch.cuda.device_memory_used 打 fallback（见 common/gb10_nvml_patch.py）。
+# 即使没 source 本文件，服务端注入 NRL_PIN_RESOURCE=acc_gb10 时也会自动启用。
+# 关：export NRL_PATCH_NVML_MEMORY=0
+export NRL_PATCH_NVML_MEMORY=1

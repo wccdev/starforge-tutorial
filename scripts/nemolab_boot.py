@@ -32,6 +32,16 @@ def main() -> int:
 
         apply_pin_patch()
 
+    # GB10 NVML 兜底：Megatron log_gpu_memory → torch.cuda.device_memory_used 在
+    # 统一内存上会抛 NotSupported。必须在 init_ray 之前装好 Ray worker hook，
+    # 否则补丁只落在 driver、进不了 MegatronPolicyWorker。失败不阻断训练。
+    try:
+        from common.gb10_nvml_patch import apply_patch as apply_nvml_patch
+
+        apply_nvml_patch()
+    except Exception as e:
+        print(f"[nemolab] GB10 NVML patch skipped: {e}")
+
     try:
         from common.observability.session import start_observability
 
