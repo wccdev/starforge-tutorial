@@ -42,6 +42,15 @@ def main() -> int:
     except Exception as e:
         print(f"[nemolab] GB10 NVML patch skipped: {e}")
 
+    # GB10 colocated 重负载时，NeMo-RL MemoryTracker → Ray FormatGlobalMemoryInfo
+    # 会 60s DEADLINE_EXCEEDED 且未捕获，把 Step1 直接打死。旁路诊断，软失败即可。
+    try:
+        from common.ray_memory_summary_patch import apply_patch as apply_mem_summary_patch
+
+        apply_mem_summary_patch()
+    except Exception as e:
+        print(f"[nemolab] Ray memory_summary patch skipped: {e}")
+
     try:
         from common.observability.session import start_observability
 

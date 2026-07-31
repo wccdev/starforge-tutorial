@@ -144,5 +144,7 @@ logger:
   wandb_enabled: false
   tensorboard_enabled: false
   swanlab_enabled: false
-  monitor_gpus: true
+  # GB10：monitor_gpus 会周期性打 Ray metrics；与 MemoryTracker 的 FormatGlobalMemoryInfo
+  # 叠加时，Step1 Generation 前 node manager 易 60s 超时把作业打死（见 9AkNsqqH）。
+  monitor_gpus: false
   num_val_samples_to_print: 3 # 减少多轮完整轨迹在 driver 日志与内存中的暂存

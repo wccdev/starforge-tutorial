@@ -30,3 +30,10 @@ export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128,garbage_collection_threshol
 # 即使没 source 本文件，服务端注入 NRL_PIN_RESOURCE=acc_gb10 时也会自动启用。
 # 关：export NRL_PATCH_NVML_MEMORY=0
 export NRL_PATCH_NVML_MEMORY=1
+
+# --- Ray memory_summary 软失败（训练 driver 侧）---
+# colocated Megatron+vLLM 首步 Generation 前，NeMo-RL MemoryTracker 调
+# FormatGlobalMemoryInfo(timeout=60) 易 DEADLINE_EXCEEDED 且未捕获 → 作业 FAILED。
+# 见 common/ray_memory_summary_patch.py；pin=acc_gb10 时也会自动启用。
+# 关：export NRL_PATCH_RAY_MEMORY_SUMMARY=0
+export NRL_PATCH_RAY_MEMORY_SUMMARY=1
