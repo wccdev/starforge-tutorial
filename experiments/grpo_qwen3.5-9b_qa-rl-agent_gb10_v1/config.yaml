@@ -39,7 +39,9 @@ policy:
   #    就 ≈1900>1536 → 在写 \boxed 前被截断 → 判 0。这正是初始 truncation_rate 0.6~0.9、准确率仅 15% 的根因。
   #    GB10 的 CPU/GPU 共用 128GB 内存；2048 只容纳「一次检索回灌 + 最终作答」，不支持长链多次搜索。
   max_total_sequence_length: 2048
-  train_global_batch_size: 16 # = 2 prompts × 8 generations；GB10 的稳定起跑档
+  # = num_prompts_per_step × num_generations_per_prompt。验证后内存很脏时，16 路训练 rollout
+  # 会在 offload_after_refit / wake 阶段把 Megatron actor 卡死（Connection timed out）。
+  train_global_batch_size: 8 # = 2 prompts × 4 generations
   train_micro_batch_size: 1
   # 训练侧 chunk；vLLM 路径上验证更吃 val_batch_size（见下）。
   generation_batch_size: 2
@@ -67,7 +69,7 @@ policy:
 
 grpo:
   num_prompts_per_step: 2
-  num_generations_per_prompt: 8
+  num_generations_per_prompt: 4 # 与 train_global_batch_size=8 对齐；先跑通再升回 8
   # R++ 保留全局归一化的稳定性；GB10 起跑档跳过 reference policy，减少一份 9B logprob 内存。
   adv_estimator:
     name: reinforce_plus_plus
@@ -80,10 +82,12 @@ grpo:
   max_rollout_turns: 2 # 一次定向检索 + 一次作答；环境与此保持一致
   max_num_steps: 100 # 先跑通并取 4 个验证点；稳定后再以 CLI override 增至 200
   val_period: 25
-  val_at_start: true
+  # 初始验证虽能跑通，但结束后 vLLM sleep 仍报 ~95GiB in use；紧接着 Step1
+  # offload_after_refit 会把 Megatron actor RPC 超时。先跳过，等训练稳态后再靠 val_period 验证。
+  val_at_start: false
   val_at_end: true
-  max_val_samples: 64
-  # 验证会一次把整批丢给 vLLM；16 路并发 prefill 在 Megatron 仍驻留时易把 actor 打死。
+  max_val_samples: 16 # 验证本身也会把统一内存打脏；GB10 先用小样本
+  # 验证会一次把整批丢给 vLLM；过大并发在 Megatron 仍驻留时易把 actor 打死。
   val_batch_size: 2
 
 loss_fn:
