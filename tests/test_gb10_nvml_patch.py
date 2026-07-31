@@ -1,4 +1,4 @@
-"""GB10 NVML NotSupported → torch.cuda.device_memory_used 兜底。"""
+"""GB10 NVML NotSupported → pynvml / torch / nemo_rl.utils.nvml 兜底。"""
 from __future__ import annotations
 
 import sys
@@ -11,14 +11,15 @@ import common.gb10_nvml_patch as patch
 
 @pytest.fixture(autouse=True)
 def _reset(monkeypatch):
-    patch._PATCHED = False
+    patch._PYNVML_PATCHED = False
+    patch._TORCH_PATCHED = False
     patch._RAY_HOOK_INSTALLED = False
     monkeypatch.delenv(patch._RAY_HOOK_ENV, raising=False)
     monkeypatch.delenv("NRL_PATCH_NVML_MEMORY", raising=False)
+    monkeypatch.delenv("NRL_PIN_RESOURCE", raising=False)
 
 
-def _fake_torch(*, raise_nvml: bool, allocated: int = 42):
-    """最小 torch 替身：只提供 cuda.device_memory_used / memory_allocated。"""
+def _fake_torch(*, raise_nvml: bool, allocated: int = 42, mem_get_info=None):
     cuda = types.SimpleNamespace()
 
     def device_memory_used():
@@ -28,7 +29,25 @@ def _fake_torch(*, raise_nvml: bool, allocated: int = 42):
 
     cuda.device_memory_used = device_memory_used
     cuda.memory_allocated = lambda: allocated
+    cuda.is_available = lambda: True
+    if mem_get_info is not None:
+        cuda.mem_get_info = lambda: mem_get_info
     return types.SimpleNamespace(cuda=cuda)
+
+
+def _fake_pynvml(*, raise_on_mem: bool = True):
+    class _Err(Exception):
+        pass
+
+    def get_mem(handle, *a, **k):
+        if raise_on_mem:
+            raise _Err("Not Supported")
+        return types.SimpleNamespace(total=100, free=40, used=60)
+
+    mod = types.ModuleType("pynvml")
+    mod.NVMLError = _Err
+    mod.nvmlDeviceGetMemoryInfo = get_mem
+    return mod
 
 
 def test_disabled_by_default(monkeypatch):
@@ -67,7 +86,29 @@ def test_does_not_overwrite_existing_ray_hook(monkeypatch):
     assert __import__("os").environ[patch._RAY_HOOK_ENV] == "other.module.setup"
 
 
-def test_fallback_to_memory_allocated(monkeypatch):
+def test_pynvml_fallback_uses_cuda_mem_get_info(monkeypatch):
+    fake_nvml = _fake_pynvml(raise_on_mem=True)
+    fake_torch = _fake_torch(raise_nvml=True, mem_get_info=(7 * 1024**3, 20 * 1024**3))
+    monkeypatch.setitem(sys.modules, "pynvml", fake_nvml)
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+
+    assert patch.apply_pynvml_patch() is True
+    info = fake_nvml.nvmlDeviceGetMemoryInfo(handle=0)
+    assert info.free == 7 * 1024**3
+    assert info.total == 20 * 1024**3
+    assert info.used == 13 * 1024**3
+
+
+def test_pynvml_passthrough_when_supported(monkeypatch):
+    fake_nvml = _fake_pynvml(raise_on_mem=False)
+    monkeypatch.setitem(sys.modules, "pynvml", fake_nvml)
+
+    assert patch.apply_pynvml_patch() is True
+    info = fake_nvml.nvmlDeviceGetMemoryInfo(handle=0)
+    assert info.free == 40
+
+
+def test_torch_fallback_to_memory_allocated(monkeypatch):
     fake = _fake_torch(raise_nvml=True, allocated=1234)
     monkeypatch.setitem(sys.modules, "torch", fake)
 
@@ -75,19 +116,39 @@ def test_fallback_to_memory_allocated(monkeypatch):
     assert fake.cuda.device_memory_used() == 1234
 
 
-def test_passthrough_when_nvml_works(monkeypatch):
-    fake = _fake_torch(raise_nvml=False)
-    monkeypatch.setitem(sys.modules, "torch", fake)
+def test_nemo_rl_get_free_memory_bytes_fallback(monkeypatch):
+    """复现本次崩溃：refit → get_free_memory_bytes → NVML NotSupported。"""
+    nrl_nvml = types.ModuleType("nemo_rl.utils.nvml")
 
-    assert patch.apply_device_memory_patch() is True
-    assert fake.cuda.device_memory_used() == 99
+    def boom(device_idx: int) -> float:
+        raise RuntimeError(f"Failed to get free memory for device {device_idx}: Not Supported")
+
+    nrl_nvml.get_free_memory_bytes = boom
+    pkg = types.ModuleType("nemo_rl.utils")
+    pkg.nvml = nrl_nvml
+    root = types.ModuleType("nemo_rl")
+    root.utils = pkg
+    for name, m in [
+        ("nemo_rl", root),
+        ("nemo_rl.utils", pkg),
+        ("nemo_rl.utils.nvml", nrl_nvml),
+    ]:
+        monkeypatch.setitem(sys.modules, name, m)
+
+    fake_torch = _fake_torch(raise_nvml=True, mem_get_info=(5 * 1024**3, 16 * 1024**3))
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+
+    assert patch.apply_nemo_rl_nvml_patch() is True
+    assert nrl_nvml.get_free_memory_bytes(0) == float(5 * 1024**3)
 
 
 def test_worker_setup_is_idempotent(monkeypatch):
-    fake = _fake_torch(raise_nvml=True, allocated=7)
-    monkeypatch.setitem(sys.modules, "torch", fake)
+    fake_nvml = _fake_pynvml(raise_on_mem=True)
+    fake_torch = _fake_torch(raise_nvml=True, allocated=7, mem_get_info=(1, 2))
+    monkeypatch.setitem(sys.modules, "pynvml", fake_nvml)
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
 
     patch.worker_setup()
     patch.worker_setup()
-    assert fake.cuda.device_memory_used() == 7
-    assert getattr(fake.cuda, "_nemolab_device_memory_patched") is True
+    assert fake_nvml.nvmlDeviceGetMemoryInfo(0).free == 1
+    assert fake_torch.cuda.device_memory_used() == 7
