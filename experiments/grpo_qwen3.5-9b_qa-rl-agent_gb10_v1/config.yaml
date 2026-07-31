@@ -52,7 +52,9 @@ policy:
   generation:
     # Qwen3.5 = GDN 混合架构：Megatron generation 无 decode（#3010），必须用 vLLM。
     backend: vllm
-    max_new_tokens: 384 # 早期模型单轮写满会耗尽 KV；384 足够输出搜索动作或短答案
+    # 384 时 truncation_rate 常到 0.75~1.0；配合 overlong_filtering 会把有效样本滤到 0~2，
+    # R++ 在极少样本上归一化 → advantage 爆到 ±1e4 → 下一步 backward NaN。
+    max_new_tokens: 256
     temperature: 0.8
     vllm_cfg:
       # GB10 colocated：vLLM 在 Megatron 尚未加载时按整卡 free×util 预分配；
@@ -74,11 +76,15 @@ grpo:
   adv_estimator:
     name: reinforce_plus_plus
     minus_baseline: true
+  # Step1 实测 advantage mean=-8521 / min=-10200（仅 2 条有效样本）；不 clip 会在后续 step NaN。
+  advantage_clip_low: -5.0
+  advantage_clip_high: 5.0
   use_dynamic_sampling: false # 禁用 H200 档的 2 倍候选扩张，避免单 GB10 rollout 峰值 OOM
   batch_multiplier: 1
   skip_reference_policy_logprobs_calculation: true
-  # v0.7：丢弃达到生成上限的轨迹，防止未完成回答把错误梯度带入训练，也减少长 KV 轨迹的后续开销。
-  overlong_filtering: true
+  # H200 有 16 gens + dynamic sampling，滤掉超长仍够样本。GB10 只有 4 gens：
+  # Step3 truncation_rate=1 时会滤光 → train 全 mask → grad NaN。先关，靠更短 max_new_tokens 控长。
+  overlong_filtering: false
   max_rollout_turns: 2 # 一次定向检索 + 一次作答；环境与此保持一致
   max_num_steps: 100 # 先跑通并取 4 个验证点；稳定后再以 CLI override 增至 200
   val_period: 25
