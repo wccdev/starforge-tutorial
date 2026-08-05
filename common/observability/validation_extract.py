@@ -17,11 +17,23 @@ def _role_text(message_log: list, role: str) -> str:
     return "\n---\n".join(parts).strip()
 
 
+def _clip(text: str, max_chars: int | None) -> str:
+    if not text or max_chars is None or max_chars <= 0 or len(text) <= max_chars:
+        return text
+    # 保留头尾，中间标明截断，便于仍能看到题目开头与最终 boxed/得分
+    head = max_chars * 2 // 3
+    tail = max_chars - head - 32
+    if tail < 64:
+        return text[: max_chars - 20] + "\n…[truncated]…"
+    return text[:head] + f"\n…[truncated {len(text) - head - tail} chars]…\n" + text[-tail:]
+
+
 def extract_message_log_samples(
     message_logs: list,
     rewards: list[float],
     *,
     num_samples: int | None = None,
+    max_field_chars: int | None = None,
 ) -> tuple[list[dict], list[dict], float | None]:
     """返回 (samples, dist, avg_reward)。
 
@@ -29,6 +41,7 @@ def extract_message_log_samples(
       跨验证轮稳定，便于按题目追踪得分变化。
     - num_samples>0 且小于总数：按 reward 高/低两端采样（与 print_message_log_samples 一致），
       但 idx 仍保留样本在本轮中的原始位置，不重排。
+    - max_field_chars：截断 user/assistant/env，避免 agent 检索轨迹撑爆 ingest。
     dist / avg_reward 始终基于**全量** rewards 计算。
     """
     if not message_logs or not rewards:
@@ -52,9 +65,12 @@ def extract_message_log_samples(
             {
                 "idx": idx + 1,  # 原始位置，1-based
                 "reward": reward,
-                "user": _role_text(ml, "user"),
-                "assistant": _role_text(ml, "assistant"),
-                "env": _role_text(ml, "environment") or _role_text(ml, "system"),
+                "user": _clip(_role_text(ml, "user"), max_field_chars),
+                "assistant": _clip(_role_text(ml, "assistant"), max_field_chars),
+                "env": _clip(
+                    _role_text(ml, "environment") or _role_text(ml, "system"),
+                    max_field_chars,
+                ),
             }
         )
 

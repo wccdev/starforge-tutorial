@@ -97,12 +97,29 @@ class IngestClient:
         with self._lock:
             self._log_eof_pending = True
 
-    def enqueue_validation(self, payload: dict) -> None:
-        """整轮验证样本 + 元数据，单次 POST。"""
+    def enqueue_validation(self, payload: dict) -> bool:
+        """验证样本分片 POST。成功返回 True；失败打印原因（不再静默吞掉）。
+
+        agent 轨迹 payload 大，用更长超时；失败时训练继续，但日志里必须可见。
+        """
+        step = payload.get("step")
+        ci = payload.get("chunk_index")
+        n = len(payload.get("samples") or [])
         try:
-            self._post("validation", payload)
-        except Exception:
-            pass
+            # 默认 120s；可用 NEMOLAB_VAL_TIMEOUT 覆盖
+            try:
+                timeout = float(os.environ.get("NEMOLAB_VAL_TIMEOUT", "120"))
+            except ValueError:
+                timeout = 120.0
+            self._post("validation", payload, timeout=max(15.0, timeout))
+            return True
+        except Exception as e:
+            print(
+                f"NeMoLab validation upload failed: step={step} chunk={ci} "
+                f"samples={n}: {e}",
+                flush=True,
+            )
+            return False
 
     def flush(self) -> None:
         self._flush_metrics()
@@ -124,25 +141,33 @@ class IngestClient:
             "Content-Type": "application/json",
         }
 
-    def _post(self, path: str, payload: dict) -> None:
+    def _post(self, path: str, payload: dict, *, timeout: float = 15) -> None:
         import requests
 
         url = f"{self.endpoint}/{path.lstrip('/')}"
         try:
             resp = requests.post(
-                url, json=payload, headers=self._headers(), timeout=15
+                url, json=payload, headers=self._headers(), timeout=timeout
             )
             resp.raise_for_status()
         except Exception as e:
             if self.fallback_path:
                 os.makedirs(os.path.dirname(self.fallback_path), exist_ok=True)
+                # 验证样本 payload 很大，fallback 只记摘要，避免把完整对话写进磁盘
+                summary = {
+                    "path": path,
+                    "error": str(e),
+                    "run_id": payload.get("run_id"),
+                    "step": payload.get("step"),
+                    "chunk_index": payload.get("chunk_index"),
+                    "total_chunks": payload.get("total_chunks"),
+                    "total_samples": payload.get("total_samples"),
+                    "samples_in_chunk": len(payload.get("samples") or []),
+                }
+                if path != "validation":
+                    summary["payload"] = payload
                 with open(self.fallback_path, "a", encoding="utf-8") as f:
-                    f.write(
-                        json.dumps(
-                            {"path": path, "payload": payload, "error": str(e)}
-                        )
-                        + "\n"
-                    )
+                    f.write(json.dumps(summary, ensure_ascii=False) + "\n")
             raise
 
     def _drain(self, q: Queue, limit: int) -> list[dict]:
