@@ -109,8 +109,29 @@ if [[ "${FRAMEWORK}" == "nemo-rl" ]]; then
   echo "[run] entry   : ${ENTRY}"
   echo "[run] config  : ${CONFIG}"
 fi
+# 镜像指纹：回答「这个作业跑在哪个环境里」。代码版本(git)和配置版本(config_sha)本来就有记录，
+# 唯独环境没有——而依赖一升级，老作业就永远说不清结果差异是代码还是环境造成的。
+# 优先读平台镜像写入的 /etc/nemo-lab-image（见 console 的 deploy/ray-cluster/Dockerfile），
+# 官方镜像则回退到它自带的 NVIDIA_BUILD_ID / NEMO_RL_COMMIT。
+_lab_image_id() {
+  if [[ -f /etc/nemo-lab-image ]]; then
+    local tag build_id
+    tag="$(sed -n 's/^LAB_IMAGE_TAG=//p' /etc/nemo-lab-image | head -1)"
+    build_id="$(sed -n 's/^LAB_IMAGE_BUILD_ID=//p' /etc/nemo-lab-image | head -1)"
+    echo "${tag:-unknown}@${build_id:-unknown}"
+  elif [[ -n "${NVIDIA_BUILD_ID:-}" ]]; then
+    echo "nemo-rl-official@${NVIDIA_BUILD_ID}"
+  elif [[ -n "${NEMO_RL_COMMIT:-}" ]]; then
+    echo "nemo-rl@${NEMO_RL_COMMIT}"
+  else
+    echo "unknown"
+  fi
+}
+export LAB_IMAGE="${LAB_IMAGE:-$(_lab_image_id)}"
+
 # 可复现元数据（由 lab submit 注入；容器内直跑时为空）。落到作业日志，便于事后回查代码/配置版本。
 echo "[run] version : run_id=${NRL_RUN_ID:-(直跑)} git=${NRL_GIT_COMMIT:-?}$([[ "${NRL_GIT_DIRTY:-0}" == 1 ]] && echo '+dirty') config=${NRL_CONFIG_SHA:-?}"
+echo "[run] image   : ${LAB_IMAGE}"
 if [[ "${FRAMEWORK}" == "nemo-rl" ]]; then
   echo "[run] cluster/产物 overrides:"; printf '          %s\n' "${OVERRIDES[@]}"
 fi

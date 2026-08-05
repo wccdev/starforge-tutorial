@@ -81,43 +81,59 @@ uv run python examples/run_grpo.py --help   # 验证
    worker runtime_env 打架。**新依赖只能进镜像。**
 2. **没有 per-job 镜像。** Ray 集群是长驻的，换镜像 = 重起 Ray 集群。所以 overlay 镜像是
    「集群级决策」，不是「实验级决策」——需要管理员配合，别指望自助。
-3. **NeMo-RL 会在作业运行时现建 worker venv**（`nemo_rl/utils/venvs.py`：按 worker 类型在
-   `$NEMO_RL_DIR/venvs/` 下 `uv sync`）。这一步**要访问 PyPI 索引**。内网集群若没配 Nexus 代理，
-   第一次跑新 backend（vLLM / Megatron）就会卡在这里。两个解法：镜像里预建好这些 venv，
-   或者配好内网索引（见下）。
+3. **actor venv 可能在作业运行时现建**（`nemo_rl/utils/venvs.py`：按 actor 类型在
+   `NEMO_RL_VENV_DIR`=`/opt/ray_venvs` 下 `uv sync`）。官方镜像**已经预建了主 venv**
+   （`/opt/nemo_rl_venv`），但 `/opt/ray_venvs` 是空的。这一步要够索引，内网下可能卡住。
+   平台镜像在构建期把它一并预热了，见下。
 
-#### 内网索引
+#### 构建时要拿到四类包（内网 PyPI 镜像不够）
 
-在容器里（或服务端 `LAB_PASSTHROUGH_ENV`）配好，`uv sync` / `pip install` 才能在内网工作：
+NeMo-RL 的依赖来源，用 `uv.lock` 实际枚举出来是这样：
+
+| 来源 | 内容 | 官方 PyPI 镜像覆盖 |
+| --- | --- | --- |
+| `files.pythonhosted.org` | 1221 个 wheel | ✅ |
+| `download*.pytorch.org` | torch / vision / audio / triton | ❌ |
+| `flashinfer.ai/whl/cu130` | flashinfer 系列 | ❌ |
+| `github.com` | release 资产 + `nemo_run` git 依赖 | ❌ |
+
+而且这些 URL **同时钉死在 `uv.lock` 里**（`index = "https://download.pytorch.org/..."`、
+直连的 `url = "https://github.com/..."`）——所以**改 `pyproject.toml` 的 index 没有用**，
+必须连 uv.lock 一起改，每次升级 NeMo-RL 都要重来。别走这条路。
+
+两个可行解：**在能出网的机器上构建**（推荐），或**全内网构建 + 带白名单的 HTTPS 正向代理**
+（`HTTPS_PROXY`，一次覆盖四类且不动任何文件）。
+
+> 顺带：**不需要配 NVIDIA 的 PyPI**。NeMo-RL 没有引用 `pypi.nvidia.com`；
+> `nvidia-cudnn-cu13` 之类是 torch 的普通 PyPI 依赖。
+
+#### 运行时索引
+
+运行时其实**不需要索引**（`_run_experiment.sh` 用的是 `uv run --no-sync`，且 venv 已预热）。
+但配上仍有价值——排错时进容器装个包、或跑 `FRAMEWORK=custom` 的轻量脚本。
+服务端已有 `passthrough_env` 透传机制，写进 `LAB_PASSTHROUGH_ENV` 即对所有作业生效，零代码：
 
 ```bash
-export UV_DEFAULT_INDEX=http://nexus.<内网域名>/repository/pypi/simple
-export PIP_INDEX_URL=http://nexus.<内网域名>/repository/pypi/simple
-export HF_ENDPOINT=http://nexus.<内网域名>/repository/hf-proxy   # 模型走内网
+UV_DEFAULT_INDEX=https://nexus.<内网域名>/repository/pypi-group/simple
+PIP_INDEX_URL=https://nexus.<内网域名>/repository/pypi-group/simple
+HF_ENDPOINT=https://nexus.<内网域名>/repository/hf-proxy
 ```
 
-> 服务端已有 `passthrough_env` 透传机制，把上面几条写进 `LAB_PASSTHROUGH_ENV` 即可对所有作业生效，
-> 无需改一行代码。
+#### 镜像与集群部署
 
-#### overlay Dockerfile 骨架
+Dockerfile / compose / 构建脚本都在 **console 仓库的 `deploy/ray-cluster/`**（集群运维属于控制面）：
 
-```dockerfile
-FROM nvcr.io/nvidia/nemo-rl:v0.7.0
-
-ARG NEXUS=http://nexus.<内网域名>/repository/pypi/simple
-ENV UV_DEFAULT_INDEX=${NEXUS} PIP_INDEX_URL=${NEXUS}
-
-# ★ 必须装进 NeMo-RL 那个 venv —— 装到系统 python 里，训练进程根本看不到
-ENV NEMO_RL_DIR=/opt/nemo-rl
-RUN uv pip install --python ${NEMO_RL_DIR}/.venv/bin/python \
-        "trl==0.2x.x" "flash-attn==2.8.3" --no-build-isolation
-
-# ★ 强烈建议：把 worker venv 预建进镜像，作业运行时就不必联网 uv sync
-RUN cd ${NEMO_RL_DIR} && NRL_FORCE_REBUILD_VENVS=true uv run python -c "print('warm')"
+```bash
+bash deploy/ray-cluster/build.sh                        # 构建 + 记台账
+EXTRA_PIP="trl==0.2x.x" bash deploy/ray-cluster/build.sh  # 叠加额外依赖
+docker compose --profile head up -d                     # 节点起停
 ```
 
 **架构必须对上**：`h100` / `h200` 是 x86_64，`gb10-spark` 是 aarch64 + Blackwell，两套镜像分开构建。
 `flash-attn` 这类要编译的包在 aarch64 上基本是坑，规划 L3 实验时优先放 H100/H200。
+
+**⚠️ 装额外依赖前先想版本冲突**：TRL 和 NeMo-RL 都吃 transformers，装错版本会让**所有**
+NeMo-RL 训练一起挂。这是「单胖镜像」路线的天花板，撞到了就该上多 Ray 集群方案。
 
 #### 跑非 NeMo-RL 框架
 
