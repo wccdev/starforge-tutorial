@@ -14,6 +14,9 @@ ckpt/
 *.gguf
 hf_export/
 exported_model/
+# scripts/download_models.py 的落盘目录（待同步到算力机的 HF 缓存），hf_models 是旧版平铺布局
+hf_cache/
+hf_models/
 
 # 数据（只入库元数据与处理脚本，原始/大数据本地或对象存储）
 datasets/**/raw/

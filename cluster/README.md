@@ -71,6 +71,63 @@ uv run python examples/run_grpo.py --help   # 验证
 > 使用 `nvcr.io/nvidia/nemo-rl:v0.7.0`（CUDA 13）；各 backend（DTensor / Megatron）的额外依赖以 v0.7.0 官方文档为准。
 > 源码与容器 fingerprint 不一致时，见 NeMo-RL 文档的 `NRL_FORCE_REBUILD_VENVS` / 重建镜像说明。
 
+### overlay 镜像：想加新依赖时（内网集群必读）
+
+**Ray 本身就跑在 NeMo-RL 官方容器里**（`uv run --no-sync ray start`），所以「容器 = 集群的环境」。
+由此推出三条硬约束，先认清再动手，能省掉一整天的试错：
+
+1. **作业级装包基本无效。** `uv run --with xxx` 只影响 driver 进程；训练真正跑在 Ray actor 里，
+   用的是容器 venv，看不到 driver 的 overlay 环境。Ray `runtime_env.pip` 又会和 NeMo-RL 自己设的
+   worker runtime_env 打架。**新依赖只能进镜像。**
+2. **没有 per-job 镜像。** Ray 集群是长驻的，换镜像 = 重起 Ray 集群。所以 overlay 镜像是
+   「集群级决策」，不是「实验级决策」——需要管理员配合，别指望自助。
+3. **NeMo-RL 会在作业运行时现建 worker venv**（`nemo_rl/utils/venvs.py`：按 worker 类型在
+   `$NEMO_RL_DIR/venvs/` 下 `uv sync`）。这一步**要访问 PyPI 索引**。内网集群若没配 Nexus 代理，
+   第一次跑新 backend（vLLM / Megatron）就会卡在这里。两个解法：镜像里预建好这些 venv，
+   或者配好内网索引（见下）。
+
+#### 内网索引
+
+在容器里（或服务端 `LAB_PASSTHROUGH_ENV`）配好，`uv sync` / `pip install` 才能在内网工作：
+
+```bash
+export UV_DEFAULT_INDEX=http://nexus.<内网域名>/repository/pypi/simple
+export PIP_INDEX_URL=http://nexus.<内网域名>/repository/pypi/simple
+export HF_ENDPOINT=http://nexus.<内网域名>/repository/hf-proxy   # 模型走内网
+```
+
+> 服务端已有 `passthrough_env` 透传机制，把上面几条写进 `LAB_PASSTHROUGH_ENV` 即可对所有作业生效，
+> 无需改一行代码。
+
+#### overlay Dockerfile 骨架
+
+```dockerfile
+FROM nvcr.io/nvidia/nemo-rl:v0.7.0
+
+ARG NEXUS=http://nexus.<内网域名>/repository/pypi/simple
+ENV UV_DEFAULT_INDEX=${NEXUS} PIP_INDEX_URL=${NEXUS}
+
+# ★ 必须装进 NeMo-RL 那个 venv —— 装到系统 python 里，训练进程根本看不到
+ENV NEMO_RL_DIR=/opt/nemo-rl
+RUN uv pip install --python ${NEMO_RL_DIR}/.venv/bin/python \
+        "trl==0.2x.x" "flash-attn==2.8.3" --no-build-isolation
+
+# ★ 强烈建议：把 worker venv 预建进镜像，作业运行时就不必联网 uv sync
+RUN cd ${NEMO_RL_DIR} && NRL_FORCE_REBUILD_VENVS=true uv run python -c "print('warm')"
+```
+
+**架构必须对上**：`h100` / `h200` 是 x86_64，`gb10-spark` 是 aarch64 + Blackwell，两套镜像分开构建。
+`flash-attn` 这类要编译的包在 aarch64 上基本是坑，规划 L3 实验时优先放 H100/H200。
+
+#### 跑非 NeMo-RL 框架
+
+镜像备好后，实验侧用 `FRAMEWORK=custom`：实验目录放一个 `train.sh`，
+`scripts/_run_experiment.sh` 会把密钥 / profile env / 产物目录 / 拓扑都准备好再 exec 它。
+骨架与完整契约见 `templates/custom-framework/train.sh`，或直接 `lab new <名字> --method custom`。
+
+> 配额不靠自觉：服务端按 profile 注册表记账，watchdog 还会做集群级 Ray 用卡对账。
+> `custom` 放开的是「跑什么代码」，不是「占多少卡」。
+
 ### 本机：开发期依赖
 
 本仓库根目录 **`pyproject.toml` + `uv`** 只管理 lab CLI 与数据预处理（`typer`、`datasets`、`pyyaml`），不含 NeMo-RL / vLLM / CUDA：

@@ -140,6 +140,25 @@ def _apply_agent_method(dest: Path, repo_root: Path) -> None:
     shutil.copy2(repo_root / "templates" / "agent-run.py.tmpl", dest / "run.py")
 
 
+def _apply_custom_method(dest: Path, repo_root: Path) -> None:
+    """自定义框架骨架：实验自带 train.sh，不经 NeMo-RL 启动。
+
+    只放 train.sh + framework 标记；config.yaml 留着但由 train.sh 自己解释（各框架配置格式不同，
+    强行套 NeMo-RL 的 defaults 继承体系反而添乱）。
+    """
+    tmpl = repo_root / "templates" / "custom-framework" / "train.sh"
+    if not tmpl.is_file():
+        raise NewExperimentError(f"缺少模板: {tmpl}")
+    shutil.copy2(tmpl, dest / "train.sh")
+    (dest / "framework").write_text("custom\n", encoding="utf-8")
+    # NeMo-RL 的 defaults 继承对自定义框架没意义，清成一个空壳让用户自己填。
+    (dest / "config.yaml").write_text(
+        "# 本实验用自定义框架（FRAMEWORK=custom），本文件由 train.sh 自行解释。\n"
+        "# NeMo-RL 的 defaults 继承体系在这里不生效——想用什么格式都行（yaml/json/argparse）。\n",
+        encoding="utf-8",
+    )
+
+
 def _fork_experiment(
     repo_root: Path, kind: str, name: str, src: str, cluster: str
 ) -> None:
@@ -188,9 +207,11 @@ def _create_from_template(
         _apply_sft_method(dest)
     elif method == "agent":
         _apply_agent_method(dest, repo_root)
+    elif method == "custom":
+        _apply_custom_method(dest, repo_root)
     else:
         shutil.rmtree(dest)
-        raise NewExperimentError(f"未知 --method: {method}（可选 grpo | sft | agent）")
+        raise NewExperimentError(f"未知 --method: {method}（可选 grpo | sft | agent | custom）")
 
     print(f"已创建实验: {dest}（method={method}）")
     print(f"  · 目标集群(cluster): {_read_cluster_file(dest)}（按需改：echo h100 > {dest}/cluster）")
@@ -203,6 +224,9 @@ def _create_from_template(
         print(
             f"  3. 编辑 {dest}/run.py（已放骨架：实现你的环境 + 数据，见文件内 TODO 与 multitool 范例）"
         )
+    elif method == "custom":
+        print(f"  3. 编辑 {dest}/train.sh（填你的启动命令；文件头写清了可用的 LAB_* 契约）")
+        print("     ⚠️ 新依赖装不进作业，需要 overlay 镜像——先看 cluster/README.md")
     else:
         print(f"  3. 自定义多轮环境：写 {dest}/run.py（自动选用）。见 configs/README.md")
 

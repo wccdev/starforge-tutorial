@@ -1,0 +1,115 @@
+# OPSD 自蒸馏实验：qwen3.5-9b 在数学推理题上做 On-Policy Self-Distillation。
+# 论文《Self-Distilled Reasoner》arXiv:2601.18734；算法实现 common/algorithms/opsd.py。
+# 继承官方 distillation 基底 + qwen3.5-9b 片段，只写差异。
+defaults:
+  - ../../configs/base/distillation_math.yaml
+  - ../../configs/models/qwen3.5-9b.yaml
+
+# ══════════════════════════════════════════════════════════════════════════
+#  调参速查 —— 你主要动【① 调参区】。硬件/分布式在 cluster/<profile>，不在这。
+#  本实验目标集群：见同目录 cluster 文件（h200，8×141GB）。
+# ──────────────────────────────────────────────────────────────────────────
+#  opsd.teacher_mode           self=老师复用学生权重（论文主设定，省一份显存）
+#                              fixed=另加载一份冻结权重当老师（对照组，显存翻倍）
+#  opsd.per_token_kl_clip      ★论文的稳定器。单 token KL 上限；null 关闭
+#  loss_fn.kl_type             reverse(默认，mode-seeking) / forward / mixed
+#  distillation.topk_logits_k  老师传给学生的 top-k 宽度。大→信号全但通信/显存涨
+#  num_generations_per_prompt  每题采样几条轨迹一起蒸馏
+#  max_total_sequence_length   ★必须装得下【题目+参考解+解答】——老师序列比学生长
+# ══════════════════════════════════════════════════════════════════════════
+
+# ───────────────────────────── ① 调参区（按需改）─────────────────────────────
+opsd:
+  # self：不加载第二份模型，老师 = 当前学生权重。这才是论文说的「单模型自蒸馏」，
+  #       且在 9B 上直接省掉 ~18GB 权重 + 激活。改成 fixed 可做「固定老师」对照。
+  teacher_mode: self
+  # per-token KL 截断：极少数 token 上老师极自信、学生几乎零概率，KL 能爆到几十，
+  # 单个 token 就主导整个 batch 的梯度。截断后这些位置仍给方向，但不再垄断梯度。
+  # 先按 10 起步；训练日志里看 opsd_kl_clip_frac（被截断 token 占比），
+  # 长期 >5% 说明截太狠该调大，接近 0 则说明这个稳定器没在起作用。
+  per_token_kl_clip: 10.0
+
+distillation:
+  num_prompts_per_step: 8
+  num_generations_per_prompt: 4
+  max_rollout_turns: 1 # ★必须为 1：OPSD 的老师要把 prompt 整段换成「题目+参考解」，
+  #                       多轮轨迹里 response 被工具结果打断，该操作无定义（opsd.py 会直接报错）
+  max_num_steps: 400
+  max_num_epochs: 10
+  val_batch_size: 32
+  val_period: 20
+  val_at_start: true # 先打一个未训练的基线点，曲线才有参照
+  val_at_end: true
+  max_val_samples: 256
+  topk_logits_k: 64
+  seed: 42
+
+loss_fn:
+  # reverse KL（mode-seeking）：让学生去覆盖老师的主模式，而不是摊平到老师的所有可能性上。
+  # 推理任务通常只有少数几条正确路径，forward KL 的 mass-covering 会把概率摊给错误分支。
+  kl_type: "reverse"
+  mixed_kl_weight: 0.5
+  zero_outside_topk: false
+
+policy:
+  model_name: "Qwen/Qwen3.5-9B-Base"
+  tokenizer:
+    name: "Qwen/Qwen3.5-9B-Base"
+  # ★ 这个预算要同时装下【老师序列】= 题目 + 参考解全文 + 学生解答。
+  #   老师比学生长出「参考解」那一段，8192 是按「题目~300 + 参考解~800 + 解答~1500」留的余量。
+  #   不够时 opsd.py 会左截断参考解（绝不截 response），但截多了老师就看不全答案、信号变差。
+  max_total_sequence_length: 8192
+  train_global_batch_size: 32
+  train_micro_batch_size: 1
+  logprob_batch_size: 1
+  generation_batch_size: 16
+  generation:
+    max_new_tokens: 2048 # 数学推理要留够思考长度
+    temperature: 1.0 # on-policy 蒸馏靠采样多样性覆盖学生的真实分布，别调太低
+    top_p: 1.0
+    vllm_cfg:
+      # NeMo-RL v0.7 已知 Qwen3.5 + vLLM CUDA-graph/Ray 间歇 hang；正式训练用 eager 更稳。
+      enforce_eager: true
+      gpu_memory_utilization: 0.6
+  optimizer:
+    kwargs:
+      lr: 1.0e-5 # 蒸馏信号比 RL 稠密得多，lr 比 GRPO 低一档更稳
+
+# ───────────────────────────── ② 一般不用动 ─────────────────────────────
+# 老师 policy 段：teacher_mode=self 时**完全不会被用来加载模型**（install_opsd 拦掉了 Policy
+# 构造）。但 NeMo-RL 的 setup() 仍会读 teacher.model_name 做 tokenizer 一致性校验，
+# 所以必须与 policy.model_name 保持一致。切 fixed 模式时这里才真正生效。
+teacher:
+  model_name: "Qwen/Qwen3.5-9B-Base"
+  tokenizer:
+    name: "Qwen/Qwen3.5-9B-Base"
+
+data:
+  shuffle: true
+  problem_key: problem
+  solution_key: solution
+  answer_key: answer
+  system_prompt: null
+  # 集群共享盘绝对路径（容器内可达）。目录下需有 train.jsonl / val.jsonl，
+  # 每行 {"problem": ..., "solution": <参考解全文>, "answer": <最终答案>}。
+  # run.py 优先用服务端注入的 OPSD_DATA_DIR，没有才用这里。
+  data_dir: /data/datasets/opsd_math
+
+env:
+  _override_: true
+  math:
+    num_workers: 8
+
+checkpointing:
+  enabled: true
+  metric_name: "val:accuracy"
+  higher_is_better: true
+  keep_top_k: 3
+  save_period: 20
+
+logger:
+  wandb_enabled: false
+  tensorboard_enabled: false
+  swanlab_enabled: false
+  monitor_gpus: true
+  num_val_samples_to_print: 8

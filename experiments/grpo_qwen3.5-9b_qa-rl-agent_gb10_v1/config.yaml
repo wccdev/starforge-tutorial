@@ -38,7 +38,7 @@ policy:
   #    1536（=baseline 单轮值）对多轮是错的：仅「prompt(~550)+搜一次(≤512)+回灌(~300)+作答(~512)」
   #    就 ≈1900>1536 → 在写 \boxed 前被截断 → 判 0。这正是初始 truncation_rate 0.6~0.9、准确率仅 15% 的根因。
   #    GB10 的 CPU/GPU 共用 128GB 内存；2048 只容纳「一次检索回灌 + 最终作答」，不支持长链多次搜索。
-  max_total_sequence_length: 2048
+  max_total_sequence_length: 3072
   # = num_prompts_per_step × num_generations_per_prompt。验证后内存很脏时，16 路训练 rollout
   # 会在 offload_after_refit / wake 阶段把 Megatron actor 卡死（Connection timed out）。
   train_global_batch_size: 8 # = 2 prompts × 4 generations
@@ -132,13 +132,13 @@ env:
       search_step_reward: 0.05
       answer_search_bonus: 0.15
       search_bonus_min_score: 1.0
-      no_search_answer_penalty: 0.1 # 闭卷满分 0.9 < 检索满分 1.15(+step0.05→总≈1.2)
+      no_search_answer_penalty: 0.05 # 闭卷满分 0.9 < 检索满分 1.15(+step0.05→总≈1.2)
       no_answer_penalty: 0.2
       # 原生 QADocs 环境的 v0.7 兼容工具格式约束；验证实例会由 make_eval_cfg() 自动归零。
       format_error_penalty: 0.02
       invalid_search_penalty: 0.02
       # GB10：检索回灌也会写入整条 rollout；400 字通常足够两个 BM25 片段且保留最终作答空间。
-      retrieval_max_chars: 400
+      retrieval_max_chars: 250
 
 logger:
   wandb_enabled: false

@@ -95,10 +95,16 @@ class Kind(str, Enum):
 
 
 class Method(str, Enum):
-    """训练方法骨架。agent 本质是 GRPO 的多轮变体（base=grpo_sliding_puzzle + 自定义 run.py 环境）。"""
+    """训练方法骨架。
+
+    agent 本质是 GRPO 的多轮变体（base=grpo_sliding_puzzle + 自定义 run.py 环境）。
+    custom 则完全不经 NeMo-RL：实验自带 train.sh，用来跑 TRL / verl / 纯 HF Trainer 等外部框架
+    （见 templates/custom-framework/train.sh 里的 LAB_* 契约）。
+    """
     grpo = "grpo"
     sft = "sft"
     agent = "agent"
+    custom = "custom"
 
 
 # ----------------------------- 子命令 -----------------------------
@@ -699,6 +705,153 @@ app.command(help="登出")(cli_login.logout)
 app.command(help="当前账号与配额")(cli_login.whoami)
 app.command(help="配额详情（JSON）")(cli_login.quota)
 app.add_typer(cli_login.admin_app, name="admin")
+
+
+# ----------------------------- 模型权重入内网 -----------------------------
+# 集群只有内网，HF 直连必然失败；这三条命令把「怎么把权重弄进来」固化成一等公民，
+# 不再依赖各人本地的临时脚本。三种通路对应三种网络现实：
+#   nexus      算力机能访问内网 Nexus（raw/hosted repo 里放着预先上传的 HF 缓存包）——首选
+#   relay      算力机不能上外网，但能 ssh 到一台有外网的中继机（字节流经 ssh 管道直落盘）
+#   direct     本机有外网，下好整个缓存目录再自行拷贝/挂载到集群
+model_app = typer.Typer(
+    no_args_is_help=True,
+    help="模型权重入内网（下载 / 装进 HF 缓存 / 查看）",
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
+app.add_typer(model_app, name="model")
+
+# 默认落盘位置：优先 HF_HOME，其次仓库外的 ./hf_cache（别放进仓库，会被 lab submit 打包上传）
+DEFAULT_HF_HOME = Path(os.environ.get("HF_HOME") or (Path.cwd() / "hf_cache"))
+
+
+def _model_script(name: str) -> Path:
+    path = SCRIPTS / name
+    if not path.is_file():
+        cli_ui.fail(f"缺少脚本 {path}", hint="仓库可能不完整，检查 scripts/ 目录")
+    return path
+
+
+# ⚠️ 这里刻意**不开** allow_extra_args/ignore_unknown_options：与变长位置参数 `repo` 共存时，
+#    `lab model pull --retries 3` 里的 `3` 会被 click 当成位置参数吃掉，变成「下载一个叫 3 的模型」——
+#    在内网现场表现为莫名其妙的 404 或十分钟超时。常用选项在下面显式声明；
+#    更冷门的开关请直接调 scripts/download_models.py / download_via_relay.py。
+@model_app.command("pull", help="把模型权重下载成 HF 缓存布局（支持 nexus / relay / direct）")
+def model_pull(
+    repo: list[str] = typer.Argument(
+        None, help="HF repo id（如 Qwen/Qwen3.5-9B）或脚本内置短名；留空=下载内置清单全部"
+    ),
+    via: str = typer.Option(
+        "direct", "--via", help="通路：direct（本机有外网）| relay（经中继机 ssh）| nexus（内网 Nexus）"
+    ),
+    relay: Optional[str] = typer.Option(
+        None, "--relay", help="中继机 user@host（--via relay 必填；也可用环境变量 LAB_RELAY）"
+    ),
+    source: str = typer.Option("hf", "--source", help="上游源：hf | modelscope（国内带宽通常更好）"),
+    hf_home: Optional[Path] = typer.Option(
+        None, "--hf-home", help=f"缓存根目录（默认 {DEFAULT_HF_HOME}）"
+    ),
+    daemon: bool = typer.Option(False, "--daemon", help="后台跑，日志写到 <hf-home>/download.log"),
+    list_only: bool = typer.Option(False, "--list", help="只列出待下载模型与体积，不实际下载"),
+    retries: Optional[int] = typer.Option(None, "--retries", help="每个模型的重试轮数（内网抖动时调大）"),
+    workers: Optional[int] = typer.Option(None, "--workers", help="并发下载通道数"),
+    force: bool = typer.Option(False, "--force", help="忽略完成标记，重新校验下载"),
+) -> None:
+    """三条通路共用同一套产物布局：`<hf-home>/hub/models--<org>--<name>/`。
+
+    因此集群侧无论用哪条通路拿到的权重，config 里都继续写 repo id
+    （`policy.model_name: "Qwen/Qwen3.5-9B"`），只要 `HF_HOME` 指对目录即可，不用改成绝对路径。
+    """
+    root = (hf_home or DEFAULT_HF_HOME).expanduser()
+    # 两个脚本对「并发」的命名不同：relay 走 ssh 通道数 --workers，direct 走线程数 --max-workers。
+    worker_flag = "--workers" if via == "relay" else "--max-workers"
+    extra: list[str] = []
+    if retries is not None:
+        extra += ["--retries", str(retries)]
+    if workers is not None:
+        extra += [worker_flag, str(workers)]
+    if force:
+        extra.append("--force")
+
+    if via == "relay":
+        target = relay or os.environ.get("LAB_RELAY")
+        if not target:
+            cli_ui.fail("--via relay 需要指定中继机", hint="lab model pull ... --relay root@10.0.0.2")
+        cmd = [sys.executable, str(_model_script("download_via_relay.py")),
+               "--relay", target, "--hf-home", str(root), "--source", source]
+        for r in repo or []:
+            cmd += ["--only", r]
+    elif via == "nexus":
+        # Nexus 通路：把 HF 端点指到内网代理，其余与 direct 完全一致。
+        # 需要管理员在 Nexus 上建好 hf 的 proxy/raw repo，并把地址配到 LAB_NEXUS_HF_ENDPOINT。
+        endpoint = os.environ.get("LAB_NEXUS_HF_ENDPOINT")
+        if not endpoint:
+            cli_ui.fail(
+                "未配置内网 HF 端点",
+                hint="设置 LAB_NEXUS_HF_ENDPOINT=http://nexus.<内网域名>/repository/hf-proxy",
+            )
+        cmd = [sys.executable, str(_model_script("download_models.py")),
+               "--hf-home", str(root), "--source", source, "--endpoint", endpoint]
+        for r in repo or []:
+            cmd += ["--only", r]
+    elif via == "direct":
+        cmd = [sys.executable, str(_model_script("download_models.py")),
+               "--hf-home", str(root), "--source", source]
+        for r in repo or []:
+            cmd += ["--only", r]
+    else:
+        cli_ui.fail(f"未知通路「{via}」", hint="可选：direct | relay | nexus")
+
+    if daemon:
+        cmd.append("--daemon")
+    if list_only:
+        cmd.append("--list")
+    raise typer.Exit(_run(cmd + extra))
+
+
+@model_app.command("install", help="把平铺的模型目录装进 HF 缓存布局（config 里可继续用 repo id）")
+def model_install(
+    src: Path = typer.Argument(..., help="装着各模型子目录的那一层（不是模型目录本身）"),
+    hf_home: Optional[Path] = typer.Option(None, "--hf-home", help=f"目标缓存根（默认 {DEFAULT_HF_HOME}）"),
+    only: Optional[list[str]] = typer.Option(None, "--only", help="只装指定子目录名，可重复"),
+    offline: bool = typer.Option(False, "--offline", help="完全不联网，只用 marker / --sha"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="只打印计划"),
+) -> None:
+    """用于「权重是别人拷过来的一坨平铺文件」这种情况——常见于 U 盘/内网共享盘交付。"""
+    cmd = [sys.executable, str(_model_script("install_to_hf_cache.py")),
+           "--src", str(src.expanduser()),
+           "--hf-home", str((hf_home or DEFAULT_HF_HOME).expanduser())]
+    for name in only or []:
+        cmd += ["--only", name]
+    if offline:
+        cmd.append("--offline")
+    if dry_run:
+        cmd.append("--dry-run")
+    raise typer.Exit(_run(cmd))
+
+
+@model_app.command("ls", help="列出本地 HF 缓存里已有的模型")
+def model_ls(
+    hf_home: Optional[Path] = typer.Option(None, "--hf-home", help=f"缓存根（默认 {DEFAULT_HF_HOME}）"),
+) -> None:
+    hub = (hf_home or DEFAULT_HF_HOME).expanduser() / "hub"
+    if not hub.is_dir():
+        typer.echo(f"（{hub} 不存在，还没下过模型）")
+        return
+    rows = []
+    for d in sorted(hub.iterdir()):
+        if not d.is_dir() or not d.name.startswith("models--"):
+            continue
+        repo_id = d.name.removeprefix("models--").replace("--", "/")
+        size = sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
+        ref = d / "refs" / "main"
+        sha = ref.read_text().strip()[:12] if ref.is_file() else "-"
+        rows.append((repo_id, cli_ui.human_bytes(size), sha))
+    if not rows:
+        typer.echo(f"（{hub} 下没有模型）")
+        return
+    typer.echo(f"{'REPO ID':<40} {'大小':>10}  SHA")
+    for repo_id, size, sha in rows:
+        typer.echo(f"{repo_id:<40} {size:>10}  {sha}")
 
 
 # ----------------------------- shell 补全（显式指定 shell）-----------------------------

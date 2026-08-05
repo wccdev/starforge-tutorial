@@ -8,7 +8,12 @@ from pathlib import Path
 
 # 需要更大模型基底时，把对应文件名加进来，例如 grpo_math_8B.yaml
 # configs/base/grpo_megatron.yaml 是本仓库自定义 overlay，不在此同步。
-SYNC_FILES = ("grpo_math_1B.yaml", "sft.yaml", "grpo_sliding_puzzle.yaml")
+SYNC_FILES = (
+    "grpo_math_1B.yaml",
+    "sft.yaml",
+    "grpo_sliding_puzzle.yaml",
+    "distillation_math.yaml",  # OPSD / on-policy 蒸馏系实验的基底
+)
 
 
 class SyncBaseError(Exception):
