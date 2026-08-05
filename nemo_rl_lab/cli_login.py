@@ -920,3 +920,73 @@ def admin_set_quota(
         "daily_gpu_hours": daily_gpu_hours, "allowed_profiles": allowed, "priority": priority,
     })
     typer.secho(f"✓ 已设置 {username} 配额：{json.dumps(q, ensure_ascii=False)}", fg=typer.colors.GREEN)
+
+
+# ----------------------------- 维护模式（滚动升级集群镜像）-----------------------------
+# 完整流程见 console 仓库 deploy/ray-cluster/README.md「升级」一节：
+#   lab admin maintenance drain --note "升级镜像至 0.7.0-20260805"
+#   lab admin maintenance status            # 等到「可以重启」
+#   （各节点 docker compose pull && up -d）
+#   lab admin maintenance resume            # 作业自动从 checkpoint 续训
+maintenance_app = typer.Typer(
+    no_args_is_help=True,
+    help="维护模式：排空集群 → 升级 → 恢复（作业从 checkpoint 续训，不丢进度）",
+    context_settings={"help_option_names": ["-h", "--help"]},
+)
+admin_app.add_typer(maintenance_app, name="maintenance")
+
+
+def _print_maintenance(data: dict) -> None:
+    on = data.get("maintenance_mode")
+    typer.secho(
+        f"维护模式：{'开启' if on else '关闭'}" + (f"（{data['note']}）" if data.get("note") else ""),
+        fg=typer.colors.YELLOW if on else typer.colors.GREEN,
+    )
+    if paused := data.get("paused"):
+        typer.echo(f"本次暂停 {len(paused)} 个训练作业：")
+        for rid in paused:
+            typer.echo(f"  · {rid}")
+    if pending := data.get("paused_awaiting_resume"):
+        typer.echo(f"待自动续训：{pending} 个")
+
+    # blockers / failed 是决定「能不能动集群」的关键，务必显眼
+    for key, label, color in (
+        ("blockers", "仍占卡（不支持 checkpoint 续跑，需等它跑完或手动停）", typer.colors.YELLOW),
+        ("failed", "停止失败（重跑 drain 或手动处理）", typer.colors.RED),
+    ):
+        for item in data.get(key) or []:
+            typer.secho(
+                f"  ⚠ [{label}] {item.get('lab_run_id')} ({item.get('username')})"
+                + (f" — {item['reason']}" if item.get("reason") else ""),
+                fg=color,
+            )
+
+    if "safe_to_restart" in data:
+        if data["safe_to_restart"]:
+            typer.secho("\n✓ 集群已排空，可以重启节点了", fg=typer.colors.GREEN, bold=True)
+            typer.echo("  各节点：docker compose --profile <head|worker> pull && up -d")
+            typer.echo("  升级完成后：lab admin maintenance resume")
+        else:
+            n = data.get("remaining_active", data.get("active_jobs", "?"))
+            typer.secho(f"\n✗ 还有 {n} 个作业占着卡，现在重启会打断它们", fg=typer.colors.RED, bold=True)
+
+
+@maintenance_app.command("status", help="查看维护状态与是否可以安全重启集群")
+def maintenance_status() -> None:
+    _print_maintenance(_admin_call("GET", "/api/admin/maintenance"))
+
+
+@maintenance_app.command("drain", help="进入维护模式并排空集群（幂等，没排干净就再跑一次）")
+def maintenance_drain(
+    note: str = typer.Option("", "--note", help="维护说明，会回显给被拦下的提交者"),
+) -> None:
+    _print_maintenance(_admin_call("POST", "/api/admin/maintenance/drain", body={"note": note}))
+
+
+@maintenance_app.command("resume", help="退出维护模式，被暂停的作业自动从 checkpoint 续训")
+def maintenance_resume() -> None:
+    data = _admin_call("POST", "/api/admin/maintenance/resume")
+    typer.secho(
+        f"✓ 已退出维护模式，{data.get('resuming', 0)} 个作业将由队列按原优先级自动续训",
+        fg=typer.colors.GREEN,
+    )
