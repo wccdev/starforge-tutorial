@@ -45,19 +45,36 @@ from nemo_rl.utils.config import (
 from nemo_rl.utils.logger import get_next_experiment_dir
 
 from common.algorithms.opsd import HINT_KEY, install_opsd, make_clipped_loss_fn
+from common.algorithms.opsd_eval import PROBLEM_ID_KEY, install_grouped_val_metrics
 
 TASK_NAME = "math"
 
-# 学生看到的：只有题目。
-STUDENT_TEMPLATE = "{problem}\n\n请一步步推理，并把最终答案写进 \\boxed{{}}。"
+# ── prompt 与官方实现逐字对齐 ───────────────────────────────────────────────
+# 取自 siyan-zhao/OPSD 的 data_collator.py（non-reason_first 模式）。
+# 这两段文字不是可有可无的措辞：老师和学生的分布差异**完全**来自它们的差异，
+# 改写 prompt 等于改了实验条件，复现出的数字就不再可比。要改请另开一个实验目录。
+STUDENT_TEMPLATE = (
+    "Problem: {problem}\n\n"
+    "Please reason step by step, and put your final answer within \\boxed{{}}."
+)
 
-# 老师看到的：题目 + 参考解。老师并不是要「复述」这段参考解，而是在读过它之后，
-# 对学生已经写下的那条解答重新给出逐 token 分布——这就是 OPSD 的监督信号来源。
+# 老师并不是要「复述」参考解——transition_prompt 明确要求它读懂之后用自己的话独立重推。
+# 这样老师给出的分布才是「一个想明白了的自己」，而不是在背答案。
+_TRANSITION = (
+    "\n\nAfter reading the reference solution above, make sure you truly understand "
+    "the reasoning behind each step — do not copy or paraphrase it. Now, using your own "
+    "words and independent reasoning, derive the same final answer to the problem above. "
+    "Think step by step, explore different approaches, and don't be afraid to backtrack "
+    "or reconsider if something doesn't work out:\n"
+)
 TEACHER_TEMPLATE = (
-    "{problem}\n\n"
-    "（以下参考解仅供你内部参考，不要在回答里提及它的存在）\n"
-    "参考解：{solution}\n\n"
-    "请一步步推理，并把最终答案写进 \\boxed{{}}。"
+    "Problem: {problem}\n\n"
+    "Here is a reference solution to this problem:\n"
+    "=== Reference Solution Begin ===\n"
+    "{solution}\n"
+    "=== Reference Solution End ===\n"
+    + _TRANSITION
+    + "\n\nPlease reason step by step, and put your final answer within \\boxed{{}}."
 )
 
 
@@ -96,6 +113,7 @@ class OPSDMathDataset(Dataset):
         solution_key: str = "solution",
         answer_key: str = "answer",
         system_prompt: str | None = None,
+        repeat: int = 1,
     ):
         self.rows = _read_jsonl(path)
         self.tokenizer = tokenizer
@@ -103,9 +121,12 @@ class OPSDMathDataset(Dataset):
         self.solution_key = solution_key
         self.answer_key = answer_key
         self.system_prompt = system_prompt
+        # 验证用：同一题重复 N 次，配合 greedy=False 的采样即得 avg@N / pass@N / majority@N
+        # （NeMo-RL 官方 distillation_math.yaml 用 AIME2024 + repeat:16 也是这个道理）。
+        self.repeat = max(1, int(repeat))
 
     def __len__(self) -> int:
-        return len(self.rows)
+        return len(self.rows) * self.repeat
 
     def _encode(self, text: str) -> tuple[torch.Tensor, str]:
         chat: list[dict[str, str]] = []
@@ -119,7 +140,9 @@ class OPSDMathDataset(Dataset):
         return ids["input_ids"][0], rendered
 
     def __getitem__(self, idx: int) -> DatumSpec:
-        row = self.rows[idx]
+        # repeat>1 时 idx 落在 [0, len(rows)*repeat)；取模回到原题，余数只用于区分第几次采样。
+        problem_idx = idx % len(self.rows)
+        row = self.rows[problem_idx]
         problem = str(row[self.problem_key])
         solution = str(row.get(self.solution_key, ""))
         answer = str(row.get(self.answer_key, "")) or solution
@@ -142,6 +165,8 @@ class OPSDMathDataset(Dataset):
                 "ground_truth": answer,
                 # OPSDTeacher 用它换掉老师侧的 prompt 段。
                 HINT_KEY: hint_ids,
+                # 按题聚合 pass@N / majority@N 的分组键：同一题的 N 条 repeat 共用它。
+                PROBLEM_ID_KEY: problem_idx,
             },
             "loss_multiplier": 1.0,
             "idx": idx,
@@ -197,10 +222,24 @@ def main() -> None:
     train_dataset = OPSDMathDataset(
         os.path.join(data_dir, "train.jsonl"), tokenizer, **ds_kwargs
     )
+    # 验证集每题重复 val_repeat 次：AIME 只有 30 题，每题只采 1 条的话准确率分辨率是
+    # 3.3%，相邻两次验证光靠噪声就能差 6~10 个百分点，曲线读不出趋势。
+    val_repeat = int(data_cfg.get("val_repeat", 1))
     val_dataset = OPSDMathDataset(
-        os.path.join(data_dir, "val.jsonl"), tokenizer, **ds_kwargs
+        os.path.join(data_dir, "val.jsonl"), tokenizer, repeat=val_repeat, **ds_kwargs
     )
-    print(f"训练集 {len(train_dataset)} 条，验证集 {len(val_dataset)} 条")
+    n_val_problems = len(val_dataset) // val_repeat
+    print(
+        f"训练集 {len(train_dataset)} 条，"
+        f"验证集 {n_val_problems} 题 × {val_repeat} 次 = {len(val_dataset)} 条"
+    )
+    max_val = int(config.distillation.get("max_val_samples") or 0)
+    if max_val and max_val < len(val_dataset):
+        print(
+            f"  ⚠️ max_val_samples={max_val} < {len(val_dataset)}，会截断验证集："
+            f"后面的题采不满 {val_repeat} 次，pass@N/majority@N 口径不一致。"
+            f"建议设为 {len(val_dataset)}。"
+        )
 
     env = MathEnvironment.options(num_gpus=0).remote(cfg=config.env[TASK_NAME])
     task_to_env = {TASK_NAME: env}
@@ -214,6 +253,10 @@ def main() -> None:
         max_seq_len=config.policy["max_total_sequence_length"],
         make_divisible_by=config.policy.get("make_sequence_length_divisible_by", 1),
     )
+
+    # pass@N / majority@N：NeMo-RL 的 validate() 只给 accuracy(=avg@N)，这里补上另两个，
+    # 口径对齐论文 eval/evaluate_math.py。与 install_opsd 共用同一个 rollout 旁听机制。
+    install_grouped_val_metrics()
 
     (
         student_policy,

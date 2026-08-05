@@ -65,6 +65,19 @@ HINT_KEY = "opsd_hint_token_ids"
 # repeated_batch["message_log"] 顺序摊平出来的），OPSDTeacher 里有断言兜底。
 _PENDING_BATCH: Any = None
 
+# rollout 完成时的旁听者。老师取参考解、验证指标按题聚合，都需要拿到「这一轮 rollout 的
+# 完整 batch」；与其各自去猴子补丁同一个函数（互相覆盖、顺序敏感），不如只补一次、多方旁听。
+_ROLLOUT_LISTENERS: list = []
+
+
+def add_rollout_listener(fn) -> None:
+    """注册 rollout 旁听者：每次 rollout 结束时以完成后的 batch 调用一次。
+
+    旁听者内部异常一律吞掉——它们都是旁路（指标/采集），不能把训练带崩。
+    """
+    if fn not in _ROLLOUT_LISTENERS:
+        _ROLLOUT_LISTENERS.append(fn)
+
 
 # =============================================================================
 #  1. 序列切分：从 train_data 还原出「prompt 多长 / response 在哪」
@@ -489,7 +502,13 @@ def install_opsd(
         def wrapper(*args: Any, **kwargs: Any):
             global _PENDING_BATCH
             result = fn(*args, **kwargs)
-            _PENDING_BATCH = result[0] if isinstance(result, tuple) else result.final_batch
+            batch = result[0] if isinstance(result, tuple) else result.final_batch
+            _PENDING_BATCH = batch
+            for listener in _ROLLOUT_LISTENERS:
+                try:
+                    listener(batch)
+                except Exception as e:  # noqa: BLE001  旁路失败不能影响训练
+                    print(f"[OPSD] rollout 旁听者异常（已忽略）: {e}", flush=True)
             return result
 
         return wrapper
