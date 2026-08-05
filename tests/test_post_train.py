@@ -91,3 +91,66 @@ def test_eval_without_model_exports_first(tmp_path: Path):
     out = _run_post(tmp_path, "eval", "experiments/foo")
     assert "convert_dcp_to_hf.py" in out  # 先导出
     assert "run_eval.py" in out  # 再评测
+
+
+# --------------------------- 实验自带评测脚本（eval.py）---------------------------
+# 约定与训练入口 run.py 一致：实验目录里有 eval.py 就用之，否则回落官方 run_eval.py。
+# 这条分支的价值是「官方协议对不上时能换掉」，所以要锁住：选对了脚本、给对了模型、
+# 且透传了覆盖项——选错了的表现是评测跑完但口径不对，数字看着正常却没法和论文比。
+def _mk_exp_with_eval(tmp_path: Path, *, with_eval_py: bool) -> tuple[Path, Path]:
+    """造一个仿真仓库，返回 (repo_root, ckpt_root)。"""
+    root = tmp_path / "repo"
+    exp = root / "experiments" / "demo_exp"
+    exp.mkdir(parents=True)
+    if with_eval_py:
+        (exp / "eval.py").write_text("# custom evaluator\n")
+    scripts = root / "scripts"
+    scripts.mkdir()
+    for name in ("post_train.sh", "_output_paths.sh"):
+        shutil.copy2(REPO_ROOT / "scripts" / name, scripts / name)
+
+    ckpt = tmp_path / "ckpt"
+    _mk_step(ckpt, 10, megatron=False)
+    return root, ckpt
+
+
+def _run_eval(root: Path, ckpt: Path, *extra: str) -> str:
+    proc = subprocess.run(
+        ["bash", str(root / "scripts" / "post_train.sh"), "eval", "experiments/demo_exp",
+         "--ckpt-dir", str(ckpt), "--model", "/models/hf-export", *extra],
+        capture_output=True, text=True,
+        env={"LAB_DRY_RUN": "1", "NEMO_RL_DIR": "/opt/nemo-rl", "PATH": "/usr/bin:/bin"},
+    )
+    assert proc.returncode == 0, proc.stderr
+    return proc.stdout
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="需要 bash")
+def test_eval_prefers_experiment_eval_py(tmp_path: Path):
+    root, ckpt = _mk_exp_with_eval(tmp_path, with_eval_py=True)
+    out = _run_eval(root, ckpt)
+    assert "实验自带" in out
+    assert "experiments/demo_exp/eval.py" in out
+    assert "--model /models/hf-export" in out
+    # 不该再走官方入口
+    assert "examples/run_eval.py" not in out
+    # 必须带 --no-sync（用容器预建 venv，作业里不解析依赖）与 PYTHONPATH（能 import common.*）
+    assert "--no-sync" in out
+    assert "PYTHONPATH=" in out
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="需要 bash")
+def test_eval_falls_back_to_official_runner(tmp_path: Path):
+    root, ckpt = _mk_exp_with_eval(tmp_path, with_eval_py=False)
+    out = _run_eval(root, ckpt)
+    assert "examples/run_eval.py" in out
+    assert "实验自带" not in out
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="需要 bash")
+def test_eval_forwards_overrides_to_custom_script(tmp_path: Path):
+    """`--` 之后的参数要原样透传，否则改不了每题采样数这类协议参数。"""
+    root, ckpt = _mk_exp_with_eval(tmp_path, with_eval_py=True)
+    out = _run_eval(root, ckpt, "--", "--n", "4", "--datasets", "aime24")
+    assert "--n 4" in out
+    assert "--datasets aime24" in out

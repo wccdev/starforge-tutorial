@@ -152,6 +152,24 @@ do_eval() {
     model="${EXPORTED_DIR}"
   fi
   echo "[post] eval model : ${model}"
+
+  # 实验自带评测脚本优先（与训练入口 run.py 同款约定：本目录有就用之）。
+  # 用于「官方 run_eval.py 的协议对不上」的场景——比如要按论文口径每题采 N 条、
+  # 算 pass@N / majority@N，或者一次评多个数据集。
+  local custom="${REPO_ROOT}/${EXP_REL}/eval.py"
+  if [[ -f "${custom}" ]]; then
+    echo "[post] eval entry : ${custom}（实验自带）"
+    run cd "${NEMO_RL_DIR}"
+    # 注意 --no-sync：与 _run_experiment.sh 一致，用容器预建 venv，不在作业里解析依赖。
+    # PYTHONPATH 指到仓库根，脚本里才能 import common.*。
+    run env PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}" \
+      uv run --no-sync python "${custom}" \
+      --model "${model}" \
+      ${EVAL_OVERRIDES[@]+"${EVAL_OVERRIDES[@]}"}
+    echo "[post] eval 完成"
+    return
+  fi
+
   echo "[post] eval config: ${EVAL_CONFIG}"
   run cd "${NEMO_RL_DIR}"
   # `${arr[@]+"${arr[@]}"}`：兼容 set -u 下的空数组（含 macOS 自带 bash 3.2）。

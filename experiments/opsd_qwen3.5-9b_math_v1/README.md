@@ -33,14 +33,22 @@
 
 ## 数据
 
-集群共享盘 `/data/datasets/opsd_math/{train,val}.jsonl`（或由服务端注入 `OPSD_DATA_DIR`），每行：
+用**论文作者发布的官方训练集** `siyanzhao/Openthoughts_math_30k_opsd`（29434 条），
+就是官方 `opsd_train.py` 加载的那个；其 `data_collator.py` 读的也正是 `problem` / `solution`
+两个字段，与本实验 schema 一致。
 
-```json
-{"problem": "题目", "solution": "参考解全文（喂给老师）", "answer": "最终答案（验证判分用）"}
-```
+集群共享盘 `/data/datasets/opsd_math/`（或由服务端注入 `OPSD_DATA_DIR`）：
 
-**不走 HF `dataset_name`** —— 集群无外网，在线拉取必然失败。数据入内网见根目录
-`scripts/download_models.py` / `download_via_relay.py`。
+| 文件 | 用途 |
+| --- | --- |
+| `train.jsonl` | 训练 |
+| `val.jsonl` | 训练中 in-loop 验证（= AIME24） |
+| `eval_aime24/25.jsonl`、`eval_hmmt25.jsonl` | 训练后离线评测，对照论文三列 |
+
+每行 `{"problem": ..., "solution": <参考解全文>, "answer": <最终答案>}`。
+
+**不走 HF `dataset_name`** —— 集群无外网，在线拉取必然失败。生成与投放见
+`datasets/opsd_math/README.md`（`lab prepare opsd_math` + rsync）。
 
 ## 关键参数
 
@@ -61,14 +69,53 @@
 lab submit opsd_qwen3.5-9b_math_v1          # 用实验自带的 h200
 ```
 
+## 训练后评测（对照论文表格）
+
+```bash
+lab eval opsd_qwen3.5-9b_math_v1 --run-id <训练 run_id>
+# 只评一个集 / 改协议参数（-- 之后原样透传给 eval.py）：
+lab eval opsd_qwen3.5-9b_math_v1 --run-id <run_id> -- --datasets aime24 --n 4
+```
+
+本目录的 `eval.py` 会被 `scripts/post_train.sh` 自动选用（与训练入口 `run.py` 同款约定）。
+它按论文协议（每题 12 条 / temp 1.0 / max_tokens 38912）在三个评测集上打分，
+输出可与论文表格逐项对照的 `avg@N / pass@N / majority@N`。
+
+**判分和训练中的 validation 是同一套实现**（`common/eval/math_eval.py` →
+`common/algorithms/opsd_eval.py`，判分器都用 NeMo-RL 的 `HFVerifyWorker`），
+所以训练曲线上的数和最终报告里的数可比。分开写两套评测最容易出的事故不是算错，
+而是两边算得都对但口径不同，最后说不清差异从哪来。
+
+| | in-loop validation | `lab eval` |
+| --- | --- | --- |
+| 时机 | 训练中每 20 步 | 训练结束后 |
+| 评测集 | 只 AIME24（省时间） | AIME24 + AIME25 + HMMT25 |
+| 生成长度 | 受训练 `max_total_sequence_length` 约束 | 38912（论文口径） |
+| 用途 | 看趋势 | 出最终数字 |
+
 ## 需要盯的指标
 
-| 指标 | 含义 | 异常信号 |
+验证按官方 `eval/run_eval.sh` 的口径做：AIME24 每题采 12 条（`data.val_repeat: 12`），
+按题聚合出三个指标。AIME 只有 30 题，每题采 1 条时分辨率是 3.3%，
+相邻两次验证光靠噪声就能差 6~10 个点 —— 所以 repeat 不是可选项。
+
+| 指标 | 含义 | 怎么读 |
 | --- | --- | --- |
-| `validation/accuracy` | 主结果 | 应显著快于同预算 GRPO |
+| `validation/avg_at_n` | 总正确/总生成 | 主结果，等价于 `accuracy` |
+| `validation/pass_at_n` | 至少一条对的题占比 | 上界。它高而 avg 低 = **会做但不稳**，正是蒸馏该改善的 |
+| `validation/majority_at_n` | 多数投票正确的题占比 | 最接近实际部署口径 |
+| `validation/unparsed_answer_rate` | 没写出 `\boxed{}` 的比例 | 偏高说明分数低是**格式问题**不是能力问题 |
+| `validation/samples_per_problem` | 每题实际采样数 | 应为 12。是 1 说明 `val_repeat` 没生效 |
 | `opsd_kl_clip_frac` | 被截断的 token 占比 | 长期 >5% → clip 太狠；≈0 → 稳定器没起作用 |
 | `opsd_hint_len_mean` | 老师 prompt 平均长度 | 贴着 `max_seq_len - response` → 参考解被大量左截断，该调大 seq |
 | `opsd_response_len_mean` | 学生解答平均长度 | 贴着 `max_new_tokens` → 大量截断，KL 信号残缺 |
+
+`pass@N` 与 `avg@N` 一起涨，才是真的学会了；只有 `avg@N` 涨而 `pass@N` 不动，
+说明只是把已经会做的题做得更稳，能力边界没推开。
+
+> `majority@N` 的正确性判定不靠字符串匹配：归一化只用来**分组**找众数，
+> 该组是否正确取的是数学判分器给的真实 reward。所以归一化再粗糙也只会低估，
+> 不会把错答案判成对的。实现见 `common/algorithms/opsd_eval.py`。
 
 ## 结论
 

@@ -84,7 +84,12 @@
 - `sync_base_configs.sh` — 升级 NeMo-RL 版本时同步官方基底配置到 `configs/base/`（薄封装 → `python -m nemo_rl_lab.sync_base`）
 - `post_train.sh` — **训练后闭环**（集群侧执行，由 `lab export` / `lab eval` 经服务端代理调起）：
   把 checkpoint 转 HF（按后端自适应 `convert_dcp_to_hf.py` / `convert_megatron_to_hf.py`，可推 HF Hub），
-  或对 checkpoint 跑 `examples/run_eval.py` 评测。带 `LAB_DRY_RUN=1` 只打印命令不执行。
+  或对 checkpoint 跑评测。带 `LAB_DRY_RUN=1` 只打印命令不执行。
+
+  评测入口按「实验自带优先」选：**实验目录下有 `eval.py` 就用它**（与训练入口 `run.py` 同款约定），
+  否则回落官方 `examples/run_eval.py`。`--` 之后的参数原样透传给所选入口。
+  自带 `eval.py` 用于官方协议对不上的场景——比如要按论文口径每题采 N 条、
+  算 pass@N / majority@N，或一次评多个数据集（见 `experiments/opsd_qwen3.5-9b_math_v1/eval.py`）。
   ```bash
   # 通常用 CLI（经服务端提交，执行在集群）：
   uv run lab export grpo_qwen3.5-9b_gsm8k_v1 [--step N] [--push-repo user/name]
