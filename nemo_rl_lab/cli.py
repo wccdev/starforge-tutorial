@@ -24,6 +24,7 @@ DATA_PREP = {
     "gsm8k": ROOT / "common" / "data" / "prepare_gsm8k.py",
     "alpaca": ROOT / "common" / "data" / "prepare_alpaca.py",
     "qa_rl": ROOT / "common" / "data" / "prepare_qa_rl.py",
+    "opsd_math": ROOT / "common" / "data" / "prepare_opsd_math.py",
 }
 
 app = typer.Typer(

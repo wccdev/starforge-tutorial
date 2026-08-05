@@ -30,6 +30,13 @@ data/raw/
 # 题库为公司内部专有数据，整目录不入库（含原始 raw 与处理后的 jsonl）
 datasets/qa_rl/
 
+# OPSD 训练数据：带完整参考解，8000 条就有几十 MB、全量上百 MB。
+# 不入库之外还有一层原因：lab submit 打包用的是
+# `git ls-files --cached --others --exclude-standard`，**未被忽略的未跟踪文件也会上传**，
+# 不忽略就等于每次提交都把这几十 MB 重传一遍。数据本来就常驻集群
+# /data/datasets/opsd_math，随包上传纯属浪费。
+datasets/opsd_math/*.jsonl
+
 # 日志（SwanLab 本地缓存 / 其他 tracker）
 swanlog/
 swanlab/
