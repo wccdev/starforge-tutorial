@@ -19,6 +19,7 @@ from common.observability.env_probe import collect_node_hardware
 from common.observability.hw_probe import DEFAULT_MIN_MEM_MIB, collect_hw_snapshot
 from common.observability.job_nodes import (
     current_ray_node_id,
+    discover_gpu_bundle_counts,
     discover_gpu_node_ids,
     discover_job_node_ids,
     discover_job_pids,
@@ -55,6 +56,10 @@ class HardwareMonitor:
         self._thread: threading.Thread | None = None
         self._node_cache: tuple[float, set[str]] | None = None
         self._pid_cache: tuple[float, frozenset[int]] | None = None
+        self._capacity_cache: tuple[float, dict[str, int]] | None = None
+        # node_id → 这台机器上「PID 归属确认过」的卡 UUID。PID 查空那几拍靠它兜底，
+        # 免得退到显存启发式、把同机邻居作业的卡也画进本作业的面板。
+        self._confirmed_gpus: dict[str, frozenset[str]] = {}
         self._env_nodes_reported: list[str] = []
         self._env_nodes_failures = 0
         self._env_nodes_disabled = False
@@ -192,6 +197,26 @@ class HardwareMonitor:
         self._pid_cache = (now, pids)
         return pids
 
+    def _gpu_capacity(self) -> dict[str, int]:
+        """本作业在各节点分到的卡数（PG bundle 口径），给显存启发式封顶用。"""
+        now = time.time()
+        if self._capacity_cache and now - self._capacity_cache[0] < NODE_DISCOVERY_TTL:
+            return self._capacity_cache[1]
+        try:
+            counts = discover_gpu_bundle_counts()
+        except Exception:
+            counts = {}
+        self._capacity_cache = (now, counts)
+        return counts
+
+    def _remember_gpu_uuids(self, node_id: str | None, snap: dict) -> None:
+        """只记 PID 认出来的那批卡；sticky/显存启发式的结果不能当证据自我强化。"""
+        if snap.get("gpu_attribution") != "pid":
+            return
+        uuids = frozenset(str(u) for u in (snap.get("gpu_uuids") or {}).values() if u)
+        if uuids:
+            self._confirmed_gpus[node_id or ""] = uuids
+
     def _collect_job_hw(self) -> list[dict]:
         import ray
 
@@ -252,7 +277,10 @@ class HardwareMonitor:
             job_pids=job_pids,
             min_mem_mib=self.min_mem_mib,
             gpu_fallback=gpu_fallback,
+            known_gpu_uuids=self._confirmed_gpus.get(node_id or ""),
+            max_gpus=self._gpu_capacity().get(node_id or "") if node_id else None,
         )
+        self._remember_gpu_uuids(node_id, snap)
         ts = datetime.now(timezone.utc).isoformat()
         worker_id = snap.get("hostname") or socket.gethostname()
         return _snap_to_points(
@@ -276,7 +304,9 @@ class HardwareMonitor:
         points: list[dict] = []
         futures = []
         pid_arg = list(job_pids) if job_pids is not None else None
+        capacity = self._gpu_capacity()
         for node_id in node_ids:
+            known = self._confirmed_gpus.get(node_id)
             futures.append(
                 remote_collect.options(
                     scheduling_strategy=NodeAffinitySchedulingStrategy(
@@ -287,10 +317,13 @@ class HardwareMonitor:
                     min_mem_mib=self.min_mem_mib,
                     include_process=False,
                     gpu_fallback=gpu_fallback,
+                    known_gpu_uuids=sorted(known) if known else None,
+                    max_gpus=capacity.get(node_id),
                 )
             )
         snapshots = ray.get(futures)
         for node_id, snap in zip(node_ids, snapshots, strict=False):
+            self._remember_gpu_uuids(node_id, snap)
             worker_id = snap.get("hostname") or node_id
             points.extend(
                 _snap_to_points(

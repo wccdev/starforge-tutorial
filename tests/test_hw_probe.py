@@ -215,9 +215,11 @@ def test_collect_local_hw_reports_uuid_for_job_gpus(monkeypatch):
         lambda h, pids, _m: int(h) == 1 and pids == frozenset({42}),
     )
     out = hw_probe.collect_local_hw(job_pids=frozenset({42}))
-    assert "gpu.0.mem.value" in out["metrics"]
-    assert "gpu.1.mem.value" not in out["metrics"]
-    assert out["gpu_uuids"] == {0: "GPU-physical-1"}
+    # 序号是物理 NVML 序号：认出的是 1 号卡，就报 gpu.1，不重排成 gpu.0
+    assert "gpu.1.mem.value" in out["metrics"]
+    assert "gpu.0.mem.value" not in out["metrics"]
+    assert out["gpu_uuids"] == {1: "GPU-physical-1"}
+    assert out["gpu_attribution"] == "pid"
 
 
 class _TwoGpus:
@@ -275,10 +277,11 @@ def test_gpu_fallback_recovers_metrics_when_pids_unavailable(monkeypatch):
 
     out = hw_probe.collect_local_hw(job_pids=frozenset(), gpu_fallback=True)
 
-    # 只认出忙着的那张（物理 1 号），且重新编号为 gpu.0
-    assert out["metrics"]["gpu.0.pct"] == 90.0
-    assert out["gpu_uuids"] == {0: "GPU-1"}
-    assert "gpu.1.pct" not in out["metrics"]
+    # 只认出忙着的那张（物理 1 号），序号保持物理序号
+    assert out["metrics"]["gpu.1.pct"] == 90.0
+    assert out["gpu_uuids"] == {1: "GPU-1"}
+    assert "gpu.0.pct" not in out["metrics"]
+    assert out["gpu_attribution"] == "mem"
 
 
 def test_gpu_fallback_not_used_when_pid_attribution_works(monkeypatch):
@@ -289,3 +292,68 @@ def test_gpu_fallback_not_used_when_pid_attribution_works(monkeypatch):
     out = hw_probe.collect_local_hw(job_pids=frozenset({42}), gpu_fallback=True)
 
     assert out["gpu_uuids"] == {0: "GPU-0"}
+
+
+def test_pid_attribution_matches_actor_child_process(monkeypatch):
+    """占卡的是 actor 的子进程（vLLM EngineCore worker）时也要认出来。
+
+    回归：只比对 actor PID 会漏认 → 整拍落进显存启发式 → 邻居作业的卡被画进面板。
+    """
+    monkeypatch.setitem(__import__("sys").modules, "pynvml", _TwoGpus())
+    monkeypatch.setattr(hw_probe, "_gpu_compute_pids", lambda h: {777} if int(h) == 1 else set())
+
+    class _Proc:
+        """777 是 555 的孙子进程，555 才是 Ray actor。"""
+
+        _parents = {777: 666, 666: 555, 555: 1}
+
+        def __init__(self, pid):
+            self.pid = int(pid)
+
+        def parent(self):
+            nxt = self._parents.get(self.pid)
+            return None if nxt is None else _Proc(nxt)
+
+    monkeypatch.setitem(
+        __import__("sys").modules, "psutil", SimpleNamespace(Process=_Proc)
+    )
+
+    out = hw_probe.collect_local_hw(job_pids=frozenset({555}), gpu_fallback=True)
+
+    assert out["gpu_attribution"] == "pid"
+    assert out["gpu_uuids"] == {1: "GPU-1"}
+
+
+def test_sticky_selection_keeps_previously_confirmed_card(monkeypatch):
+    """PID 这拍查空时沿用上次确认过的卡，而不是退到显存启发式。
+
+    回归（作业 grpo_…_lora32_64）：colocated 训练在生成阶段只剩 vLLM 子进程占卡，
+    PID 归属间歇失灵 → 退到显存启发式 → 同机另一个作业的卡被当成本作业的第二张卡，
+    面板上凭空多出一条曲线，看门狗也把那张卡记到了本作业头上。
+    """
+    monkeypatch.setitem(__import__("sys").modules, "pynvml", _TwoGpus())
+    monkeypatch.setattr(hw_probe, "_gpu_compute_pids", lambda _h: set())
+    # 两张卡都忙（邻居作业占着 0 号）：没有 sticky 就会两张一起报
+    monkeypatch.setattr(_TwoGpus, "used_by_index", {0: 50_000, 1: 50_000})
+
+    out = hw_probe.collect_local_hw(
+        job_pids=frozenset({42}), gpu_fallback=True, known_gpu_uuids={"GPU-1"}
+    )
+
+    assert out["gpu_attribution"] == "sticky"
+    assert out["gpu_uuids"] == {1: "GPU-1"}
+    assert "gpu.0.pct" not in out["metrics"]
+
+
+def test_mem_fallback_capped_by_bundle_gpu_count(monkeypatch):
+    """从没认出过卡时只能按显存挑，但张数要被 PG 分到的卡数封顶（取占用最高的）。"""
+    monkeypatch.setitem(__import__("sys").modules, "pynvml", _TwoGpus())
+    monkeypatch.setattr(hw_probe, "_gpu_compute_pids", lambda _h: set())
+    monkeypatch.setattr(_TwoGpus, "used_by_index", {0: 30_000, 1: 70_000})
+
+    out = hw_probe.collect_local_hw(
+        job_pids=frozenset({42}), gpu_fallback=True, max_gpus=1
+    )
+
+    assert out["gpu_attribution"] == "mem"
+    assert out["gpu_uuids"] == {1: "GPU-1"}

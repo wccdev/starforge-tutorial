@@ -35,7 +35,7 @@ def monitor(monkeypatch):
 def _fake_local(monkeypatch):
     """替掉本机探针，返回可区分的机器级 + 进程级指标。"""
 
-    def _collect(*, job_pids=None, min_mem_mib=0.0, include_process=True, gpu_fallback=False):
+    def _collect(*, job_pids=None, min_mem_mib=0.0, include_process=True, gpu_fallback=False, **_kw):
         metrics = {"cpu.pct": 5.0, "mem.pct": 5.2, "mem.proc.avail": 1957322.0}
         if include_process:
             metrics |= {"cpu.thds": 63.0, "mem.proc": 1285.0, "mem.proc.pct": 0.06}
@@ -98,7 +98,7 @@ def test_remote_probe_does_not_report_its_own_process(monkeypatch, monitor):
     _fake_local(monkeypatch)
     captured: dict = {}
 
-    def _collect(*, job_pids=None, min_mem_mib=0.0, include_process=True, gpu_fallback=False):
+    def _collect(*, job_pids=None, min_mem_mib=0.0, include_process=True, gpu_fallback=False, **_kw):
         captured["include_process"] = include_process
         return {"hostname": "spark-2", "pid": 9, "metrics": {"cpu.pct": 11.2}, "gpu_uuids": {}}
 
@@ -156,6 +156,40 @@ def test_driver_on_training_node_reports_everything(monkeypatch, monitor):
         "mem.proc",
         "mem.proc.pct",
     }
+
+
+def test_confirmed_gpus_are_reused_when_pid_attribution_blinks(monkeypatch, monitor):
+    """PID 认过的卡要记住，下一拍查空时把它传回探针，别让探针退到显存启发式。
+
+    回归：colocated 作业生成阶段 PID 归属失灵，探针按显存认卡，把同机邻居作业的卡
+    也报了上来——面板上多一条曲线，看门狗也多记一张卡。
+    """
+    calls: list[dict] = []
+
+    def _collect(*, job_pids=None, min_mem_mib=0.0, include_process=True,
+                 gpu_fallback=False, known_gpu_uuids=None, max_gpus=None):
+        calls.append({"known_gpu_uuids": known_gpu_uuids, "max_gpus": max_gpus})
+        pid_confirmed = len(calls) == 1  # 第二拍 PID 查空
+        return {
+            "hostname": "localhost",
+            "pid": 1,
+            "metrics": {"gpu.3.pct": 90.0},
+            "gpu_uuids": {3: "GPU-abc"},
+            "gpu_attribution": "pid" if pid_confirmed else "sticky",
+        }
+
+    monkeypatch.setattr(hm, "collect_hw_snapshot", _collect)
+    monkeypatch.setattr(hm, "discover_gpu_node_ids", lambda: {HEAD})
+    monkeypatch.setattr(hm, "discover_job_node_ids", lambda **kw: {HEAD})
+    monkeypatch.setattr(hm, "discover_gpu_bundle_counts", lambda: {HEAD: 1})
+
+    monitor._collect()
+    monitor._collect()
+
+    assert calls[0]["known_gpu_uuids"] is None
+    assert calls[1]["known_gpu_uuids"] == frozenset({"GPU-abc"})
+    # PG 分到几张卡也一并下发，给显存启发式那一档封顶
+    assert calls[1]["max_gpus"] == 1
 
 
 def test_gpu_placement_decides_which_machines_are_charted(monkeypatch, monitor):

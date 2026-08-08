@@ -1,6 +1,7 @@
 """发现当前 Ray 作业占用的节点（driver + 本 job 的 alive actors）。"""
 from __future__ import annotations
 
+import math
 import os
 from typing import Callable
 
@@ -106,9 +107,27 @@ def discover_gpu_node_ids(
     可靠性上，PG 的 bundle 落点由 GCS 记账，不依赖各节点的 dashboard agent；agent 挂掉
     的节点上，actor 明细是查不全的。
     """
+    return set(
+        discover_gpu_bundle_counts(
+            list_placement_groups=list_placement_groups, job_id=job_id
+        )
+    )
+
+
+def discover_gpu_bundle_counts(
+    *,
+    list_placement_groups: Callable | None = None,
+    job_id: str | None = None,
+) -> dict[str, int]:
+    """本作业在每个节点上拿到了几张卡（GPU bundle 的 GPU 数之和）。
+
+    这是「本作业在这台机器上最多能用几张卡」的权威答案——由 GCS 记账，不依赖 NVML
+    的显存猜测。探针在 PID 归属查空、只能按显存挑忙卡时，用它给挑出来的张数封顶，
+    邻居作业的卡就不会被算进来（同机跑两个实验时曾把对方的卡画成第二条线）。
+    """
     jid = job_id or runtime_ray_job_id()
     if not jid:
-        return set()
+        return {}
 
     if list_placement_groups is None:
         try:
@@ -116,14 +135,14 @@ def discover_gpu_node_ids(
 
             list_placement_groups = _list_pgs
         except Exception:
-            return set()
+            return {}
 
     try:
         groups = list_placement_groups(limit=500, detail=True, timeout=5)
     except Exception:
-        return set()
+        return {}
 
-    nodes: set[str] = set()
+    counts: dict[str, int] = {}
     for pg in groups or []:
         if str(_field(pg, "creator_job_id") or "") != jid:
             continue
@@ -132,13 +151,14 @@ def discover_gpu_node_ids(
         for bundle in _field(pg, "bundles") or []:
             resources = _field(bundle, "unit_resources") or {}
             try:
-                wants_gpu = float(resources.get("GPU") or 0) > 0
+                gpus = float(resources.get("GPU") or 0)
             except (TypeError, ValueError):
-                wants_gpu = False
+                gpus = 0.0
             node_id = _field(bundle, "node_id")
-            if wants_gpu and node_id:
-                nodes.add(str(node_id))
-    return nodes
+            if gpus > 0 and node_id:
+                # 分数卡（GPU=0.5）向上取整：占了半张也是占了这张卡。
+                counts[str(node_id)] = counts.get(str(node_id), 0) + math.ceil(gpus)
+    return counts
 
 
 def _field(obj: object, name: str):
