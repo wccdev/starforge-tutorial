@@ -1,6 +1,6 @@
 # opsd_math — OPSD 自蒸馏训练数据
 
-供 `experiments/opsd_qwen3.5-9b_math_v1` 使用。
+供 `experiments/opsd_qwen3.5-9b_math_h200_1n2g` 使用。
 
 ## 来源
 

@@ -1,4 +1,4 @@
-# opsd_qwen3.5-9b_math_v1 — On-Policy Self-Distillation 复现
+# opsd_qwen3.5-9b_math_h200_1n2g — On-Policy Self-Distillation 复现
 
 复现论文 **《Self-Distilled Reasoner: On-Policy Self-Distillation for Large Language Models》**
 （arXiv:2601.18734，官方实现 <https://github.com/siyan-zhao/OPSD>）。
@@ -66,15 +66,15 @@
 ## 跑
 
 ```bash
-lab submit opsd_qwen3.5-9b_math_v1          # 用实验自带的 h200
+lab submit opsd_qwen3.5-9b_math_h200_1n2g          # 用实验自带的 h200-2g
 ```
 
 ## 训练后评测（对照论文表格）
 
 ```bash
-lab eval opsd_qwen3.5-9b_math_v1 --run-id <训练 run_id>
+lab eval opsd_qwen3.5-9b_math_h200_1n2g --run-id <训练 run_id>
 # 只评一个集 / 改协议参数（-- 之后原样透传给 eval.py）：
-lab eval opsd_qwen3.5-9b_math_v1 --run-id <run_id> -- --datasets aime24 --n 4
+lab eval opsd_qwen3.5-9b_math_h200_1n2g --run-id <run_id> -- --datasets aime24 --n 4
 ```
 
 本目录的 `eval.py` 会被 `scripts/post_train.sh` 自动选用（与训练入口 `run.py` 同款约定）。

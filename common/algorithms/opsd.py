@@ -48,7 +48,7 @@ OPSD 相对它**只差一件事：老师吃的输入不一样**（多了参考�
 
 即把 `[题目 x + 参考解 y*]` 套上 chat template、加好 generation prompt 之后的 token 序列。
 它替换学生 prompt 那一段；response 段（学生自己采样出来的 y）两边完全一致。
-参见 experiments/opsd_qwen3.5-9b_math_v1/run.py 的 `OPSDMathDataset`。
+参见 experiments/opsd_qwen3.5-9b_math_h200_1n2g/run.py 的 `OPSDMathDataset`。
 """
 
 from __future__ import annotations

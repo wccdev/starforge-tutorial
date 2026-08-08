@@ -14,7 +14,7 @@ KL 恒等于 0，整个训练白跑。本脚本因此把「有没有参考解」
 
 这是官方 `opsd_train.py` 里 `load_dataset(...)` 加载的同一个数据集，其
 `data_collator.py` 也正是读 `feature["problem"]` / `feature["solution"]` 两个字段，
-与本仓库 `experiments/opsd_qwen3.5-9b_math_v1/run.py` 的 schema 完全对齐。
+与本仓库 `experiments/opsd_qwen3.5-9b_math_h200_1n2g/run.py` 的 schema 完全对齐。
 
 验证集用 AIME24（论文的评测集之一，NeMo-RL 官方 recipe 亦用它）：
 

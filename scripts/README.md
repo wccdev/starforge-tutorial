@@ -89,7 +89,7 @@
   评测入口按「实验自带优先」选：**实验目录下有 `eval.py` 就用它**（与训练入口 `run.py` 同款约定），
   否则回落官方 `examples/run_eval.py`。`--` 之后的参数原样透传给所选入口。
   自带 `eval.py` 用于官方协议对不上的场景——比如要按论文口径每题采 N 条、
-  算 pass@N / majority@N，或一次评多个数据集（见 `experiments/opsd_qwen3.5-9b_math_v1/eval.py`）。
+  算 pass@N / majority@N，或一次评多个数据集（见 `experiments/opsd_qwen3.5-9b_math_h200_1n2g/eval.py`）。
   ```bash
   # 通常用 CLI（经服务端提交，执行在集群）：
   uv run lab export grpo_qwen3.5-9b_gsm8k_v1 [--step N] [--push-repo user/name]

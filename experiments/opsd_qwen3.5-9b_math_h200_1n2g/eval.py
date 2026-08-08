@@ -2,7 +2,7 @@
 # OPSD 训练后离线评测：按论文协议在 AIME24 / AIME25 / HMMT25 上给 checkpoint 打分。
 #
 # 由 scripts/post_train.sh 的 eval 动作调起（实验目录有 eval.py 就用之，与 run.py 同款约定）：
-#     lab eval opsd_qwen3.5-9b_math_v1 --run-id <训练 run_id>
+#     lab eval opsd_qwen3.5-9b_math_h200_1n2g --run-id <训练 run_id>
 #
 # 与训练中的 in-loop validation 的分工：
 #   in-loop  只跑 AIME24、每题 12 条、受训练 max_seq 约束 —— 用来在训练途中看趋势
