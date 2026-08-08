@@ -10,8 +10,11 @@ import pytest
 # 本机 lab CLI venv 刻意不装 torch（客户端无需 GPU 依赖）；这些用例在训练容器 / CI 里跑。
 torch = pytest.importorskip("torch", reason="需要 torch，在训练容器内运行")
 
+from types import SimpleNamespace  # noqa: E402
+
 from common.algorithms.opsd import (  # noqa: E402
     build_hint_inputs,
+    config_vocab_size,
     realign_topk,
     split_prompt_response,
 )
@@ -230,3 +233,25 @@ def test_realign_topk_roundtrip_with_build_hint_inputs():
     # 学生 response 是 [71,72,73,74]，起点 Lp=3。位置 Lp-1+j 预测第 j 个 response token。
     predicted = [int(out_logits[0, 3 - 1 + j, 0]) for j in range(4)]
     assert predicted == [71, 72, 73, 74]
+
+
+# ---------------------------------------------------------------- vocab_size（Qwen3.5 嵌套 config）
+def test_config_vocab_size_top_level():
+    assert config_vocab_size(SimpleNamespace(vocab_size=32000)) == 32000
+
+
+def test_config_vocab_size_nested_text_config():
+    """Qwen3.5：顶层无 vocab_size，在 text_config 里。"""
+    cfg = SimpleNamespace(text_config=SimpleNamespace(vocab_size=248320))
+    assert config_vocab_size(cfg) == 248320
+
+
+def test_config_vocab_size_get_text_config():
+    text = SimpleNamespace(vocab_size=248320)
+    cfg = SimpleNamespace(get_text_config=lambda: text)
+    assert config_vocab_size(cfg) == 248320
+
+
+def test_config_vocab_size_missing_raises():
+    with pytest.raises(AttributeError, match="没有 vocab_size"):
+        config_vocab_size(SimpleNamespace(text_config=SimpleNamespace()))

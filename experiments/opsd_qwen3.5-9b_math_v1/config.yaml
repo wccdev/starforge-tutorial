@@ -7,7 +7,7 @@ defaults:
 
 # ══════════════════════════════════════════════════════════════════════════
 #  调参速查 —— 你主要动【① 调参区】。硬件/分布式在 cluster/<profile>，不在这。
-#  本实验目标集群：见同目录 cluster 文件（h200，8×141GB）。
+#  本实验目标集群：见同目录 cluster 文件（h200-2g，2×141GB）。
 # ──────────────────────────────────────────────────────────────────────────
 #  opsd.teacher_mode           self=老师复用学生权重（论文主设定，省一份显存）
 #                              fixed=另加载一份冻结权重当老师（对照组，显存翻倍）
@@ -81,10 +81,14 @@ policy:
 # 老师 policy 段：teacher_mode=self 时**完全不会被用来加载模型**（install_opsd 拦掉了 Policy
 # 构造）。但 NeMo-RL 的 setup() 仍会读 teacher.model_name 做 tokenizer 一致性校验，
 # 所以必须与 policy.model_name 保持一致。切 fixed 模式时这里才真正生效。
+# 基底 teacher 默认 TP=4/CP=2；Qwen3.5 dense 不支持 CP，fixed 模式也压成 TP=1×CP=1。
 teacher:
   model_name: "Qwen/Qwen3.5-9B-Base"
   tokenizer:
     name: "Qwen/Qwen3.5-9B-Base"
+  dtensor_cfg:
+    tensor_parallel_size: 1
+    context_parallel_size: 1
 
 data:
   shuffle: true
@@ -97,9 +101,9 @@ data:
   #   就能差 6~10 个百分点，曲线读不出趋势。验证是 greedy=False（采样），重复才有意义。
   #   代价：验证耗时 ×12。val_period=20 下摊到整个训练里可以接受；嫌慢就调到 4~8。
   val_repeat: 12
-  # 集群共享盘绝对路径（容器内可达）。目录下需有 train.jsonl / val.jsonl，
+  # 集群共享盘绝对路径（容器内可达）。提前 rsync 数据到此目录；
+  # 目录下需有 train.jsonl / val.jsonl，
   # 每行 {"problem": ..., "solution": <参考解全文>, "answer": <最终答案>}。
-  # run.py 优先用服务端注入的 OPSD_DATA_DIR，没有才用这里。
   data_dir: /data/datasets/opsd_math
 
 env:

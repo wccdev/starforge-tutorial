@@ -37,7 +37,7 @@
 就是官方 `opsd_train.py` 加载的那个；其 `data_collator.py` 读的也正是 `problem` / `solution`
 两个字段，与本实验 schema 一致。
 
-集群共享盘 `/data/datasets/opsd_math/`（或由服务端注入 `OPSD_DATA_DIR`）：
+集群共享盘 `/data/datasets/opsd_math/`（`config.yaml` 的 `data.data_dir`）：
 
 | 文件 | 用途 |
 | --- | --- |

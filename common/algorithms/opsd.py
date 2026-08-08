@@ -32,7 +32,8 @@ OPSD 相对它**只差一件事：老师吃的输入不一样**（多了参考�
   2. `install_opsd()`   —— ① 劫持 rollout 函数，把当前 step 的 batch 暂存下来（老师需要从
                            `extra_env_info` 里取参考解 token）；② 劫持 `Policy` 构造，
                            teacher_mode="self" 时**不再创建第二份模型**，老师直接复用学生权重
-                           （省一整份显存，也才是论文说的「单模型自蒸馏」）。
+                           （省一整份显存，也才是论文说的「单模型自蒸馏」）；③ 修补
+                           `check_vocab_equality`，兼容 Qwen3.5 把 vocab_size 放在 text_config。
   3. `ClippedDistillationLossFn` —— 论文的 per-token KL clipping：单个 token 的 KL 超过阈值就
                            截断，避免少数「老师极度自信、学生完全没概率」的 token 主导梯度。
 
@@ -474,6 +475,33 @@ def take_pending_hints(expected_batch: int) -> list[torch.Tensor]:
     return hints
 
 
+def config_vocab_size(config: Any) -> int:
+    """读 HF AutoConfig 的 vocab_size。
+
+    Qwen3.5 等复合配置把词表大小放在 `text_config`（或 `get_text_config()`）里，
+    顶层没有 `vocab_size`；NeMo-RL 的 `check_vocab_equality` 直接读顶层会
+    `AttributeError: 'Qwen3_5Config' object has no attribute 'vocab_size'`。
+    """
+    text = None
+    get_text = getattr(config, "get_text_config", None)
+    if callable(get_text):
+        try:
+            text = get_text()
+        except Exception:  # noqa: BLE001
+            text = None
+    if text is None:
+        text = getattr(config, "text_config", None)
+    for obj in (text, config):
+        if obj is None:
+            continue
+        vs = getattr(obj, "vocab_size", None)
+        if vs is not None:
+            return int(vs)
+    raise AttributeError(
+        f"{type(config).__name__} 没有 vocab_size（text_config 里也没有）"
+    )
+
+
 def install_opsd(
     *,
     teacher_mode: str = "self",
@@ -483,11 +511,12 @@ def install_opsd(
 ) -> None:
     """把 OPSD 装进 NeMo-RL 的 distillation 主循环。必须在 `distillation.setup()` 之前调用。
 
-    做两件事：
+    做三件事：
       ① 劫持 rollout 函数 —— 每个 step 的 batch 暂存下来，老师从里面取参考解。
       ② 劫持 `Policy` 构造 —— 主循环写死了「先建老师、再建学生」，这里在建老师时返回
          一个 `OPSDTeacher` 壳；teacher_mode="self" 时壳内为空，等学生建好后回填
          （于是全程只有一份模型权重）；"fixed" 时壳内包着真正加载出来的老师。
+      ③ 修补 `check_vocab_equality` —— 兼容 Qwen3.5 等把 vocab_size 放在 text_config 的模型。
     """
     from nemo_rl.algorithms import distillation
 
@@ -547,5 +576,26 @@ def install_opsd(
         return policy
 
     distillation.Policy = policy_factory
+
+    # ---- ③ Qwen3.5 嵌套 vocab_size -----------------------------------------
+    # NeMo-RL 原版 `student_config.vocab_size`；复合配置顶层没有该字段会直接炸。
+    from transformers import AutoConfig, AutoTokenizer
+
+    def check_vocab_equality(tokenizer, student_model_name, teacher_model_name):
+        teacher_tokenizer = AutoTokenizer.from_pretrained(teacher_model_name)
+        skip_hint = "Set NRL_SKIP_DISTILLATION_TOKENIZER_CHECK=true to skip this check."
+        assert tokenizer.get_vocab() == teacher_tokenizer.get_vocab(), (
+            f"Token->ID mapping differs between student and teacher. {skip_hint}"
+        )
+        assert len(tokenizer) == len(teacher_tokenizer), (
+            f"Effective vocab sizes differ between student and teacher. {skip_hint}"
+        )
+        student_vs = config_vocab_size(AutoConfig.from_pretrained(student_model_name))
+        teacher_vs = config_vocab_size(AutoConfig.from_pretrained(teacher_model_name))
+        assert student_vs == teacher_vs, (
+            f"Model config vocab sizes differ between student and teacher. {skip_hint}"
+        )
+
+    distillation.check_vocab_equality = check_vocab_equality
     distillation._opsd_installed = True
     print(f"[OPSD] 已安装（teacher_mode={teacher_mode}, max_seq_len={max_seq_len}）", flush=True)

@@ -146,13 +146,14 @@ fi
 # 硬件/网络 env（NCCL、Ray 内存、PyTorch 分配）；多节点须与 ray start 用同一份
 [[ -f "${PROFILE_ENV}" ]] && source "${PROFILE_ENV}"
 
-# 数据目录：未显式设置 *_DATA_DIR 时，默认指向本仓库 datasets/<name>。
-# 经服务端提交时该目录随作业上传（仅排除 raw/data 缓存），
-# 故 config 里的 ${oc.env:GSM8K_DATA_DIR} 等无需手填即可解析；
-# 想用集群上已有的大数据，则由服务端注入同名变量覆盖（或在 config.yaml 写死 data_dir）。
-for _ds in gsm8k:GSM8K_DATA_DIR alpaca:ALPACA_DATA_DIR qa_rl:QA_RL_DATA_DIR opsd_math:OPSD_DATA_DIR; do
+# 数据目录：未显式设置 *_DATA_DIR 时，若仓库内 datasets/<name>/train.jsonl 存在，
+# 才默认指向它（给 ${oc.env:GSM8K_DATA_DIR} 等本地/可随包上传的公开数据用）。
+# 仅有空目录或 README、没有 train.jsonl 时不设——隐私/大体量数据（opsd_math、qa_rl）
+# 被 gitignore，随包没有 jsonl；若这里仍 export，会覆盖 config 里写死的集群绝对路径。
+# opsd_math 不进这张表：训练侧以 config.data.data_dir 为准，不走环境变量。
+for _ds in gsm8k:GSM8K_DATA_DIR alpaca:ALPACA_DATA_DIR qa_rl:QA_RL_DATA_DIR; do
   _name="${_ds%%:*}"; _var="${_ds##*:}"
-  if [[ -z "${!_var:-}" && -d "${REPO_ROOT}/datasets/${_name}" ]]; then
+  if [[ -z "${!_var:-}" && -f "${REPO_ROOT}/datasets/${_name}/train.jsonl" ]]; then
     export "${_var}=${REPO_ROOT}/datasets/${_name}"
     echo "[run] ${_var}=${REPO_ROOT}/datasets/${_name} (默认指向仓库内数据)"
   fi

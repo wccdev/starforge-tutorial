@@ -205,11 +205,14 @@ def main() -> None:
     )
 
     # ── 数据 ────────────────────────────────────────────────────────────────
+    # 隐私/大体量数据提前放到集群共享盘，在 config.data.data_dir 写绝对路径。
+    # OPSD_DATA_DIR 仅作可选覆盖；不能优先于 config，否则 _run_experiment.sh 的
+    # 仓库内默认会把路径拐进 working_dir（jsonl 被 gitignore，随包没有文件）。
     data_cfg: dict[str, Any] = config.data
-    data_dir = os.environ.get("OPSD_DATA_DIR") or data_cfg.get("data_dir")
+    data_dir = data_cfg.get("data_dir") or os.environ.get("OPSD_DATA_DIR")
     if not data_dir:
         raise SystemExit(
-            "未指定数据目录。请设置 OPSD_DATA_DIR 或在 config.yaml 的 data.data_dir 写死"
+            "未指定数据目录。请在 config.yaml 的 data.data_dir 写集群绝对路径"
             "（目录下需有 train.jsonl / val.jsonl，字段 problem / solution / answer）。"
         )
 

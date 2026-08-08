@@ -7,6 +7,7 @@ NeMo-RL 0.6.0 的集群设置（`cluster.num_nodes`、`cluster.gpus_per_node`）
 - `h100/` — 单机 1× H100 80GB（单节点单卡，远程微调平台主力）
 - `gb10-spark/` — 2× DGX Spark GB10（Ray 2 节点）
 - `h200/` — 单机 8× H200 141GB（异构集群新增卡型）
+- `h200-2g/` — 单机切 2× H200（console 注册 `gpus_per_node=2`；TP=1×CP=1，DP=2）
 
 ## 用法
 

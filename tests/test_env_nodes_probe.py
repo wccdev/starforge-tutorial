@@ -35,7 +35,7 @@ class _LegacyIngest:
 
 def _install_fake_ray(monkeypatch, *, snapshots: dict[str, dict], initialized: bool = True):
     """最小可用的 ray 替身：remote 任务在本进程直接按节点取预设快照。"""
-    calls: list[str] = []
+    calls: list[dict] = []
 
     class _Remote:
         def __init__(self):
@@ -47,7 +47,7 @@ def _install_fake_ray(monkeypatch, *, snapshots: dict[str, dict], initialized: b
             return out
 
         def remote(self, *args, **kwargs):
-            calls.append(self.node_id or "")
+            calls.append({"node_id": self.node_id or "", "kwargs": kwargs})
             return self.node_id
 
     fake_ray = SimpleNamespace(
@@ -82,7 +82,9 @@ GB10_2 = {**GB10, "hostname": "spark-gb10-2"}
 
 
 @pytest.fixture
-def monitor():
+def monitor(monkeypatch):
+    monkeypatch.delenv("LAB_CLUSTER_GPUS_PER_NODE", raising=False)
+    monkeypatch.delenv("LAB_CLUSTER_NUM_NODES", raising=False)
     return HardwareMonitor(_Ingest(), scope="job")
 
 
@@ -119,6 +121,7 @@ def test_gpu_placement_beats_actor_placement(monkeypatch, monitor):
 
 def test_falls_back_to_actor_nodes_without_gpu_placement_group(monkeypatch, monitor):
     """纯 CPU 作业没有 GPU placement group，此时 actor 落点是唯一线索。"""
+    monkeypatch.delenv("LAB_CLUSTER_GPUS_PER_NODE", raising=False)
     _install_fake_ray(monkeypatch, snapshots={"node-a": GB10})
     _gpu_nodes(monkeypatch)
     _actor_nodes(monkeypatch, "node-a")
@@ -128,8 +131,24 @@ def test_falls_back_to_actor_nodes_without_gpu_placement_group(monkeypatch, moni
     assert [n["node_id"] for n in monitor.ingest.sent[0]] == ["node-a"]
 
 
+def test_gpu_job_waits_for_placement_group_not_head_actors(monkeypatch, monitor):
+    """异构 GPU 作业：PG 未就绪前不要把 head 辅助 actor 写成运行节点。"""
+    monkeypatch.setenv("LAB_CLUSTER_GPUS_PER_NODE", "2")
+    _install_fake_ray(monkeypatch, snapshots={"node-head": GB10, "node-gb10": GB10_2})
+    _gpu_nodes(monkeypatch)
+    _actor_nodes(monkeypatch, "node-head")
+
+    monitor._sync_env_nodes()
+    assert monitor.ingest.sent == []
+
+    _gpu_nodes(monkeypatch, "node-gb10")
+    monitor._sync_env_nodes()
+    assert [n["node_id"] for n in monitor.ingest.sent[0]] == ["node-gb10"]
+
+
 def test_actor_fallback_refuses_driver(monkeypatch, monitor):
     """回退到 actor 落点时也不许兜底到 driver，否则又会把 head 报上去。"""
+    monkeypatch.delenv("LAB_CLUSTER_GPUS_PER_NODE", raising=False)
     seen: list[dict] = []
     _install_fake_ray(monkeypatch, snapshots={})
     _gpu_nodes(monkeypatch)
@@ -163,10 +182,8 @@ def test_does_not_resend_unchanged_node_set(monkeypatch, monitor):
 
 
 def test_corrects_itself_when_node_set_grows(monkeypatch, monitor):
-    """监控线程比 GPU worker 早起来，第一拍拿到的视图往往是残缺的。
-
-    回归：上一版采到一次就永久锁定，把启动瞬间看到的 head 当成了最终答案。
-    """
+    """CPU 作业：监控比 worker 早起来时，节点集合长大后要纠正，不能锁死第一拍。"""
+    monkeypatch.delenv("LAB_CLUSTER_GPUS_PER_NODE", raising=False)
     _install_fake_ray(monkeypatch, snapshots={"node-head": GB10, "node-gb10": GB10_2})
     _gpu_nodes(monkeypatch)
     _actor_nodes(monkeypatch, "node-head")
@@ -178,6 +195,43 @@ def test_corrects_itself_when_node_set_grows(monkeypatch, monitor):
     monitor._sync_env_nodes()
 
     assert [n["node_id"] for n in monitor.ingest.sent[1]] == ["node-gb10"]
+
+
+def test_resends_when_reported_gpu_count_exceeds_quota(monkeypatch, monitor):
+    """同节点集合下若先前误报了整机卡数，配额就绪后要重报纠正。"""
+    monkeypatch.setenv("LAB_CLUSTER_GPUS_PER_NODE", "2")
+    fat = {
+        "hostname": "h200-host",
+        "cpu": {"brand": "Xeon", "cores": 192, "memory_gb": 2015},
+        "gpu": {
+            "vendor": "nvidia",
+            "count": 8,
+            "devices": [{"index": i, "name": "NVIDIA H200"} for i in range(8)],
+        },
+    }
+    slim = {
+        **fat,
+        "gpu": {
+            "vendor": "nvidia",
+            "count": 2,
+            "devices": [{"index": i, "name": "NVIDIA H200"} for i in range(2)],
+        },
+    }
+    snaps = {"node-h200": fat}
+    _install_fake_ray(monkeypatch, snapshots=snaps)
+    _gpu_nodes(monkeypatch, "node-h200")
+    monkeypatch.setattr(hm, "discover_gpu_bundle_counts", lambda: {})
+
+    monitor._sync_env_nodes()
+    assert monitor.ingest.sent[0][0]["gpu"]["count"] == 8
+
+    snaps["node-h200"] = slim
+    monkeypatch.setattr(hm, "discover_gpu_bundle_counts", lambda: {"node-h200": 2})
+    monitor._capacity_cache = None
+
+    monitor._sync_env_nodes()
+    assert len(monitor.ingest.sent) == 2
+    assert monitor.ingest.sent[1][0]["gpu"]["count"] == 2
 
 
 def test_retries_next_tick_when_upload_fails(monkeypatch):
@@ -235,3 +289,33 @@ def test_tolerates_legacy_ingest_without_endpoint(monkeypatch):
     monitor._sync_env_nodes()
 
     assert monitor._env_nodes_disabled is True  # 别每拍都白试一遍
+
+
+def test_passes_job_gpu_scope_into_node_hardware_probe(monkeypatch, monitor):
+    """环境节点探针必须带上本作业的 PID / PG 卡数，否则会把整机 GPU 库存报上去。"""
+    calls = _install_fake_ray(monkeypatch, snapshots={"node-h200": GB10})
+    _gpu_nodes(monkeypatch, "node-h200")
+    monkeypatch.setattr(hm, "discover_job_pids", lambda: {101, 102})
+    monkeypatch.setattr(hm, "discover_gpu_bundle_counts", lambda: {"node-h200": 2})
+    monitor._confirmed_gpus["node-h200"] = frozenset({"GPU-a", "GPU-b"})
+
+    monitor._sync_env_nodes()
+
+    assert calls[0]["node_id"] == "node-h200"
+    kw = calls[0]["kwargs"]
+    assert sorted(kw["job_pids"]) == [101, 102]
+    assert kw["max_gpus"] == 2
+    assert kw["gpu_fallback"] is True
+    assert kw["known_gpu_uuids"] == ["GPU-a", "GPU-b"]
+
+
+def test_max_gpus_falls_back_to_cluster_env_topology(monkeypatch, monitor):
+    """PG bundle 计数暂缺时，用 LAB_CLUSTER_GPUS_PER_NODE 封顶（异构提交侧权威拓扑）。"""
+    monkeypatch.setenv("LAB_CLUSTER_GPUS_PER_NODE", "2")
+    calls = _install_fake_ray(monkeypatch, snapshots={"node-h200": GB10})
+    _gpu_nodes(monkeypatch, "node-h200")
+    monkeypatch.setattr(hm, "discover_gpu_bundle_counts", lambda: {})
+
+    monitor._sync_env_nodes()
+
+    assert calls[0]["kwargs"]["max_gpus"] == 2

@@ -53,8 +53,7 @@ lab prepare opsd_math -- --max-train 0     # 全量 29k
 rsync -avP datasets/opsd_math/ <用户>@<h200>:/data/datasets/opsd_math/
 ```
 
-路径已写死在实验 `config.yaml` 的 `data.data_dir`；要放别处就让管理员在服务端注入
-`OPSD_DATA_DIR` 覆盖（`_run_experiment.sh` 已登记该变量）。
+路径已写死在实验 `config.yaml` 的 `data.data_dir`；要放别处就改那个字段为集群绝对路径。
 
 ## License
 

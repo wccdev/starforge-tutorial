@@ -61,6 +61,9 @@ class HardwareMonitor:
         # 免得退到显存启发式、把同机邻居作业的卡也画进本作业的面板。
         self._confirmed_gpus: dict[str, frozenset[str]] = {}
         self._env_nodes_reported: list[str] = []
+        # 上次上报的「每节点 GPU 张数」。异构下先报错（整机库存）再按 PG 纠正时，
+        # 节点集合可能不变，要靠这个签名触发重报。
+        self._env_nodes_gpu_counts: dict[str, int] = {}
         self._env_nodes_failures = 0
         self._env_nodes_disabled = False
 
@@ -114,11 +117,12 @@ class HardwareMonitor:
             time.sleep(self._sleep_interval())
 
     def _sync_env_nodes(self) -> None:
-        """把作业运行节点的静态硬件采回来上报；节点集合变了就重报。
+        """把作业运行节点的静态硬件采回来上报；节点集合或卡数不对就重报。
 
         启动时 session 采的那份环境快照来自 driver 进程，异构集群里 driver 常驻 head，
         于是「系统硬件」永远显示 head 那台机器——作业 pin 到 GB10 却显示 8 卡 H200 就是
-        这么来的。这里把快照重新采到真正跑训练的机器上。
+        这么来的。这里把快照重新采到真正跑训练的机器上（actor / GPU PG 节点），
+        绝不把 driver 所在机当成运行节点。
 
         为什么要持续同步而不是采一次就锁定：监控线程比 GPU worker 早起来（实测早 6 秒），
         第一拍看到的往往只是 driver 侧的辅助 actor。锁定第一次的结果，就等于把启动过程中
@@ -134,16 +138,26 @@ class HardwareMonitor:
 
         if not ray.is_initialized():
             return
-        node_ids = sorted(self._training_node_ids())
-        if not node_ids or node_ids == self._env_nodes_reported:
+        # 环境页专用节点集合：比时序监控更严，GPU 作业在 PG 未就绪前宁可空着。
+        node_ids = sorted(self._env_training_node_ids())
+        if not node_ids:
+            return
+        if (
+            node_ids == self._env_nodes_reported
+            and self._env_gpu_counts_match_capacity(node_ids)
+        ):
             return
 
         nodes = self._collect_nodes_env(node_ids)
         if nodes and self.ingest.send_environment_nodes(nodes):
             self._env_nodes_reported = node_ids
+            self._env_nodes_gpu_counts = {
+                str(n.get("node_id") or ""): int(((n.get("gpu") or {}).get("count") or 0))
+                for n in nodes
+            }
 
     def _training_node_ids(self) -> set[str]:
-        """本作业真正跑训练的节点。"""
+        """本作业真正跑训练的节点（时序监控用）。"""
         gpu_nodes = discover_gpu_node_ids()
         if gpu_nodes:
             return gpu_nodes
@@ -151,19 +165,76 @@ class HardwareMonitor:
         # 不允许回退到 driver：宁可这拍不报，也别把 head 的硬件当成训练节点。
         return discover_job_node_ids(driver_fallback=False)
 
+    def _env_training_node_ids(self) -> set[str]:
+        """环境页「运行节点」：只认 GPU PG；异构下绝不能用 head 上的辅助 actor 冒充。
+
+        时序监控可以短暂回退 actor 落点（曲线晚几秒出现无所谓），但环境快照会长期挂在
+        页面上。GPU 作业在 PG 未就绪时返回空集，等下一拍——driver 快照仍作标注过的兜底。
+        """
+        gpu_nodes = discover_gpu_node_ids()
+        if gpu_nodes:
+            return gpu_nodes
+        if self._expected_gpus_per_node() is not None:
+            return set()
+        return discover_job_node_ids(driver_fallback=False)
+
+    @staticmethod
+    def _expected_gpus_per_node() -> int | None:
+        """提交侧注入的每节点卡数（LAB_CLUSTER_GPUS_PER_NODE）；GPU 作业的权威拓扑。"""
+        raw = os.environ.get("LAB_CLUSTER_GPUS_PER_NODE", "").strip()
+        if not raw:
+            return None
+        try:
+            n = int(raw)
+        except ValueError:
+            return None
+        return n if n > 0 else None
+
+    def _node_max_gpus(self, node_id: str) -> int | None:
+        """本作业在该节点分到的卡数：PG bundle 优先，否则用提交侧每节点卡数。"""
+        cap = self._gpu_capacity().get(node_id)
+        if cap is not None:
+            return cap
+        return self._expected_gpus_per_node()
+
+    def _env_gpu_counts_match_capacity(self, node_ids: list[str]) -> bool:
+        """已上报的每节点 GPU 张数是否与本作业配额一致；多了说明曾把整机库存写进去。"""
+        if not self._env_nodes_gpu_counts:
+            return False
+        for node_id in node_ids:
+            want = self._node_max_gpus(node_id)
+            if want is None:
+                continue
+            got = self._env_nodes_gpu_counts.get(node_id)
+            if got is None or got > want:
+                return False
+        return True
+
     def _collect_nodes_env(self, node_ids: list[str]) -> list[dict]:
         import ray
         from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
         remote_collect = ray.remote(num_cpus=0)(collect_node_hardware)
-        futures = [
-            remote_collect.options(
-                scheduling_strategy=NodeAffinitySchedulingStrategy(
-                    node_id=node_id, soft=False
+        # 派到 actor/GPU 节点就地采；过滤参数与时序监控一致。
+        # job_pids 是全集群 actor PID：只在本机 NVML 进程表里命中的才会认到卡，
+        # 不会把 head 上的 PID 误套到 worker 的 GPU 上。
+        pid_arg = list(self._job_pids())
+        futures = []
+        for node_id in node_ids:
+            known = self._confirmed_gpus.get(node_id)
+            futures.append(
+                remote_collect.options(
+                    scheduling_strategy=NodeAffinitySchedulingStrategy(
+                        node_id=node_id, soft=False
+                    )
+                ).remote(
+                    job_pids=pid_arg,
+                    min_mem_mib=self.min_mem_mib,
+                    gpu_fallback=True,
+                    known_gpu_uuids=sorted(known) if known else None,
+                    max_gpus=self._node_max_gpus(node_id),
                 )
-            ).remote()
-            for node_id in node_ids
-        ]
+            )
         # 带超时：这是挂在监控线程里的一次性任务，某个节点卡住不能连带把硬件时序也停掉。
         snapshots = ray.get(futures, timeout=ENV_PROBE_TIMEOUT)
         return [

@@ -189,7 +189,7 @@ def main(
     print("\n下一步 —— 拷到 H200（几十 MB，直接 rsync，不必走模型那套 relay）：")
     print(f"  rsync -avP {out}/ <用户>@<h200>:/data/datasets/opsd_math/")
     print("\n实验 config 已写死 data_dir=/data/datasets/opsd_math；")
-    print("要放别处就让管理员在服务端注入 OPSD_DATA_DIR 覆盖。")
+    print("要放别处就改 config.yaml 的 data.data_dir（集群绝对路径）。")
     print("\neval_*.jsonl 供训练后离线评测（对照论文的 AIME24/AIME25/HMMT25 三列），")
     print("不参与训练中的 in-loop validation，不会拖慢训练。")
 

@@ -19,13 +19,32 @@ def collect_environment() -> dict[str, Any]:
     }
 
 
-def collect_node_hardware() -> dict[str, Any]:
+def collect_node_hardware(
+    *,
+    job_pids: list[int] | frozenset[int] | None = None,
+    min_mem_mib: float | None = None,
+    gpu_fallback: bool = False,
+    known_gpu_uuids: list[str] | frozenset[str] | None = None,
+    max_gpus: int | None = None,
+) -> dict[str, Any]:
     """本机静态硬件 + 主机名。设计为可被 `ray.remote` 派到任意节点上就地执行。
 
     与 `collect_environment` 的区别是不带 overview/packages：那些是 driver 进程的
     上下文（命令行、cwd、pip 列表），远端节点上采了也没有意义。
+
+    GPU 过滤参数与 `collect_hw_snapshot` 对齐：作业环境页应只展示本作业占用的卡，
+    不能把同机邻居 / 整机库存（例如 8×H200 里只用 2 张）全列出来。
     """
-    return {"hostname": socket.gethostname(), **_collect_hardware()}
+    return {
+        "hostname": socket.gethostname(),
+        **_collect_hardware(
+            job_pids=job_pids,
+            min_mem_mib=min_mem_mib,
+            gpu_fallback=gpu_fallback,
+            known_gpu_uuids=known_gpu_uuids,
+            max_gpus=max_gpus,
+        ),
+    }
 
 
 def _collect_overview() -> dict[str, Any]:
@@ -92,9 +111,22 @@ def _read_fingerprint_file(path: str) -> dict[str, str]:
     return out
 
 
-def _collect_hardware() -> dict[str, Any]:
+def _collect_hardware(
+    *,
+    job_pids: list[int] | frozenset[int] | None = None,
+    min_mem_mib: float | None = None,
+    gpu_fallback: bool = False,
+    known_gpu_uuids: list[str] | frozenset[str] | None = None,
+    max_gpus: int | None = None,
+) -> dict[str, Any]:
     cpu = _collect_cpu()
-    gpu = _collect_nvidia_gpu()
+    gpu = _collect_nvidia_gpu(
+        job_pids=job_pids,
+        min_mem_mib=min_mem_mib,
+        gpu_fallback=gpu_fallback,
+        known_gpu_uuids=known_gpu_uuids,
+        max_gpus=max_gpus,
+    )
     out: dict[str, Any] = {}
     if cpu:
         out["cpu"] = cpu
@@ -129,7 +161,14 @@ def _cpu_brand() -> str | None:
     return brand or None
 
 
-def _collect_nvidia_gpu() -> dict[str, Any] | None:
+def _collect_nvidia_gpu(
+    *,
+    job_pids: list[int] | frozenset[int] | None = None,
+    min_mem_mib: float | None = None,
+    gpu_fallback: bool = False,
+    known_gpu_uuids: list[str] | frozenset[str] | None = None,
+    max_gpus: int | None = None,
+) -> dict[str, Any] | None:
     try:
         import pynvml
     except Exception:
@@ -139,13 +178,67 @@ def _collect_nvidia_gpu() -> dict[str, Any] | None:
     except Exception:
         return None
     try:
-        count = pynvml.nvmlDeviceGetCount()
+        from common.observability.hw_probe import DEFAULT_MIN_MEM_MIB, _select_gpus
+
+        n = pynvml.nvmlDeviceGetCount()
+        devices: list[tuple[int, Any]] = []
+        for physical in range(n):
+            try:
+                devices.append((physical, pynvml.nvmlDeviceGetHandleByIndex(physical)))
+            except Exception:
+                continue
+
+        # driver 侧 collect_environment() 不传过滤参数：保留整机清单作兜底。
+        # 作业节点探针会带上 job_pids / max_gpus，只报本作业的卡。
+        filter_requested = (
+            job_pids is not None
+            or max_gpus is not None
+            or bool(known_gpu_uuids)
+            or gpu_fallback
+        )
+        if filter_requested:
+            pids: frozenset[int] | None
+            if job_pids is None:
+                pids = None
+            elif isinstance(job_pids, frozenset):
+                pids = job_pids
+            else:
+                pids = frozenset(int(x) for x in job_pids)
+            selected, _attribution = _select_gpus(
+                devices,
+                job_pids=pids,
+                min_mem_mib=(
+                    DEFAULT_MIN_MEM_MIB if min_mem_mib is None else float(min_mem_mib)
+                ),
+                gpu_fallback=gpu_fallback,
+                known_gpu_uuids=frozenset(known_gpu_uuids or ()),
+                max_gpus=max_gpus,
+            )
+            # PG / LAB_CLUSTER_GPUS_PER_NODE 已告诉我们本节点卡数，但 PID/显存这拍
+            # 还认不出时：按物理序号截到 max_gpus。静态页同型号卡型号/显存一样，
+            # 张数正确比物理序号完美更重要；没有 max_gpus 时宁可不报卡，也别把
+            # head 整机库存写进「运行节点」（异构集群常见误报）。
+            if (
+                not selected
+                and max_gpus is not None
+                and max_gpus > 0
+                and devices
+            ):
+                selected = devices[: int(max_gpus)]
+            elif not selected and filter_requested:
+                selected = []
+            indices = [idx for idx, _ in selected]
+        else:
+            # 仅 driver 侧 collect_environment()：整机清单作「调度端」兜底，UI 会标注来源。
+            indices = [idx for idx, _ in devices]
+
+        described = [d for d in (_describe_gpu(pynvml, i) for i in indices) if d]
         return {
             "vendor": "nvidia",
             "driver_version": _nvml_text(pynvml.nvmlSystemGetDriverVersion),
             "cuda_version": _cuda_version(),
-            "count": count,
-            "devices": [d for d in (_describe_gpu(pynvml, i) for i in range(count)) if d],
+            "count": len(described),
+            "devices": described,
         }
     except Exception:
         return None
