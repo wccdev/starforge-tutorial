@@ -673,13 +673,15 @@ class QADocsAgentEnv(EnvironmentInterface[QADocsMetadata]):
         # 并由 make_eval_cfg() 在验证时归零，避免污染 accuracy。
         self.format_error_penalty = float(self.cfg.get("format_error_penalty", 0.0))
         self.invalid_search_penalty = float(self.cfg.get("invalid_search_penalty", 0.0))
-        # short 题「关键词覆盖率」统计范围。检索 Agent 默认只认 \boxed{}：模型手里有回灌的资料原文，
-        # 若整段回答都算覆盖，它只要复述检索片段就能刷满分——单轮 baseline 没有这条通道，
-        # 而 make_eval_cfg() 归零的是 reward shaping、管不到判分口径，验证分会一起虚高。
-        # 设 "completion" 可退回旧行为（与未改动的 baseline 严格同口径）。
+        # short 题「关键词覆盖率」统计范围："boxed" 只认答案框，"completion" 连整段回答一起算。
+        # ⚠️ 检索 Agent 应当显式设 "boxed"：模型手里有回灌的资料原文，若整段回答都算覆盖，
+        #    它只要复述检索片段就能刷满 short 分——单轮 baseline 没有这条通道，
+        #    而 make_eval_cfg() 归零的是 reward shaping、管不到判分口径，验证分会一起虚高。
+        # 默认保持 "completion"（= qa_reward 的历史行为），避免静默改变其他实验的判分口径；
+        # 各实验在自己的 config 里 opt-in。
         import common.rewards.qa_reward as _qa_reward
 
-        _qa_reward.SHORT_SCOPE = str(self.cfg.get("short_answer_scope", "boxed"))
+        _qa_reward.SHORT_SCOPE = str(self.cfg.get("short_answer_scope", "completion"))
         # ── 检索行为统计（诊断用，不参与奖励）──────────────────────────────────
         # 为什么需要：本环境最危险的失败模式是「模型学会不检索」——validation/accuracy 照样能涨
         # （涨的是闭卷答题水平），但实验的核心变量已经没了。而 EnvironmentInterface 的

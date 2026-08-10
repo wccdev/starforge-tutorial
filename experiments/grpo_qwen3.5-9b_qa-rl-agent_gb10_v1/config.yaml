@@ -120,7 +120,13 @@ env:
       # true：简答题最终答案用裁判 LLM（需 JUDGE_* 环境变量；连不上自动回退关键词覆盖率）
       # false：全部走规则判分，零成本、无需裁判端点。与 baseline 必须一致才公平。
       use_judge: false
-      max_turns: 2 # 与 grpo.max_rollout_turns 对齐：一次检索后必须作答
+      # ⚠️ 必须 = grpo.max_rollout_turns - 1（2-1=1），不能等于它。
+      # NeMo-RL 的 rollout 是 `for turn in range(max_rollout_turns)`，跑满即退出、不再调 step()，
+      # 只把样本标成 max_turns_reached（不判分、不扣分）。num_turns 每轮 +1，第 k 轮进 step()
+      # 时 num_turns == k-1，所以两者相等时「超轮不作答」分支永远打不到，
+      #「只检索不作答」净收益 = +2×0.05 的正数，成了零风险刷分路径。
+      # 设 1 后第 2 轮即触发 -0.2；boxed 分支排在超轮分支之前，第 2 轮正常作答不受影响。
+      max_turns: 1
       # ── 检索 reward shaping【仅训练生效】：压过「闭卷蒙对选择题」的捷径 ──
       #    APP1Sx59 实测：search_step=0 + bonus=0.05 + prompt 允许直接答 → mean_env_tokens
       #    从 ~200 塌到 ~8，验证轨迹几乎不再 <search>，准确率虚升靠常识。

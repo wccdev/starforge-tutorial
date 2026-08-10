@@ -21,9 +21,12 @@ defaults:
 #     注：seq 有意比 baseline 大（1536→3072）——多轮轨迹要装下「检索回灌+作答」，1536 会截断答案、反而不公平。
 # ──────────────────────────────────────────────────────────────────────────
 #  Reinforce++ + dynamic sampling          ★本实验的核心稳定器：见下方 grpo 注释；规避旧 GRPO 方差归一化塌缩
-#  lr / dim / alpha                       默认来自 grpo_lora 基底(lr 1e-4 / dim8 / alpha16)
+#  lr                                     来自 grpo_lora 基底(1e-4)；dim/alpha 本实验覆盖为 32/64
 #  reference_policy_kl_penalty (loss_fn)  R++ 的 token KL 奖励锚定。过小易漂移，过大会压制检索探索
-#  num_generations_per_prompt (grpo)      每题采样数（组内基线）。多→更容易有成败混合、动态采样命中率更高
+#  num_prompts_per_step × num_generations_per_prompt (grpo)  = train_global_batch_size，三者必须一致。
+#                                          前者=每步看几道【不同的题】(多→梯度方向更稳)；
+#                                          后者=每题采样几条(多→组内基线更准、动态采样更少被筛空)。
+#                                          本实验 8×8：在总量不变的前提下把题目多样性换上来
 #  max_rollout_turns / env.qa_docs.cfg.max_turns  多轮上限。⚠️ 两者【不能相等】：
 #                                          env 的 max_turns 必须 = max_rollout_turns - 1，
 #                                          否则 no_answer_penalty 分支永远打不到（见下方说明）。多→更吃内存
@@ -44,9 +47,20 @@ policy:
   #    H200 有 141GB，改为 4096：完整容纳 preamble + 一次 900 字资料回灌 + 512 token 作答，给长简答留余量。
   #    不依靠无限 max_new_tokens，而是用下方 512 上限约束每轮生成，避免空洞长思考挤掉最终 \boxed{}。
   max_total_sequence_length: 4096
-  # 训练实际更新仍是 4×16=64；动态采样每轮先生成 2 倍候选、只保留奖励有区分度的 4 组。
+  # 必须 == grpo.num_prompts_per_step × num_generations_per_prompt（8×8）：
+  # 动态采样就是按这个数补采样直到填满（见 nemo_rl/algorithms/grpo.py 的 train_prompts_size）。
   train_global_batch_size: 64
   generation_batch_size: 16
+  # LoRA 容量：覆盖 grpo_lora 基底的 dim 8 / alpha 16（那份 base 被 8 个实验共用，不在那里改）。
+  # α/r 保持 2（16/8 → 64/32），每个方向的等效步长不变，只是可用方向多 4 倍。
+  # 适配器参数占 9B 的 ~0.1% → ~0.4%，显存基本无差别（train_micro_batch_size=1，
+  # 全局 batch 只影响梯度累积次数、不影响峰值激活）。
+  # ⚠️ 这是本次改动里把握最低的一项：本任务主要学「工具协议 + 何时该信资料」，
+  #    rank 8 未必真是瓶颈。若与 dim 8 对照没有稳定增益，改回去即可。
+  megatron_cfg:
+    peft:
+      dim: 32
+      alpha: 64
   generation:
     max_new_tokens: 768 # 检索 query 很短、题库答案也短；H200 的 4096 总预算留给资料，而不是冗长生成
     temperature: 0.8 # 比 1.0 收敛更稳，又保留足够 rollout 差异让动态采样工作
@@ -56,8 +70,15 @@ policy:
       enforce_eager: true
 
 grpo:
-  num_prompts_per_step: 4
-  num_generations_per_prompt: 16
+  # 8×8=64（原 4×16）：总 rollout 数和每次生成尝试的序列数都不变（8×2×8 = 4×2×16 = 128 条），
+  # 但每个梯度步看到的【不同题目】数翻倍。4 道题/步太少——每步梯度方向被抽到哪 4 道题主导，
+  # 线上 run 的 train/reward 逐步在 0.21~0.93 间跳，大半是这个采样噪声而非学习信号。
+  # 组内 8 条对 reinforce++ 的组均值基线够用（DAPO 用 16、Search-R1 用 5，8 是常规量级）。
+  # ⚠️ 代价：动态采样按 std!=0 筛组，组越小越容易整组同分被筛掉，补采样（batch_multiplier=2，
+  #    即先生成 16 组填 8 组）的余量比原来紧。若日志频繁出现 dynamic sampling 达到 max_gen_batches，
+  #    把 batch_multiplier 提到 3，或退回 4×16。
+  num_prompts_per_step: 8
+  num_generations_per_prompt: 8
   # ★ R1-Searcher 用 Reinforce++ 训练检索 Agent；它从组均值出发、再在有效 token 上全局归一化，
   #   不会像 GRPO 的 (r-μ)/σ 在 all-0 / all-1 组 σ≈0 时产生巨大 advantage、推向 mode collapse。
   adv_estimator:
