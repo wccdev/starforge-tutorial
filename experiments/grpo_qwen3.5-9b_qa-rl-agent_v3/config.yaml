@@ -111,12 +111,11 @@ env:
       #   工具使用是训练手段、不是答题正确性，算进 validation/accuracy（=mean(total_reward)）会虚高，
       #   也会让与无工具 baseline 的对比失真。所以下面的值只影响训练曲线，不影响验证分。
       # ⚠️ 若要连训练也回到纯最终判分（唯一变量=能否检索的严格对比），把下面三项全设 0。
-      search_step_reward: 0.0 # 不再给无关检索白送分；检索价值由“检索后答对”证明
-      answer_search_bonus: 0.05 # 保留很小的条件 bonus，鼓励不确定题先查、又不压过最终正确性
+      search_step_reward: 0.05          # 有效检索（真取回资料）即时分，别超过 0.1
+      answer_search_bonus: 0.15         # 检索过且满分才加
       search_bonus_min_score: 1.0
-      no_answer_penalty: 0.2
-      # 原生 EnvironmentInterface 不支持 NeMo-Gym 专属 invalid_tool_call_advantage；
-      # 这里由环境在训练阶段惩罚坏格式/空搜索，eval 时 make_eval_cfg() 会清零。
+      no_search_answer_penalty: 0.05    # ★ 关键：闭卷满分变 0.95 < 检索满分 ~1.20
+      no_answer_penalty: 0.2            # 防刷检索不答
       format_error_penalty: 0.02
       invalid_search_penalty: 0.02
       # H200 专用：默认 500 字会截掉 BM25 的后续高相关 chunk；4096 总序列预算下提高到 900。
