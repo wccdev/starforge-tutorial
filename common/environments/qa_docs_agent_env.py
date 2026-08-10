@@ -61,6 +61,11 @@ if _REPO_ROOT not in sys.path:
 #   DOCS_MAX_TERMS       [grep] OR 回退时最多用几个关键词（防止碎词把所有行都召回），默认 12。
 #   DOCS_CHUNK_LINES     [bm25] 检索单元（chunk）大小：超长段落按多少行切窗，默认 12。
 #   BM25_K1 / BM25_B     [bm25] BM25 超参（词频饱和 / 文档长度归一化），默认 1.5 / 0.75。
+#   BM25_MIN_COVERAGE    [bm25] ★相关度下限：最佳 chunk 至少要覆盖查询多少比例的 IDF 质量，默认 0.25。
+#                        低于它就返回「未检索到」而不是硬塞 Top-K。用 IDF 覆盖率而非 BM25 绝对分，
+#                        是因为绝对分随查询词数/语料规模漂移，没法定一个跨查询通用的阈值；覆盖率天然在 [0,1]。
+#   BM25_REL_CUTOFF      [bm25] 相对截断：分数低于 Top1 该比例的 chunk 直接丢弃，默认 0.3。
+#                        避免「第 1 条相关、第 2/3 条纯噪声」还是被一起回灌，挤占 DOCS_MAX_CHARS 预算。
 #   DOCS_CLEAN           回灌前是否做 markdown/OCR 降噪（去表格符/标题符/图片链接/分隔线、超长行截断、
 #                        去重/去空行、加章节标题）。默认 1 开；设 0 回到原始逐行回灌。
 #   DOCS_MAX_LINE_CHARS  [clean] 单行最长字符数（截断 OCR/表格超长乱码行），默认 200；0=不限。
@@ -78,6 +83,8 @@ DOCS_MAX_TERMS = int(os.environ.get("DOCS_MAX_TERMS", "12"))
 DOCS_CHUNK_LINES = int(os.environ.get("DOCS_CHUNK_LINES", "12"))
 BM25_K1 = float(os.environ.get("BM25_K1", "1.5"))
 BM25_B = float(os.environ.get("BM25_B", "0.75"))
+BM25_MIN_COVERAGE = float(os.environ.get("BM25_MIN_COVERAGE", "0.25"))
+BM25_REL_CUTOFF = float(os.environ.get("BM25_REL_CUTOFF", "0.3"))
 DOCS_CLEAN = os.environ.get("DOCS_CLEAN", "1") not in ("0", "false", "False", "")
 DOCS_MAX_LINE_CHARS = int(os.environ.get("DOCS_MAX_LINE_CHARS", "200"))
 
@@ -470,7 +477,14 @@ def _build_bm25_index(docs_dir: str) -> Optional[_Bm25Index]:
 
 
 def _bm25_search(query: str) -> str:
-    """BM25 召回 Top-K chunk，拼成「【文件】Lxx: 内容」片段（与 grep 输出风格一致）。"""
+    """BM25 召回 Top-K chunk，拼成「【文件】Lxx: 内容」片段（与 grep 输出风格一致）。
+
+    ★ 带相关度下限：只有「跟查询确实相关」的 chunk 才回灌。判据是 **IDF 覆盖率**——
+    最佳 chunk 命中的查询词 IDF 之和 / 查询全部词的 IDF 之和 ≥ BM25_MIN_COVERAGE。
+    分母含语料里根本不存在的词（按索引最大 IDF 计），所以「关键术语查不到、只蹭到几个常见词」
+    会被正确判为不相关。达不到下限就返回「未检索到」，让上层 _is_useful_retrieval 判为无效检索，
+    既不发检索奖励、也不置 did_search——否则模型「搜到一堆无关资料」也照样拿分。
+    """
     if DOCS_DIR not in _BM25_CACHE:
         _BM25_CACHE[DOCS_DIR] = _build_bm25_index(DOCS_DIR)
     idx = _BM25_CACHE[DOCS_DIR]
@@ -478,7 +492,14 @@ def _bm25_search(query: str) -> str:
         return "未检索到相关资料（资料库为空）"
 
     q_terms = set(_iter_terms(query))  # query 一般短，每个 term 计一次贡献即可
+    if not q_terms:
+        return "未检索到相关资料（换个关键词再试）"
+    # 语料里不存在的查询词按「最大 IDF」计入分母：它们是查不到的关键术语，应当拉低覆盖率。
+    max_idf = max(idx.idf.values()) if idx.idf else 1.0
+    total_idf = sum(idx.idf.get(t, max_idf) for t in q_terms) or 1.0
+
     scores: dict[int, float] = {}
+    covered: dict[int, float] = {}  # chunk -> 命中的查询词 IDF 之和
     for term in q_terms:
         post = idx.postings.get(term)
         if not post:
@@ -488,10 +509,19 @@ def _bm25_search(query: str) -> str:
             dl = idx.doc_len[cid]
             denom = tf + BM25_K1 * (1 - BM25_B + BM25_B * dl / idx.avgdl)
             scores[cid] = scores.get(cid, 0.0) + w * (tf * (BM25_K1 + 1)) / denom
+            covered[cid] = covered.get(cid, 0.0) + w
     if not scores:
         return "未检索到相关资料（换个关键词再试）"
 
-    top = sorted(scores.items(), key=lambda kv: -kv[1])[:DOCS_TOP_K]
+    ranked = sorted(scores.items(), key=lambda kv: -kv[1])
+    best_cid, best_score = ranked[0]
+    if covered.get(best_cid, 0.0) / total_idf < BM25_MIN_COVERAGE:
+        # 最相关的一条都没覆盖到足够的查询信息量 → 整次检索判为未命中，宁可返回空也不返回噪声。
+        return "未检索到相关资料（相关度过低，换个更具体的关键词）"
+    # 相对截断：只保留跟 Top1 同一量级的 chunk，避免噪声块挤占 DOCS_MAX_CHARS 预算。
+    floor = best_score * BM25_REL_CUTOFF
+    top = [(cid, sc) for cid, sc in ranked[:DOCS_TOP_K] if sc >= floor]
+
     blocks: list[str] = []
     seen: set[str] = set()
     for cid, _score in top:
@@ -593,6 +623,10 @@ def make_eval_cfg(cfg: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     """
     out = dict(cfg or {})
     out.update(dict.fromkeys(_SHAPING_KEYS, 0.0))
+    # 判分口径（short_answer_scope）刻意**不**归零：它是「答得对不对」的定义，训练和验证必须一致。
+    # 只把统计打上 val 标签，好在作业日志里把两个 actor 的 [qa_docs_stats] 行区分开——
+    # 验证期的 search_rate 才是这个实验真正的过程指标（训练期的会被 shaping 抬高）。
+    out["stats_tag"] = "val"
     return out
 
 
@@ -616,14 +650,20 @@ class QADocsAgentEnv(EnvironmentInterface[QADocsMetadata]):
         # 这里给「真正取回资料的检索」一点即时奖励 + 「检索后答对」一次性加成，并惩罚「只检索不作答」防刷分。
         #   search_step_reward    每次「有效检索」（真取回片段）的即时奖励。小于答对收益，仅作探索引导。
         #   answer_search_bonus   最终答对(≥min)且轨迹检索过的一次性加成（奖励"靠检索答对"）。
-        #   search_bonus_min_score  触发上面 bonus 的最低 base 分（默认 1.0=只对完全答对加成）。
+        #   search_bonus_min_score  触发上面 bonus 的最低 base 分。
+        #     ⚠️ 别设 1.0：multiple 走 partial_penalty、fill 是「答对空数/总空数」、short 是关键词覆盖率，
+        #        这三类几乎永远拿不到正好 1.0，而它们恰恰是【最依赖检索的专有知识题】；
+        #        设 1.0 等于只给 single/bool（模型闭卷就能蒙）发检索加成，激励方向正好反了。
+        #   search_bonus_scaled   true=加成按得分比例给（bonus×r，梯度更平滑，推荐）；false=达到阈值就给满额。
         #   no_answer_penalty     超 max_turns 仍无 \boxed 的惩罚（让"光检索不答"净收益为负，防 reward hacking）。
+        #     ⚠️ 这条要生效，env 的 max_turns 必须 <= grpo.max_rollout_turns - 1，详见 step() 里的说明。
         # ⚠️ 这几项只该作用在【训练】：它们是探索引导，不是答题正确性。
         #    验证/评测请用 make_eval_cfg(cfg) 另建一个环境实例（shaping 全零），否则 validation/accuracy
         #    会把「用了工具」的加分算进去而虚高，也无法与无工具 baseline 同尺度对比。
         self.search_step_reward = float(self.cfg.get("search_step_reward", 0.05))
         self.answer_search_bonus = float(self.cfg.get("answer_search_bonus", 0.1))
-        self.search_bonus_min_score = float(self.cfg.get("search_bonus_min_score", 1.0))
+        self.search_bonus_min_score = float(self.cfg.get("search_bonus_min_score", 0.5))
+        self.search_bonus_scaled = bool(self.cfg.get("search_bonus_scaled", True))
         self.no_answer_penalty = float(self.cfg.get("no_answer_penalty", 0.2))
         # 闭卷直接 \boxed 作答的惩罚：防止「检索 0 回报 + 选择题可蒙对」把策略推向不用工具。
         # 默认 0 保持旧行为；GB10 等 agent 实验可显式设 >0。验证由 make_eval_cfg 归零。
@@ -633,6 +673,22 @@ class QADocsAgentEnv(EnvironmentInterface[QADocsMetadata]):
         # 并由 make_eval_cfg() 在验证时归零，避免污染 accuracy。
         self.format_error_penalty = float(self.cfg.get("format_error_penalty", 0.0))
         self.invalid_search_penalty = float(self.cfg.get("invalid_search_penalty", 0.0))
+        # short 题「关键词覆盖率」统计范围。检索 Agent 默认只认 \boxed{}：模型手里有回灌的资料原文，
+        # 若整段回答都算覆盖，它只要复述检索片段就能刷满分——单轮 baseline 没有这条通道，
+        # 而 make_eval_cfg() 归零的是 reward shaping、管不到判分口径，验证分会一起虚高。
+        # 设 "completion" 可退回旧行为（与未改动的 baseline 严格同口径）。
+        import common.rewards.qa_reward as _qa_reward
+
+        _qa_reward.SHORT_SCOPE = str(self.cfg.get("short_answer_scope", "boxed"))
+        # ── 检索行为统计（诊断用，不参与奖励）──────────────────────────────────
+        # 为什么需要：本环境最危险的失败模式是「模型学会不检索」——validation/accuracy 照样能涨
+        # （涨的是闭卷答题水平），但实验的核心变量已经没了。而 EnvironmentInterface 的
+        # global_post_process_and_metrics 在 NeMo-RL 0.7 里【从未被调用】（rollouts.py 只调 step.remote），
+        # 往那里加指标不会有任何输出。所以这里自己累计 + 落盘 + 打日志。
+        self._stats_tag = str(self.cfg.get("stats_tag", "train"))
+        self._stats_path = self.cfg.get("stats_path") or os.environ.get("QA_DOCS_STATS_PATH")
+        self._stats_print_every = int(self.cfg.get("stats_print_every", 20))
+        self._reset_stats()
         # 与 QARewardEnv 同源：客观题走规则；简答 use_judge=true 走裁判、失败回退关键词覆盖率。
         if self.use_judge:
             from common.rewards.qa_judge_reward import qa_judge_reward_fn
@@ -646,6 +702,46 @@ class QADocsAgentEnv(EnvironmentInterface[QADocsMetadata]):
         from common.rewards.qa_reward import extract_boxed
 
         self._extract_boxed = extract_boxed
+
+    # ── 检索行为统计 ─────────────────────────────────────────────────────────
+    def _reset_stats(self) -> None:
+        self._stats = {
+            "step_calls": 0,        # step() 被调用次数（≈ rollout 轮数 × 批次数）
+            "search_attempts": 0,   # 模型发起 <search> 的次数
+            "useful_retrievals": 0, # 其中真取回相关资料的次数（过了 BM25 相关度下限）
+            "answers": 0,           # 给出 \boxed{} 最终答案的轨迹数
+            "answers_with_search": 0,   # 其中检索过的轨迹数 ← 这个比例就是「检索率」
+            "no_answer_penalized": 0,   # 超轮不作答被罚的轨迹数（恒为 0 说明惩罚分支不可达！）
+            "format_errors": 0,
+        }
+
+    def _flush_stats(self) -> None:
+        """把累计统计打到 stdout（落进作业日志，可 grep `[qa_docs_stats]`），可选再落一行 JSONL。
+
+        指标含义：
+          search_rate            = answers_with_search / answers  ← **最关键**：掉到 0 就是塌缩成闭卷了
+          useful_retrieval_rate  = useful_retrievals / search_attempts ← 检索质量（BM25 调参看这个）
+          no_answer_penalized    恒为 0 且 search_attempts 很高 → 惩罚分支不可达，检查 max_turns 配置
+        """
+        s = self._stats
+        ans, att = max(1, s["answers"]), max(1, s["search_attempts"])
+        line = (
+            f"[qa_docs_stats] tag={self._stats_tag} "
+            f"search_rate={s['answers_with_search'] / ans:.3f} "
+            f"useful_retrieval_rate={s['useful_retrievals'] / att:.3f} "
+            f"answers={s['answers']} search_attempts={s['search_attempts']} "
+            f"no_answer_penalized={s['no_answer_penalized']} "
+            f"format_errors={s['format_errors']}"
+        )
+        print(line, flush=True)
+        if self._stats_path:
+            try:
+                import json as _json
+
+                with open(self._stats_path, "a", encoding="utf-8") as f:
+                    f.write(_json.dumps({"tag": self._stats_tag, **s}, ensure_ascii=False) + "\n")
+            except OSError:
+                pass  # 统计落盘失败绝不能影响训练
 
     def step(
         self,
@@ -689,9 +785,19 @@ class QADocsAgentEnv(EnvironmentInterface[QADocsMetadata]):
                 answers[i] = [expected]
                 continue
 
-            # 2) 超过最大轮数仍无答案：判负（惩罚「只检索不作答」式刷分）结束
+            # 2) 超过最大轮数仍无答案：判负（惩罚「只检索不作答」式刷分）结束。
+            # ⚠️ 可达性：NeMo-RL 的 rollout 是 `for turn in range(max_rollout_turns)`
+            #    （nemo_rl/experience/rollouts.py），循环跑完就直接退出、**不会再调一次 step()**，
+            #    只把样本标记为 max_turns_reached（rollouts.py 末尾），既不补判分也不扣分；
+            #    而 grpo 的 overlong_filtering 只对 truncated 置零 loss，管不到这种轨迹。
+            #    num_turns 每轮 +1，所以第 k 轮进来时 num_turns == k-1：
+            #    要让本分支触发，必须 max_turns <= max_rollout_turns - 1。
+            #    若两者相等（曾经的配置），本分支永远不可达 →「搜满 N 次不作答」净收益是
+            #    +N×search_step_reward 的**正数**，成为零风险刷分策略。
+            #    统计里的 no_answer_penalized 恒为 0 就是这个症状。
             if num_turns >= max_turns:
                 rewards[i] = -self.no_answer_penalty
+                self._stats["no_answer_penalized"] += 1
                 observations[i] = {"role": "environment", "content": f"已达最大轮数 {max_turns}，结束。"}
                 terminateds[i] = True
                 continue
@@ -703,9 +809,11 @@ class QADocsAgentEnv(EnvironmentInterface[QADocsMetadata]):
             # 3) 检索本地文档：grep 返回片段，继续。真取回资料才给即时检索奖励并记 did_search。
             if search_q is not None:
                 obs = docs_search(search_q)
+                self._stats["search_attempts"] += 1
                 if _is_useful_retrieval(obs):
                     rewards[i] = self.search_step_reward
                     nm["did_search"] = True
+                    self._stats["useful_retrievals"] += 1
                 elif not search_q:
                     rewards[i] = -self.invalid_search_penalty
                 observations[i] = {"role": "environment", "content": f"[检索结果]\n{obs}"}
@@ -715,6 +823,7 @@ class QADocsAgentEnv(EnvironmentInterface[QADocsMetadata]):
 
             # 4) 格式不对：提示并重试（计一轮）
             rewards[i] = -self.format_error_penalty
+            self._stats["format_errors"] += 1
             observations[i] = {
                 "role": "environment",
                 "content": (
@@ -730,11 +839,16 @@ class QADocsAgentEnv(EnvironmentInterface[QADocsMetadata]):
             scores = self._reward_fn(final_q, final_comp, final_exp)
             for i, s, searched in zip(final_idx, scores, final_searched):
                 r = float(s)
-                bonus = (
-                    self.answer_search_bonus
-                    if (searched and r >= self.search_bonus_min_score)
-                    else 0.0
-                )
+                self._stats["answers"] += 1
+                if searched:
+                    self._stats["answers_with_search"] += 1
+                # 加成按得分比例给（search_bonus_scaled，默认开）：fill/short/multiple 拿的是
+                # 0~1 的连续分，"达阈值就给满额"会在阈值处制造一个断崖，梯度不连续；
+                # 乘以 r 则「答得越好、靠检索拿到的加成越多」，方向一致且平滑。
+                if searched and r >= self.search_bonus_min_score:
+                    bonus = self.answer_search_bonus * (r if self.search_bonus_scaled else 1.0)
+                else:
+                    bonus = 0.0
                 skip_pen = 0.0 if searched else self.no_search_answer_penalty
                 rewards[i] = r + bonus - skip_pen
                 tags: list[str] = []
@@ -744,6 +858,10 @@ class QADocsAgentEnv(EnvironmentInterface[QADocsMetadata]):
                     tags.append(f"-未检索 {skip_pen:.3f}")
                 tag = f"  ({'; '.join(tags)})" if tags else ""
                 observations[i] = {"role": "environment", "content": f"得分: {r:.3f}{tag}"}
+
+        self._stats["step_calls"] += 1
+        if self._stats_print_every > 0 and self._stats["step_calls"] % self._stats_print_every == 0:
+            self._flush_stats()
 
         return EnvironmentReturn(
             observations=observations,
@@ -760,6 +878,9 @@ class QADocsAgentEnv(EnvironmentInterface[QADocsMetadata]):
     def global_post_process_and_metrics(
         self, batch: BatchedDataDict
     ) -> tuple[BatchedDataDict, dict]:
+        # ⚠️ NeMo-RL 0.7 从不调用这个钩子（rollouts.py 只调 step.remote），下面的指标不会出现在任何
+        #    日志里。检索行为请看 _flush_stats() 打到作业日志的 `[qa_docs_stats]` 行。
+        #    保留本方法只为满足 EnvironmentInterface；若将来框架接上了钩子，这里会自动生效。
         rewards = batch.get(
             "total_reward", torch.tensor([0.0] * len(batch["idx"]))
         ).float()

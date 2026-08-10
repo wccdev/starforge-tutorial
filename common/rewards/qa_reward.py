@@ -38,6 +38,14 @@ FORMAT_PENALTY = -0.5
 MULTI_MODE = os.environ.get("QA_MULTI_MODE", "partial_penalty")  # "exact" | "partial_penalty" | "f1"
 MULTI_WRONG_WEIGHT = float(os.environ.get("QA_MULTI_WRONG_WEIGHT", "0.5"))  # partial_penalty 里每个错选的扣分权重
 SHORT_MIN_KW_LEN = 1            # 过短要点（<该长度，归一化后）不计入分母，避免噪声
+# simple 题「关键词覆盖率」在哪段文本上统计：
+#   "completion"（默认，单轮 baseline 的历史行为）：boxed + 整段回答都算覆盖。
+#   "boxed"（多轮检索 Agent 必须用这个）：只认 \boxed{} 里的内容。
+# ⚠️ 为什么 Agent 场景必须切 "boxed"：检索环境会把资料原文回灌给模型，模型只要在回答里
+#    大段复述检索片段，就能把 gold 要点全部「覆盖」到——这是单轮无工具 baseline 不存在的
+#    刷分通道，而 make_eval_cfg() 只归零 reward shaping、管不到这里，验证分会一起被抬高，
+#    A/B 对比失真。切成 boxed 后模型必须自己把要点提炼进答案框，才算答对。
+SHORT_SCOPE = os.environ.get("QA_SHORT_SCOPE", "completion")  # "completion" | "boxed"
 _SYN_PATH = Path(__file__).parent / "synonyms.json"
 
 _BOXED = re.compile(r"\\boxed\s*\{")
@@ -154,7 +162,12 @@ def _grade_one(expected: str, completion: str, groups: list[set[str]]) -> float:
         kws = [k for k in kws if len(_norm(k)) >= SHORT_MIN_KW_LEN]
         if not kws:
             return 0.0
-        ans_norm = _norm(boxed) + "|" + _norm(completion)  # boxed 要点 + 全文都算覆盖
+        # SHORT_SCOPE="boxed" 时只认答案框，防止「复述检索原文」刷覆盖率（见文件头注释）。
+        ans_norm = (
+            _norm(boxed)
+            if SHORT_SCOPE == "boxed"
+            else _norm(boxed) + "|" + _norm(completion)
+        )
         hit = 0
         for k in kws:
             alts = _alts_for_blank(k, groups)

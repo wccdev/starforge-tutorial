@@ -24,7 +24,9 @@ defaults:
 #  lr / dim / alpha                       默认来自 grpo_lora 基底(lr 1e-4 / dim8 / alpha16)
 #  reference_policy_kl_penalty (loss_fn)  R++ 的 token KL 奖励锚定。过小易漂移，过大会压制检索探索
 #  num_generations_per_prompt (grpo)      每题采样数（组内基线）。多→更容易有成败混合、动态采样命中率更高
-#  max_rollout_turns / env.qa_docs.cfg.max_turns  多轮上限（两者须对齐）。多→更吃内存
+#  max_rollout_turns / env.qa_docs.cfg.max_turns  多轮上限。⚠️ 两者【不能相等】：
+#                                          env 的 max_turns 必须 = max_rollout_turns - 1，
+#                                          否则 no_answer_penalty 分支永远打不到（见下方说明）。多→更吃内存
 #  max_total_sequence_length (policy)     ★整条多轮轨迹(prompt+所有轮+所有检索回灌)的总预算，不是每轮。
 #                                          多轮必须比 baseline 大：1536 连「搜一次+作答」都塞不下，会在写 \boxed 前被截断
 #  max_num_steps / val_period (grpo)      训多久 / 多久验证一次
@@ -46,7 +48,7 @@ policy:
   train_global_batch_size: 64
   generation_batch_size: 16
   generation:
-    max_new_tokens: 512 # 检索 query 很短、题库答案也短；H200 的 4096 总预算留给资料，而不是冗长生成
+    max_new_tokens: 768 # 检索 query 很短、题库答案也短；H200 的 4096 总预算留给资料，而不是冗长生成
     temperature: 0.8 # 比 1.0 收敛更稳，又保留足够 rollout 差异让动态采样工作
     vllm_cfg:
       # NeMo-RL v0.7 已知 Qwen3.5 + vLLM CUDA-graph/Ray 间歇 hang；正式训练优先使用 eager。
@@ -101,26 +103,50 @@ env:
       # true：简答题最终答案用裁判 LLM（需 JUDGE_* 环境变量；连不上自动回退关键词覆盖率）
       # false：全部走规则判分，零成本、无需裁判端点。与 baseline 必须一致才公平。
       use_judge: false
-      max_turns: 3 # 与 grpo.max_rollout_turns 对齐
+      # ⚠️ 必须 = grpo.max_rollout_turns - 1（3-1=2），不能等于它。
+      # NeMo-RL 的 rollout 是 `for turn in range(max_rollout_turns)`，跑满就退出、不会再调一次 step()，
+      # 只把样本标成 max_turns_reached，既不判分也不扣分（overlong_filtering 也只管 truncated）。
+      # num_turns 每轮 +1，第 k 轮进 step() 时 num_turns == k-1，所以 max_turns=3 时
+      # 「超轮不作答」分支永远不可达 →「搜 3 次不作答」净收益 = +3×0.05 = +0.15 的**正数**，
+      # 比「闭卷答错」(-0.05) 还划算，是一条零风险刷分路径。设 2 后第 3 轮才会触发 -0.2。
+      # 注：step() 里 boxed 分支排在超轮分支【之前】，所以第 3 轮正常作答仍会被判分，不误伤。
+      max_turns: 2
       # ── 检索 reward shaping【仅训练生效】：只奖励「检索帮助答对」，不奖励“随便查到一段资料”──
       #    search_step_reward   每次「真取回资料」的即时奖励。R1-Searcher 第二阶段会移除它，防止刷检索。
       #    answer_search_bonus  「检索过且最终答对」的一次性加成（奖励靠检索拿分而非蒙）
-      #    search_bonus_min_score 触发上面加成的最低 base 分（1.0=只奖励完全答对）
+      #    search_bonus_min_score 触发上面加成的最低 base 分。
+      #      ⚠️ 别设 1.0：multiple 走 partial_penalty、fill 是「答对空数/总空数」、short 是关键词覆盖率，
+      #      这三类几乎拿不到正好 1.0，而它们恰恰是最依赖检索的专有知识题；设 1.0 等于只给
+      #      single/bool（闭卷就能蒙）发检索加成，激励方向反了。0.5 = 答对一半以上就认「检索有用」。
+      #    search_bonus_scaled  true=加成按得分比例给（bonus×r），避免阈值处的梯度断崖
       #    no_answer_penalty    超 max_turns 仍不作答的惩罚（让「只检索不答」净收益为负，防刷分）
       # ★ 验证时这几项由 run.py 用 make_eval_cfg() 自动归零（验证环境是另一个实例）：
       #   工具使用是训练手段、不是答题正确性，算进 validation/accuracy（=mean(total_reward)）会虚高，
       #   也会让与无工具 baseline 的对比失真。所以下面的值只影响训练曲线，不影响验证分。
       # ⚠️ 若要连训练也回到纯最终判分（唯一变量=能否检索的严格对比），把下面三项全设 0。
       search_step_reward: 0.05          # 有效检索（真取回资料）即时分，别超过 0.1
-      answer_search_bonus: 0.15         # 检索过且满分才加
-      search_bonus_min_score: 1.0
+      answer_search_bonus: 0.15         # 检索过且答对（≥min）才加，按得分比例
+      search_bonus_min_score: 0.5
+      search_bonus_scaled: true
       no_search_answer_penalty: 0.05    # ★ 关键：闭卷满分变 0.95 < 检索满分 ~1.20
-      no_answer_penalty: 0.2            # 防刷检索不答
+      no_answer_penalty: 0.2            # 防刷检索不答（需 max_turns=2 才可达，见上）
       format_error_penalty: 0.02
       invalid_search_penalty: 0.02
       # H200 专用：默认 500 字会截掉 BM25 的后续高相关 chunk；4096 总序列预算下提高到 900。
       # 该值只覆盖本 Ray actor，不改其他实验的 DOCS_MAX_CHARS 环境变量。
       retrieval_max_chars: 900
+      # ── short 题判分口径 ──────────────────────────────────────────────────
+      # "boxed"：关键词覆盖率只统计 \boxed{} 内容。检索环境会把资料原文回灌给模型，
+      # 若整段回答都算覆盖（"completion"，单轮 baseline 的历史行为），模型只要复述检索片段
+      # 就能刷满 short 分——这是 baseline 没有的通道，且 make_eval_cfg 管不到判分口径，
+      # 验证分会一起虚高、A/B 失真。⚠️ 要和 baseline 严格同口径对比时，baseline 那边
+      # 也要设 QA_SHORT_SCOPE=boxed 重跑一次。
+      short_answer_scope: boxed
+      # ── 检索行为统计（不参与奖励，只诊断）────────────────────────────────
+      # 每 N 次 step() 往作业日志打一行 `[qa_docs_stats] tag=train|val search_rate=...`。
+      # search_rate（= 检索过的作答轨迹 / 全部作答轨迹）是本实验真正的过程指标：
+      # 它掉到 0 就说明模型塌缩成闭卷了，而 validation/accuracy 那时照样能涨（涨的是闭卷水平）。
+      stats_print_every: 20
 
 logger:
   wandb_enabled: false

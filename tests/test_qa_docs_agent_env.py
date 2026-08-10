@@ -233,6 +233,157 @@ def test_search_without_close_tag_still_retrieves(env_mod, monkeypatch):
     assert "格式不对" not in ret.observations[0]["content"]
 
 
+# ─────────── 超轮惩罚的「可达性」：env.max_turns 必须 < grpo.max_rollout_turns ───────────
+# NeMo-RL 的 rollout 是 `for turn in range(max_rollout_turns)`，跑满即退出、不会再调一次 step()，
+# 只把样本标成 max_turns_reached（既不判分也不扣分，overlong_filtering 也只管 truncated）。
+# num_turns 每轮 +1 ⇒ 第 k 轮进 step() 时 num_turns == k-1。
+# 所以 env.max_turns == max_rollout_turns 时，「超轮不作答」分支永远打不到，
+# 「一直检索不作答」的净收益是 +N×search_step_reward 的正数 —— 一条零风险刷分路径。
+
+
+def _simulate_rollout(env_mod, cfg, *, max_rollout_turns: int) -> float:
+    """模拟 NeMo-RL 的多轮循环：模型每轮都只检索、从不作答。返回整条轨迹累计奖励。"""
+    env = env_mod.QADocsAgentEnv(cfg=cfg)
+    meta = {
+        "expected_answer": "[single] B",
+        "query": "题面",
+        "num_turns": 0,
+        "max_turns": int(cfg["max_turns"]),
+        "did_search": False,
+    }
+    total = 0.0
+    for _ in range(max_rollout_turns):  # ← 对应 rollouts.py 的 for turn in range(...)
+        ret = env.step([[{"role": "assistant", "content": "<search>关键词</search>"}]], [meta])
+        total += ret.rewards[0]
+        if ret.terminateds[0]:
+            break
+        meta = ret.metadata[0]
+    return total
+
+
+def test_no_answer_penalty_unreachable_when_max_turns_equals_rollout_turns(env_mod, monkeypatch):
+    """回归：max_turns == max_rollout_turns 时，「只检索不作答」净收益为【正】——这正是要避免的配置。"""
+    monkeypatch.setattr(env_mod, "docs_search", lambda q: "【cmp.md】\nL12: 有资料")
+    bad_cfg = {**TRAIN_CFG, "max_turns": 3}
+    total = _simulate_rollout(env_mod, bad_cfg, max_rollout_turns=3)
+    assert total == pytest.approx(0.15)  # 3×0.05，惩罚分支从未触发
+    assert total > 0, "配置错误时刷分路径成立——这是本用例要固定住的反例"
+
+
+def test_no_answer_penalty_reachable_when_max_turns_is_one_less(env_mod, monkeypatch):
+    """修法：max_turns = max_rollout_turns - 1，第 3 轮触发 -0.2，「只检索不作答」净收益转负。"""
+    monkeypatch.setattr(env_mod, "docs_search", lambda q: "【cmp.md】\nL12: 有资料")
+    good_cfg = {**TRAIN_CFG, "max_turns": 2}
+    total = _simulate_rollout(env_mod, good_cfg, max_rollout_turns=3)
+    assert total == pytest.approx(0.05 + 0.05 - 0.2)
+    assert total < 0, "只检索不作答必须净亏，否则会被 RL 当成零风险刷分策略"
+
+
+def test_answering_on_last_turn_is_still_graded(env_mod):
+    """max_turns=2 不能误伤：最后一轮正常作答仍走判分（step() 里 boxed 分支排在超轮分支之前）。"""
+    env = env_mod.QADocsAgentEnv(cfg={**TRAIN_CFG, "max_turns": 2})
+    ret = env.step(
+        [[{"role": "assistant", "content": r"根据资料 \boxed{B}"}]],
+        [{
+            "expected_answer": "[single] B",
+            "query": "题面",
+            "num_turns": 2,  # 已达上限，但这一轮给出了答案
+            "max_turns": 2,
+            "did_search": True,
+        }],
+    )
+    assert ret.terminateds[0] is True
+    assert ret.rewards[0] > 0.9  # 判分为 1.0（+检索加成），不是 -no_answer_penalty
+
+
+# ─────────── 检索加成：阈值与按分数缩放 ───────────
+
+
+def test_search_bonus_covers_partial_credit_question_types(env_mod):
+    """min_score=1.0 会让 fill/short/multiple（最依赖检索的题型）永远拿不到检索加成。"""
+    cfg_strict = {**TRAIN_CFG, "search_bonus_min_score": 1.0, "search_bonus_scaled": False}
+    cfg_fixed = {**TRAIN_CFG, "search_bonus_min_score": 0.5, "search_bonus_scaled": True}
+
+    def multi_2of3(cfg):  # gold A,C,D 答出 A,C → base 分 2/3
+        env = env_mod.QADocsAgentEnv(cfg=cfg)
+        ret = env.step(
+            [[{"role": "assistant", "content": r"\boxed{A,C}"}]],
+            [{
+                "expected_answer": "[multiple] A,C,D",
+                "query": "题面",
+                "num_turns": 1,
+                "max_turns": int(cfg["max_turns"]),
+                "did_search": True,
+            }],
+        )
+        return ret.rewards[0]
+
+    assert multi_2of3(cfg_strict) == pytest.approx(2 / 3)          # 检索白用了，零加成
+    assert multi_2of3(cfg_fixed) == pytest.approx(2 / 3 + 0.1 * (2 / 3))  # 按得分比例给
+
+
+def test_search_bonus_scaled_is_monotonic_in_score(env_mod):
+    """按比例缩放不能反转顺序：答得越好，总分越高。"""
+    cfg = {**TRAIN_CFG, "search_bonus_min_score": 0.5, "search_bonus_scaled": True}
+
+    def score(boxed, gold):
+        env = env_mod.QADocsAgentEnv(cfg=cfg)
+        return env.step(
+            [[{"role": "assistant", "content": rf"\boxed{{{boxed}}}"}]],
+            [{
+                "expected_answer": gold,
+                "query": "题面",
+                "num_turns": 1,
+                "max_turns": int(cfg["max_turns"]),
+                "did_search": True,
+            }],
+        ).rewards[0]
+
+    assert score("A,C,D", "[multiple] A,C,D") > score("A,C", "[multiple] A,C,D")
+
+
+# ─────────── BM25 相关度下限 ───────────
+
+
+def test_bm25_rejects_low_relevance_instead_of_returning_noise(env_mod, tmp_path, monkeypatch):
+    """查不到相关资料时必须返回「未检索到」，而不是硬塞 Top-K 噪声。
+
+    这是「模型学到检索没用」的一大来源：拿回一堆不相关片段，既误导作答，又照拿检索奖励。
+    """
+    (tmp_path / "cmp.md").write_text(
+        "# CMP 制程\n\n铜 CMP 分为主抛与精抛两步，主抛负责去除大部分铜层。\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "safety.md").write_text(
+        "# 高处作业\n\n登高作业务必佩戴安全帽和安全带，脚手架需经验收。\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(env_mod, "DOCS_DIR", str(tmp_path))
+    monkeypatch.setattr(env_mod, "_BM25_CACHE", {})
+
+    hit = env_mod.docs_search("CMP 铜 主抛")
+    assert "cmp.md" in hit and env_mod._is_useful_retrieval(hit)
+
+    miss = env_mod.docs_search("OFD 电子发票 源文件 报销流程")
+    assert "未检索到相关资料" in miss
+    assert not env_mod._is_useful_retrieval(miss), "低相关检索不能算「有效检索」，否则照发检索奖励"
+
+
+def test_bm25_relative_cutoff_drops_weak_chunks(env_mod, tmp_path, monkeypatch):
+    """相对截断：只保留与 Top1 同量级的片段，避免弱相关块挤占回灌预算。"""
+    (tmp_path / "a.md").write_text(
+        "# 铜 CMP\n\n铜 CMP 主抛 精抛 铜 CMP 主抛 铜 CMP 主抛 去除铜层。\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "b.md").write_text("# 杂项\n\n设备维护记录里提到过一次铜。\n", encoding="utf-8")
+    monkeypatch.setattr(env_mod, "DOCS_DIR", str(tmp_path))
+    monkeypatch.setattr(env_mod, "_BM25_CACHE", {})
+    monkeypatch.setattr(env_mod, "BM25_REL_CUTOFF", 0.5)
+
+    out = env_mod.docs_search("铜 CMP 主抛")
+    assert "a.md" in out and "b.md" not in out
+
+
 def test_bad_tool_format_penalty_is_train_only(env_mod):
     """无标签输出和空 search 只在训练期扣分；验证必须仍是纯正确率。"""
     metadata = [{
