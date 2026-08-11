@@ -1,0 +1,83 @@
+# NeMo-RL 0.7.0 自带 examples/run_dpo.py，但改造前平台没有任何途径声明并校验它 ——
+# 用户只能自己写 run.sh 里的 ENTRY，服务端对此一无所知。
+# 加这个目录就是全部工作量：服务端零改动即支持 DPO。
+name: dpo
+version: "0.7.0"
+title: DPO · 直接偏好优化
+summary: >
+  在「优选 / 劣选」成对偏好数据上直接优化策略，不需要显式奖励模型，也不需要采样。
+  比 GRPO 便宜得多，适合已有偏好标注的场景，常接在 SFT 之后。
+framework: nemo-rl
+
+entrypoint:
+  base: nemo_rl
+  path: examples/run_dpo.py
+
+config_section: dpo
+lifecycle: [export, eval]
+roles: [actor, reference]
+
+metrics:
+  primary:
+    - train/loss
+    - validation/loss
+    - train/grad_norm
+    - train/lr
+
+params:
+  max_num_epochs:
+    type: int
+    min: 1
+    path: dpo.max_num_epochs
+  max_num_steps:
+    type: int
+    min: 1
+    path: dpo.max_num_steps
+  val_period:
+    type: int
+    min: 0
+    path: dpo.val_period
+  val_batches:
+    type: int
+    min: 1
+    path: dpo.val_batches
+  val_global_batch_size:
+    type: int
+    min: 1
+    path: dpo.val_global_batch_size
+  val_at_start:
+    type: bool
+    path: dpo.val_at_start
+  val_at_end:
+    type: bool
+    path: dpo.val_at_end
+  seed:
+    type: int
+    path: dpo.seed
+  reference_policy_kl_penalty:
+    type: float
+    min: 0.0
+    max: 1.0
+    path: dpo.reference_policy_kl_penalty
+    doc: DPO 的 beta。贴原模型力度
+  preference_average_log_probs:
+    type: bool
+    path: dpo.preference_average_log_probs
+    doc: 是否按序列长度归一化偏好项的 log prob
+  preference_loss_weight:
+    type: float
+    min: 0.0
+    path: dpo.preference_loss_weight
+  sft_loss_weight:
+    type: float
+    min: 0.0
+    path: dpo.sft_loss_weight
+    doc: 混入的 SFT 辅助 loss 权重。0 = 纯 DPO
+  train_global_batch_size:
+    type: int
+    min: 1
+    path: policy.train_global_batch_size
+  max_total_sequence_length:
+    type: int
+    min: 1
+    path: policy.max_total_sequence_length

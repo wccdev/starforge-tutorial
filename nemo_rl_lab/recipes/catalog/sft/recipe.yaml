@@ -1,0 +1,71 @@
+name: sft
+version: "0.7.0"
+title: SFT · 指令监督微调
+summary: >
+  在标注好的「指令 → 回答」数据上做监督学习。通常是后训练流水线的第一阶段，
+  产出的 checkpoint 再交给 DPO / GRPO 继续对齐。
+framework: nemo-rl
+
+entrypoint:
+  base: nemo_rl
+  path: examples/run_sft.py
+
+config_section: sft
+lifecycle: [export, eval]
+roles: [actor]
+
+metrics:
+  primary:
+    - train/loss
+    - validation/loss
+    - validation/accuracy
+    - train/grad_norm
+    - train/lr
+
+params:
+  max_num_epochs:
+    type: int
+    min: 1
+    path: sft.max_num_epochs
+  max_num_steps:
+    type: int
+    min: 1
+    path: sft.max_num_steps
+    doc: 训练总步数。与 max_num_epochs 谁先到谁生效
+  val_period:
+    type: int
+    min: 0
+    path: sft.val_period
+  val_batches:
+    type: int
+    min: 1
+    path: sft.val_batches
+  val_global_batch_size:
+    type: int
+    min: 1
+    path: sft.val_global_batch_size
+  val_at_start:
+    type: bool
+    path: sft.val_at_start
+  val_at_end:
+    type: bool
+    path: sft.val_at_end
+  only_unmask_final:
+    type: bool
+    path: sft.only_unmask_final
+    doc: 只对最后一轮回答计算 loss（多轮对话数据常用）
+  seed:
+    type: int
+    path: sft.seed
+  train_global_batch_size:
+    type: int
+    min: 1
+    path: policy.train_global_batch_size
+  train_micro_batch_size:
+    type: int
+    min: 1
+    path: policy.train_micro_batch_size
+  max_total_sequence_length:
+    type: int
+    min: 1
+    path: policy.max_total_sequence_length

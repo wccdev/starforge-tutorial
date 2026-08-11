@@ -1,0 +1,75 @@
+# NeMo-RL 0.7.0 自带 examples/run_distillation.py，改造前平台同样无法声明它。
+name: distillation
+version: "0.7.0"
+title: 在线蒸馏 · On-Policy Distillation
+summary: >
+  学生模型自己采样轨迹，教师模型在同样的 token 位置上给出完整分布，用 KL 监督学生。
+  信号密度远高于 RL 的标量奖励，且始终 on-policy（无分布漂移）。
+framework: nemo-rl
+
+entrypoint:
+  base: nemo_rl
+  path: examples/run_distillation.py
+
+config_section: distillation
+lifecycle: [export, eval]
+roles: [actor, teacher, rollout]
+
+metrics:
+  primary:
+    - train/loss
+    - train/kl_penalty
+    - validation/accuracy
+    - train/grad_norm
+
+params:
+  num_prompts_per_step:
+    type: int
+    min: 1
+    path: distillation.num_prompts_per_step
+  num_generations_per_prompt:
+    type: int
+    min: 1
+    path: distillation.num_generations_per_prompt
+  max_num_steps:
+    type: int
+    min: 1
+    path: distillation.max_num_steps
+  max_num_epochs:
+    type: int
+    min: 1
+    path: distillation.max_num_epochs
+  max_rollout_turns:
+    type: int
+    min: 1
+    path: distillation.max_rollout_turns
+  val_period:
+    type: int
+    min: 0
+    path: distillation.val_period
+  val_batch_size:
+    type: int
+    min: 1
+    path: distillation.val_batch_size
+  max_val_samples:
+    type: int
+    min: 1
+    path: distillation.max_val_samples
+  val_at_start:
+    type: bool
+    path: distillation.val_at_start
+  val_at_end:
+    type: bool
+    path: distillation.val_at_end
+  topk_logits_k:
+    type: int
+    min: 1
+    path: distillation.topk_logits_k
+    doc: 教师每个位置回传的 top-k logits 数。大→信号全但通信/显存开销高
+  seed:
+    type: int
+    path: distillation.seed
+  max_total_sequence_length:
+    type: int
+    min: 1
+    path: policy.max_total_sequence_length

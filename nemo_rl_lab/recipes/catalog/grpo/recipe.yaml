@@ -1,0 +1,95 @@
+name: grpo
+version: "0.7.0"
+title: GRPO · 组相对策略优化
+summary: >
+  对同一道题采样一组回答，用组内相对优势替代价值网络，是当前数学/推理类
+  后训练的主力方法。无需 critic，显存占用低于 PPO。
+framework: nemo-rl
+
+entrypoint:
+  base: nemo_rl
+  path: examples/run_grpo.py
+
+config_section: grpo
+lifecycle: [export, eval]
+roles: [actor, reference, rollout]
+
+metrics:
+  # 前端默认曲线与诊断阈值都读这里；键名与 console 的 diagnosis/core_metrics 对齐。
+  primary:
+    - train/reward
+    - train/kl_penalty
+    - train/approx_entropy
+    - train/loss
+    - validation/accuracy
+
+params:
+  num_prompts_per_step:
+    type: int
+    min: 1
+    path: grpo.num_prompts_per_step
+    doc: 每步题目数。× num_generations_per_prompt 应等于 train_global_batch_size
+  num_generations_per_prompt:
+    type: int
+    min: 1
+    path: grpo.num_generations_per_prompt
+    doc: 每题采样数（组内基线）。多→梯度稳但更慢更吃显存
+  max_num_steps:
+    type: int
+    min: 1
+    path: grpo.max_num_steps
+    doc: 训练总步数
+  max_rollout_turns:
+    type: int
+    min: 1
+    path: grpo.max_rollout_turns
+    doc: 多轮 rollout 轮数。单轮问答填 1
+  val_period:
+    type: int
+    min: 0
+    path: grpo.val_period
+    doc: 每多少步验证一次。0 表示不做周期验证
+  val_at_start:
+    type: bool
+    path: grpo.val_at_start
+    doc: 训练开始前先跑一次验证（拿到基线）
+  val_at_end:
+    type: bool
+    path: grpo.val_at_end
+  max_val_samples:
+    type: int
+    min: 1
+    path: grpo.max_val_samples
+  val_batch_size:
+    type: int
+    min: 1
+    path: grpo.val_batch_size
+    doc: 须 <= max_val_samples
+  normalize_rewards:
+    type: bool
+    path: grpo.normalize_rewards
+  use_leave_one_out_baseline:
+    type: bool
+    path: grpo.use_leave_one_out_baseline
+  seed:
+    type: int
+    path: grpo.seed
+  reference_policy_kl_penalty:
+    type: float
+    min: 0.0
+    max: 1.0
+    path: loss_fn.reference_policy_kl_penalty
+    doc: 贴原模型力度。大→稳但学得慢；小→快但易跑偏/退化
+  max_total_sequence_length:
+    type: int
+    min: 1
+    path: policy.max_total_sequence_length
+    doc: 上下文长度。大→更吃显存、更慢
+  train_global_batch_size:
+    type: int
+    min: 1
+    path: policy.train_global_batch_size
+  generation_batch_size:
+    type: int
+    min: 1
+    path: policy.generation_batch_size

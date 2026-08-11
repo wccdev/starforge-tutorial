@@ -1,0 +1,72 @@
+# MaxRL 相对 GRPO 只改优势估计一处（组内按【平均奖励】而非【标准差】归一化），
+# 其余（KL 惩罚、ratio clip、token-level loss）完全一致。
+# 因此它复用 GRPO 的全部超参与入口，只多挂一个 plugin。
+name: maxrl
+version: "0.1.0"
+title: MaxRL · 最大似然强化学习
+summary: >
+  把 GRPO 的组内标准差归一化换成平均奖励（通过率）归一化，使学习信号集中到低通过率难题：
+  难题答对可得 ≈1/p̂ 的正优势，而 GRPO 只有 ≈1/√p̂。
+framework: nemo-rl
+
+entrypoint:
+  base: exp
+  path: run.py
+
+config_section: grpo
+lifecycle: [export, eval]
+roles: [actor, reference, rollout]
+plugins: [maxrl]
+
+metrics:
+  primary:
+    - train/reward
+    - train/kl_penalty
+    - train/advantages/mean
+    - validation/accuracy
+
+params:
+  num_prompts_per_step:
+    type: int
+    min: 1
+    path: grpo.num_prompts_per_step
+  num_generations_per_prompt:
+    type: int
+    min: 1
+    path: grpo.num_generations_per_prompt
+    doc: >
+      MaxRL 下 N 不只是降方差：无偏梯度对应的截断阶 T=N，增大 N 直接逼近更高保真的
+      最大似然目标。比 GRPO 更值得调大
+  max_num_steps:
+    type: int
+    min: 1
+    path: grpo.max_num_steps
+  max_rollout_turns:
+    type: int
+    min: 1
+    path: grpo.max_rollout_turns
+  val_period:
+    type: int
+    min: 0
+    path: grpo.val_period
+  max_val_samples:
+    type: int
+    min: 1
+    path: grpo.max_val_samples
+  val_batch_size:
+    type: int
+    min: 1
+    path: grpo.val_batch_size
+  reference_policy_kl_penalty:
+    type: float
+    min: 0.0
+    max: 1.0
+    path: loss_fn.reference_policy_kl_penalty
+  max_total_sequence_length:
+    type: int
+    min: 1
+    path: policy.max_total_sequence_length
+  train_global_batch_size:
+    type: int
+    min: 1
+    path: policy.train_global_batch_size

@@ -1,0 +1,65 @@
+# OPSD 是「蒸馏主循环 + 三处外科手术」，不是一份独立的训练脚本。
+# 改造前这三处补丁由实验目录的 run.py 自己 import 并 install_opsd()，平台完全看不见：
+# 无法知道某个作业用了哪个补丁、哪个版本，也无法复用到别的实验。
+# 现在补丁由 plugins 声明，launcher 统一装载 —— 手段不变（对内网集群零依赖仍是优势），
+# 但它成了平台的一等概念。
+name: opsd
+version: "0.1.0"
+title: OPSD · 同模型自蒸馏
+summary: >
+  学生只看题目采样，教师是同一个模型但额外看到参考解，对同一条轨迹做 teacher-forcing。
+  不需要更强的外部教师，也不需要第二份模型权重（teacher_mode=self）。
+framework: nemo-rl
+
+# 入口在实验目录内：OPSD 需要自定义 Dataset 往 extra_env_info 里塞参考解 token。
+entrypoint:
+  base: exp
+  path: run.py
+
+config_section: opsd
+lifecycle: [export, eval]
+roles: [actor, teacher, rollout]
+plugins: [opsd]
+
+metrics:
+  primary:
+    - train/loss
+    - train/kl_penalty
+    - validation/accuracy
+
+params:
+  teacher_mode:
+    type: enum
+    choices: [self, fixed]
+    default: self
+    path: opsd.teacher_mode
+    doc: self=老师复用学生权重（省一整份显存，论文原义）；fixed=固定外部老师做对照
+  per_token_kl_clip:
+    type: float
+    min: 0.0
+    exclusive_min: true
+    default: 10.0
+    path: opsd.per_token_kl_clip
+    doc: >
+      单 token KL 截断阈值。看训练日志的 opsd_kl_clip_frac：长期 >5% 说明截太狠该调大，
+      接近 0 说明这个稳定器没起作用
+  num_prompts_per_step:
+    type: int
+    min: 1
+    path: distillation.num_prompts_per_step
+  num_generations_per_prompt:
+    type: int
+    min: 1
+    path: distillation.num_generations_per_prompt
+  max_num_steps:
+    type: int
+    min: 1
+    path: distillation.max_num_steps
+  val_period:
+    type: int
+    min: 0
+    path: distillation.val_period
+  topk_logits_k:
+    type: int
+    min: 1
+    path: distillation.topk_logits_k
