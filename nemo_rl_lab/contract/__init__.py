@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 from .binding import IngestBinding, PlatformBinding
-from .env import KNOWN_KEYS, spec_to_env
+from .env import KNOWN_KEYS, SPEC_FILE_PATH, spec_to_env
 from .errors import SpecError
 from .legacy import legacy_spec
 from .names import exp_basename, safe_exp_rel, safe_project, safe_run_id, safe_segment
@@ -60,6 +60,7 @@ __all__ = [
     "PlatformBinding",
     "Provenance",
     "RECIPE_LEGACY",
+    "SPEC_FILE_PATH",
     "RecipeRef",
     "ResourcePool",
     "ResourceSpec",

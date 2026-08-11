@@ -17,6 +17,13 @@ from .binding import PlatformBinding
 from .errors import SpecError
 from .spec import JobSpec
 
+#: 服务端把 JobSpec 写进上传包的落点，集群侧 launcher 从同一路径读取。
+#:
+#: 注意不能放在 `.lab/` 下 —— 那是客户端的本地凭据/台账目录，被 Ray runtime_env 的
+#: DEFAULT_EXCLUDES 显式排除（`.lab/**`），写进去会被上传剔除，集群侧读不到。
+#: 这个坑正是「两侧共享常量必须只有一处定义」的典型例子。
+SPEC_FILE_PATH = ".lab-job/jobspec.json"
+
 # ── 契约变量清单 ──────────────────────────────────────────────────────────────
 # 按注入来源分组。集群侧脚本可 import 本清单做自检（收到未知的 LAB_/NRL_ 变量即告警）。
 
