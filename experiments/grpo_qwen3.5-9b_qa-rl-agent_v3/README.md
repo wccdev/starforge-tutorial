@@ -98,9 +98,34 @@ lab submit grpo_qwen3.5-9b_qa-rl-agent_v1
 - **H200 序列预算**：`seq=4096`、每轮 `max_new_tokens=512`、单次检索最多回灌 900 字，优先保证“检索一次后能完整作答”，而不是长文本生成。
 - **参考策略锚定**：`KL=0.02` 加入 Reinforce++ 的 token reward，压制策略漂移和重复格式。
 - **NeMo-RL v0.7 长轨迹保护**：`overlong_filtering=true` 丢弃撞到生成上限的未完成轨迹；v0.7 的 GRPO selected-token logprob 内存优化可降低长序列训练压力。
+  ⚠️ 该开关**必须**与 `advantage_clip_low/high=∓5.0` + `reward_shaping`（soft overlong punishment）同时使用，三者缺一会复现下述事故。
 - **Qwen3.5 vLLM 稳定性优先**：v0.7 / vLLM 0.20 有 CUDA-graph/Ray 间歇 hang 的上游已知问题，因此 H200 profile 强制 `enforce_eager=true`。吞吐会下降；确认上游修复前不要改回 false。
 
 运行时关注 `train/approx_entropy`、`train/advantages/max`、`dynamic_sampling_num_gen_batches` 和纯答题 `validation/accuracy`。若动态采样频繁达到 8 个补采样批次，说明当前题目过易或过难，应先改善题目难度混合，而不是提高学习率。
+
+### 事故复盘：20260810 step103 NaN 崩溃（raysubmit_6UEmn8hcQtHrRKCv）
+
+该 run 训到 step 103 报 `RuntimeError: iteration 103: found NaN in local grad norm for bucket #0`。
+**不是显存问题、也不是学习率过高**（LoRA lr=1e-4 有 warmup+cosine，且 `clip_grad=1.0` 全程生效；
+NaN 产生在 DP 通信之前即梯度裁剪之前，裁剪救不了）。真正的链条是 `overlong_filtering` 单独使用
+造成的**幸存者偏差**：
+
+| 环节 | 指标证据 |
+|---|---|
+| ① 生成长度发散 | `avg_turns_per_sample` 1.66(s35)→3.00(s103)；`mean_gen_tokens` 446→1326 |
+| ② 截断率飙升 | `truncation_rate` 0.09(s35)→0.98(s102)→**1.0(s103)** |
+| ③ 有效样本塌缩 | `num_valid_samples` 58(s32)→6(s80)→**1**(s101)；`global_valid_toks` 27929→209 |
+| ④ 优势爆炸 | `advantages/mean` 常态 -0.2~-2 → **-66.8**(s102)，min -99.3 |
+| ⑤ 梯度崩 | `grad_norm` 0.3~0.75(s1-80)→**10.6**(s101)；s103 有效 token 归零 → NaN |
+
+关键点：`qa_reward.py` 的 `FORMAT_PENALTY=-0.5`（写不出 `\boxed{}` 的重罚）本身完全够用，
+但被 `overlong_filtering` 拦在梯度之外，**一次都没传到模型**——模型只从"没被截断"的样本里学习，
+于是"多搜一轮、多写一点"看起来永远只有收益没有代价，长度单调发散直到 100% 截断。
+同期 `validation/accuracy` 从 0.2686(s50) 跌到 0.1045(s100)、`approx_entropy` 0.725→0.125（复读塌缩）。
+
+修复（见 config.yaml 对应注释）：`advantage_clip_low/high=∓5.0` 防崩 + `reward_shaping` 的
+soft overlong punishment 治本（在**还没被截断**的缓冲区内按超长程度扣分，这些样本仍在梯度里）
++ `val_period` 50→25 让劣化能早一半发现。姊妹实验 `gb10_v1` 曾踩过同一个坑，取同一组 clip 值。
 
 > 运行镜像必须为 `nvcr.io/nvidia/nemo-rl:v0.7.0`（CUDA 13 / vLLM 0.20）；不要在 v0.6 容器内单独升级 Python 包。
 

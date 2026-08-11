@@ -90,10 +90,52 @@ grpo:
   batch_multiplier: 2
   dynamic_sampling_max_gen_batches: 8
   # v0.7：不要用达到生成上限、没有完成工具协议/答案的轨迹更新策略。
+  # ⚠️ 必须与下方 advantage_clip + reward_shaping 联用，否则会复现 20260810 run
+  #    (raysubmit_6UEmn8hcQtHrRKCv) 的 step103 NaN 崩溃，机理见下方 advantage_clip 注释。
   overlong_filtering: true
+  # ★ 20260810 事故修复①：截断样本被 overlong_filtering 剔除后，组内有效样本会塌到 1～2 条，
+  #   而 adv_estimator 仍要做归一化（除以组内 std / 有效 token 数）→ advantage 爆炸。
+  #   实测该 run：num_valid_samples 58(step32)→6(step80)→1(step101)，
+  #   同期 advantages/mean -0.2~-2(常态)→-66.8(step102)、min -99.3，
+  #   grad_norm 0.3~0.75(step1-80)→10.6(step101)，step103 截断率撞到 1.0、有效 token 归零 → NaN：
+  #     RuntimeError: iteration 103: found NaN in local grad norm for bucket #0
+  #   注意 NaN 产生在 DP 通信之前、也就是【梯度裁剪之前】，所以 clip_grad=1.0 救不了，必须在
+  #   advantage 层面截断。姊妹实验 gb10_v1 已踩过同一个坑（见其 config 第 79-87 行），取同一组值。
+  advantage_clip_low: -5.0
+  advantage_clip_high: 5.0
+  # ★ 20260810 事故修复②：advantage_clip 只防崩，不治本——真正的病根是 overlong_filtering
+  #   造成的【幸存者偏差】：写超长被截断的样本全被删出梯度，模型只从"没被截断"的样本里学，
+  #   于是"多搜一轮、多写一点"看起来永远只有收益、没有代价，长度就单调发散：
+  #     avg_turns_per_sample  1.66(step35) → 3.00(step103，撞满 max_rollout_turns)
+  #     mean_gen_tokens       446 (step35) → 1326(step103)
+  #     truncation_rate       0.09(step35) → 0.98(step102) → 1.0(step103) → 有效样本归零 → NaN
+  #   注意 qa_reward.py 的 FORMAT_PENALTY=-0.5（写不出 \boxed{} 的重罚）其实完全够用，
+  #   问题是这个信号被 overlong_filtering 拦在梯度之外了，一次都没传到模型。
+  #   DAPO 的 soft overlong punishment 正是为替代硬过滤设计的：在【还没被截断】的缓冲区内
+  #   按超长程度线性扣分，这些样本仍在梯度里，模型因此能在撞墙【之前】学到"该收尾了"。
+  reward_shaping:
+    enabled: true
+    # ⚠️ 别用基底的 ${policy.max_total_sequence_length}(=4096)：本实验的实际生成上限是
+    #    max_new_tokens(768) × max_rollout_turns(3) = 2304（线上 max_gen_tokens_per_sample
+    #    峰值正好=2304，可验证），总长 4096 从来不是绑定约束。填 4096 会让惩罚永不触发、
+    #    整个 reward_shaping 变成静默 no-op。
+    max_response_length: 2304
+    # 惩罚从 2304-384=1920 开始线性加码。384 = 半轮生成的余量：
+    # 健康期(step35) mean_gen 才 446，离 1920 很远、不会误伤正常长度的作答；
+    # 而发散期 1326→2304 的爬升会在 1920 处就吃到递增惩罚，早于撞墙被拦下。
+    overlong_buffer_length: 384
+    # 基底默认 1.0 是按 DAPO 的 ±1 奖励尺度定的；本实验奖励区间约 -0.5~+1.2
+    # （FORMAT_PENALTY=-0.5、检索加成 ~+0.2），0.5 与该尺度更匹配：足以压过
+    # 「多搜一轮 +0.05」的诱惑，又不至于淹没最终判分本身。若首跑 truncation_rate
+    # 仍在往上爬，这是第一个该加大的旋钮（0.5 → 1.0）。
+    overlong_buffer_penalty: 0.5
   max_rollout_turns: 3 # 常规为「一次定向检索 + 作答」；Preamble 要求首查无结果才允许第二次
   max_num_steps: 400 # 先在纯答题验证分上观察 8 个点；动态采样使每步有效，不再盲跑 800 步
-  val_period: 50
+  # 50 → 25：20260810 run 的 val 只打在 0/50/100 三个点上，accuracy 0.2686(step50)→0.1045(step100)
+  # 中间 50 步的劣化全程无感知，checkpointing(keep_top_k=3, metric=val:accuracy) 也只能在
+  # 这三个粗点里挑。25 步一验证 → 崩坏能早一半发现，回滚点粒度也翻倍。
+  # 代价：单次验证 ~280s，400 步全程多花约 37min（相对 195s/step 的总时长可忽略）。
+  val_period: 25
   val_at_start: true
   val_at_end: true
   max_val_samples: 256
