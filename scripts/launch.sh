@@ -39,4 +39,5 @@ for _d in "${WORK_DIR}"/datasets/*/; do
   fi
 done
 
-exec python -m nemo_rl_lab.launcher "$@"
+# 入口由 nemo-lab-sdk 提供（镜像里已装），不再依赖上传包内的 Python 包。
+exec python -m nemo_lab_sdk.launcher "$@"

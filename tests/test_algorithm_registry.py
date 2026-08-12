@@ -75,7 +75,7 @@ def test_every_plugin_declares_version_and_summary():
 
 def test_recipe_declared_plugins_all_exist():
     """recipe 声明的 plugin 必须在注册表里，否则作业到集群才炸。"""
-    from nemo_rl_lab.recipes import all_recipes
+    from nemo_lab_sdk.recipes import all_recipes
 
     known = set(registry.all_plugins())
     for name, r in all_recipes().items():
