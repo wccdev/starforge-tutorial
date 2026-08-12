@@ -346,6 +346,48 @@ def clean(
     typer.echo(f"  查看进度：lab logs {res.get('job_id')}")
 
 
+dataset_app = typer.Typer(help="数据集：上传到对象存储、按版本分发给作业")
+app.add_typer(dataset_app, name="dataset")
+
+
+@dataset_app.command("ls", help="列出数据集与版本")
+def dataset_ls(name: Optional[str] = typer.Argument(None, help="数据集名；不传则列全部")) -> None:
+    cli_login.gate("dataset")
+    if name:
+        d = cli_login.api_get(f"/api/datasets/{name}")
+        typer.echo(f"{d['name']}@{d['version']}  {d['total_bytes'] / 1e6:.1f} MB  {len(d['files'])} 个文件")
+        for f in d["files"]:
+            typer.echo(f"  {f['name']:40s} {f['size'] / 1e6:8.2f} MB  {(f.get('sha256') or '')[:12]}")
+        return
+    for d in cli_login.api_get("/api/datasets")["datasets"]:
+        typer.echo(f"{d['name']:20s} {', '.join(d['versions']) or '（无版本）'}")
+
+
+@dataset_app.command("push", help="上传一个数据集版本到对象存储")
+def dataset_push(
+    name: str = typer.Argument(..., help="数据集名，如 gsm8k"),
+    version: str = typer.Argument(..., help="版本，如 v1 / 20260812"),
+    path: str = typer.Argument(..., help="本地目录"),
+) -> None:
+    """上传目录下的全部文件，并生成带 sha256 的 index.json。
+
+    校验和不是可选项：作业侧靠它判断下载是否被截断。静默接受一个截断的
+    train.jsonl，就是拿脏数据训练几小时后才发现结果不对。
+    """
+    from pathlib import Path as _P
+
+    cli_login.gate("dataset")
+    root = _P(path)
+    if not root.is_dir():
+        cli_ui.fail(f"不是目录: {path}")
+    files = sorted(p for p in root.rglob("*") if p.is_file())
+    if not files:
+        cli_ui.fail(f"目录为空: {path}")
+    cli_login.dataset_push(name, version, root, files)
+    typer.echo(f"已上传 {name}@{version}（{len(files)} 个文件）")
+    typer.echo(f"作业里引用它：lab submit <实验> --method <方法>  # config 用 ${{oc.env:{name.upper().replace('-', '_')}_DATA_DIR}}")
+
+
 @app.command(name="methods", help="列出可用的后训练方法与它们的超参")
 def methods(
     name: Optional[str] = typer.Argument(None, help="方法名；不传则列出全部"),

@@ -306,6 +306,69 @@ def _bearer_request(server: str, method: str, path: str, *, data: Optional[bytes
     return urllib.request.urlopen(req, timeout=timeout)
 
 
+def api_get(path: str, server: Optional[str] = None) -> dict:
+    """带 token 的 GET，返回 JSON。"""
+    srv = current_server(server)
+    try:
+        with _bearer_request(srv, "GET", path) as r:
+            return json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        cli_ui.fail_http(e, fallback="请求失败，请稍后重试。")
+
+
+def dataset_push(name: str, version: str, root: Path, files: list, server: Optional[str] = None) -> None:
+    """上传一个数据集版本：逐文件走预签名 PUT，最后写 index.json。
+
+    直连对象存储，不经过 console —— 数据集动辄几 GB，穿过 API 进程内存是没道理的。
+    客户端全程不持有对象存储凭据，只拿一次性预签名 URL。
+    """
+    import hashlib
+
+    srv = current_server(server)
+    index_files = []
+    for f in files:
+        rel = f.relative_to(root).as_posix()
+        blob = f.read_bytes()
+        up = api_post(
+            f"/api/datasets/{name}/{version}/upload-url", {"filename": rel}, server=srv,
+        )
+        req = urllib.request.Request(
+            up["upload_url"], data=blob, method="PUT",
+            headers={"Content-Type": "application/octet-stream"},
+        )
+        try:
+            urllib.request.urlopen(req, timeout=600)
+        except urllib.error.HTTPError as e:
+            cli_ui.fail(f"上传 {rel} 失败: HTTP {e.code}")
+        index_files.append(
+            {"name": rel, "size": len(blob), "sha256": hashlib.sha256(blob).hexdigest()}
+        )
+        print(f"  ↑ {rel}  {cli_ui.human_bytes(len(blob))}")
+
+    # index.json 最后写：它的存在即「这个版本已完整上传」的标记。
+    up = api_post(f"/api/datasets/{name}/{version}/upload-url", {"filename": "index.json"}, server=srv)
+    body = json.dumps({"files": index_files}, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        up["upload_url"], data=body, method="PUT", headers={"Content-Type": "application/json"}
+    )
+    try:
+        urllib.request.urlopen(req, timeout=60)
+    except urllib.error.HTTPError as e:
+        cli_ui.fail(f"写入 index.json 失败: HTTP {e.code}")
+
+
+def api_post(path: str, payload: dict, server: Optional[str] = None) -> dict:
+    srv = current_server(server)
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    try:
+        with _bearer_request(
+            srv, "POST", path, data=body, headers={"Content-Type": "application/json"}
+        ) as r:
+            return json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        cli_ui.fail_http(e, fallback="请求失败，请稍后重试。")
+
+
 def submit_via_server(exp_rel: str, profile: Optional[str], repo_root: Path,
                       server: Optional[str] = None, project: Optional[str] = None,
                       reporter=None, spec=None) -> dict:
