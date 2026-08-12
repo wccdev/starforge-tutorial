@@ -111,6 +111,32 @@ class IngestClient:
             print(f"NeMoLab lifecycle({event}) report failed: {e}")
             return False
 
+    def register_artifact(
+        self, kind: str, path: str, *, step: int | None = None,
+        size_bytes: int | None = None, metrics: dict | None = None,
+    ) -> bool:
+        """登记一个训练产物（checkpoint / hf_export / eval_report / merged_model）。阶段 5。
+
+        改造前 checkpoint 只是一个约定式路径，没有任何记录 —— 下一阶段要从它
+        继续训练，只能靠用户手抄路径，平台无从校验也无从展示血缘。
+
+        不走队列（频次低、每次都要落库），失败只告警：产物登记不了不该让训练失败，
+        checkpoint 本身已经写在盘上了。
+        """
+        payload = {"run_id": self.run_id, "kind": kind, "path": path}
+        if step is not None:
+            payload["step"] = step
+        if size_bytes is not None:
+            payload["size_bytes"] = size_bytes
+        if metrics:
+            payload["metrics"] = metrics
+        try:
+            self._post("artifact", payload, timeout=10)
+            return True
+        except Exception as e:
+            print(f"NeMoLab artifact register failed ({kind}@{path}): {e}")
+            return False
+
     def enqueue_log(self, chunk: str) -> None:
         if not chunk:
             return
