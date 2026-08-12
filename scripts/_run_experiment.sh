@@ -23,8 +23,12 @@
 # 把指标打进 console（否则 console 上这个作业只有日志没有曲线）；③ 遵守 LAB_CLUSTER_* 拓扑。
 # ⚠️ 配额不靠自觉：服务端按 profile 注册表记账，watchdog 还会做集群级 Ray 用卡对账，
 #    实际占卡超出记账会被告警/停止。custom 只是放开「跑什么代码」，不是放开「占多少卡」。
-# ⚠️ 新依赖装不进来：Ray 跑在 NeMo-RL 官方容器里，作业级 `uv run --with` 只影响 driver 进程，
-#    训练 worker 用的仍是容器 venv。要加包只能做 overlay 镜像，见 cluster/README.md。
+# ⚠️ 作业级依赖装不进来：Ray 跑在 NeMo-RL 官方容器里，作业级 `uv run --with` 只影响 driver
+#    进程，训练 worker 用的仍是容器 venv。要加包得做 overlay 镜像，见 cluster/README.md。
+#    注意这**不是网络问题**：内网 Nexus3 已代理 PyPI/Docker，构建期拉包是通的
+#    （见 console 的 deploy/ray-cluster/Dockerfile：PIP_INDEX + EXTRA_PIP）。
+#    走 JobSpec 的作业可在 recipe 的 runtime.requires 里声明依赖，launcher 会在启动
+#    第一秒校验并直接给出重建命令，而不是等训练跑起来才抛 ImportError。
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

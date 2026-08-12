@@ -3,8 +3,14 @@
 为什么是自定义的迷你 schema 而不是 JSON Schema
 ──────────────────────────────────────────────────────────────────────────────
 本模块要能在 NeMo-RL 官方容器里 import（集群侧 launcher 用它解析 recipe），
-而该容器无法安装新依赖 —— `jsonschema` 不可用。实际需要覆盖的场景也很窄：
-类型、必填、区间、枚举、默认值。一个约 80 行的校验器足够，且没有依赖风险。
+而**运行时**装不了新包 —— 注意这不是网络问题：内网 Nexus3 能代理 PyPI，
+overlay 镜像里装什么都行；装不进来的是**作业级**依赖，因为 Ray 的
+runtime_env pip 只作用于 driver 进程，训练 worker 用的仍是容器 venv。
+
+所以这里的取舍不是「没得选」，而是权衡：需要覆盖的场景很窄（类型、必填、
+区间、枚举、默认值），一个约 80 行的校验器就够，且不必为它重建镜像。
+真需要完整 JSON Schema（嵌套对象、oneOf）时，把 jsonschema 加进 overlay
+镜像的 EXTRA_PIP 即可，这条路是通的。
 
 pyyaml 是 nemo-rl-lab 的既有依赖，且 NeMo-RL 本身用 YAML 配置，容器内必有。
 """
@@ -102,6 +108,48 @@ class ParamSpec:
 
 
 @dataclass(frozen=True)
+class Runtime:
+    """该方法对运行环境的要求。
+
+    背景：Ray 集群在内网，但内网 Nexus3 可以代理任意上游（PyPI / Docker），
+    因此 overlay 镜像是**通的**（见 deploy/ray-cluster/Dockerfile 的 EXTRA_PIP
+    与 PIP_INDEX）。真正装不进来的是**作业级**依赖 —— Ray 的 runtime_env pip
+    只作用于 driver 进程，训练 worker 用的仍是容器 venv。这两个约束常被混为一谈。
+
+    于是正确的做法不是「不许有依赖」，而是**声明依赖并在启动时校验**：
+      - 缺包/版本不符 → 启动即报错，并给出该跑哪条构建命令
+      - 而不是训练跑起来几分钟后一句 ImportError
+
+    `requires` 用 PEP 508 语法（"trl>=0.9"）。
+
+    ⚠️ 单胖镜像有天花板：TRL 与 NeMo-RL 都吃 transformers，版本互斥时装谁都会
+       让另一边挂掉。声明式依赖让这种冲突在**加 recipe 时**就能被发现，
+       而不是在某次镜像重建后炸掉所有训练。
+    """
+
+    requires: tuple[str, ...] = ()
+    #: 该方法要求的 overlay 镜像标签；留空表示用部署默认镜像。
+    image: str = ""
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any] | None, *, recipe: str) -> Runtime:
+        d = dict(data or {})
+        raw = d.get("requires") or ()
+        if isinstance(raw, (str, bytes)) or not isinstance(raw, Sequence):
+            raise SpecError(f"recipe {recipe} 的 runtime.requires 应为字符串数组")
+        return cls(requires=tuple(str(r).strip() for r in raw if str(r).strip()),
+                   image=str(d.get("image") or "").strip())
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        if self.requires:
+            out["requires"] = list(self.requires)
+        if self.image:
+            out["image"] = self.image
+        return out
+
+
+@dataclass(frozen=True)
 class Entrypoint:
     base: str
     path: str
@@ -140,6 +188,8 @@ class Recipe:
     roles: tuple[str, ...] = ()
     #: 核心指标契约：前端默认曲线与诊断阈值都读它。
     primary_metrics: tuple[str, ...] = ()
+    #: 运行环境要求（overlay 镜像 / 额外依赖）。
+    runtime: Runtime = field(default_factory=Runtime)
     params: dict[str, ParamSpec] = field(default_factory=dict)
 
     @classmethod
@@ -163,6 +213,7 @@ class Recipe:
             plugins=tuple(str(x) for x in (data.get("plugins") or ())),
             roles=tuple(str(x) for x in (data.get("roles") or ())),
             primary_metrics=tuple(str(x) for x in ((metrics or {}).get("primary") or ())),
+            runtime=Runtime.from_dict(data.get("runtime"), recipe=name),
             params={k: ParamSpec.from_dict(k, v or {}) for k, v in raw_params.items()},
         )
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 
 import pytest
+import yaml
 
 from nemo_rl_lab.contract import SPEC_FILE_PATH, JobSpec
 from nemo_rl_lab.launcher import (
@@ -17,6 +18,7 @@ from nemo_rl_lab.launcher import (
     load_spec,
     resolve_entrypoint,
     train_output_dir,
+    verify_runtime,
 )
 
 
@@ -212,3 +214,68 @@ def test_legacy_spec_gets_no_recipe_overrides(tmp_path):
     spec = JobSpec.from_dict(json.loads((wd / SPEC_FILE_PATH).read_text()))
     ov = build_overrides(spec, wd, "/out", _env())
     assert not any(o.startswith("grpo.") for o in ov)
+
+
+# ── 运行时依赖校验（Nexus3 让 overlay 镜像成为常规手段后的配套）──────────────
+
+
+def _spec_with_requires(tmp_path, requires):
+    """构造一个声明了运行时依赖的 recipe + spec。"""
+    import nemo_rl_lab.recipes as reg
+
+    catalog = tmp_path / "catalog"
+    (catalog / "needy").mkdir(parents=True)
+    (catalog / "needy" / "recipe.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "needy", "version": "1", "title": "T", "summary": "S",
+                "entrypoint": {"base": "nemo_rl", "path": "examples/run_grpo.py"},
+                "roles": ["actor"], "metrics": {"primary": ["train/loss"]},
+                "runtime": {"requires": requires},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return reg, catalog
+
+
+def test_missing_dependency_fails_at_startup_not_mid_training(tmp_path, monkeypatch, capsys):
+    """改造前这类问题要等训练跑起来、建完 venv、加载完模型才抛 ImportError。"""
+    import nemo_rl_lab.recipes as reg
+
+    _, catalog = _spec_with_requires(tmp_path, ["definitely-not-installed>=1.0"])
+    monkeypatch.setattr(reg, "CATALOG_DIR", catalog)
+    reg.reset_cache()
+    try:
+        wd = _workdir(tmp_path, spec=_spec_dict(recipe={"name": "needy"}))
+        missing = verify_runtime(load_spec(wd), _env())
+        assert missing and "definitely-not-installed" in missing[0]
+        # 报错要给出可执行的修复动作，而不是只说「缺包」
+        out = capsys.readouterr().out
+        assert "EXTRA_PIP" in out and "build.sh" in out
+    finally:
+        reg.reset_cache()
+
+
+def test_satisfied_dependency_passes(tmp_path, monkeypatch):
+    import nemo_rl_lab.recipes as reg
+
+    _, catalog = _spec_with_requires(tmp_path, ["pyyaml"])  # 必装依赖
+    monkeypatch.setattr(reg, "CATALOG_DIR", catalog)
+    reg.reset_cache()
+    try:
+        wd = _workdir(tmp_path, spec=_spec_dict(recipe={"name": "needy"}))
+        assert verify_runtime(load_spec(wd), _env()) == []
+    finally:
+        reg.reset_cache()
+
+
+def test_recipes_without_requires_skip_verification(tmp_path):
+    """内置方法都跑在原生 NeMo-RL 上，不该为此付出任何校验开销。"""
+    wd = _workdir(tmp_path)
+    assert verify_runtime(load_spec(wd), _env()) == []
+
+
+def test_legacy_jobs_skip_verification(tmp_path):
+    wd = _workdir(tmp_path, spec=_spec_dict(recipe={"name": "legacy"}))
+    assert verify_runtime(load_spec(wd), _env()) == []

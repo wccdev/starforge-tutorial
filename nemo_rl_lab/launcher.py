@@ -156,6 +156,61 @@ def build_overrides(spec: JobSpec, work_dir: Path, out_dir: str, env: dict[str, 
 # ── 算法插件 ─────────────────────────────────────────────────────────────────
 
 
+def verify_runtime(spec: JobSpec, env: dict[str, str]) -> list[str]:
+    """启动前校验 recipe 声明的运行时依赖是否已在镜像里。
+
+    为什么值得做：Ray 集群在内网，但内网 Nexus3 能代理 PyPI/Docker，overlay 镜像
+    这条路是**通的**（deploy/ray-cluster/Dockerfile 的 EXTRA_PIP + PIP_INDEX）。
+    真正的限制是 Ray 的作业级 runtime_env pip 只影响 driver、不影响训练 worker，
+    所以依赖必须在镜像里，而镜像是运维在构建期决定的。
+
+    结果就是：用户提交一个需要 trl 的方法，训练要跑起来几分钟、建完 venv、
+    加载完模型之后，才在某个 worker 上抛一句 ImportError。这里把它提前到启动的
+    第一秒，并直接给出该跑哪条命令。
+
+    返回未满足的依赖列表（空表示通过）。`packaging` 不可用时跳过校验并告警 ——
+    校验本身是便利功能，不该成为新的失败点。
+    """
+    if spec.is_legacy:
+        return []
+    requires = list(get_recipe(spec.recipe_name).runtime.requires)
+    if not requires:
+        return []
+
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+
+        from packaging.requirements import Requirement
+    except ImportError:  # pragma: no cover - 容器里 packaging 必有，这里只是不硬失败
+        _log("warn    : 缺少 packaging，跳过运行时依赖校验")
+        return []
+
+    missing: list[str] = []
+    for raw in requires:
+        try:
+            req = Requirement(raw)
+            installed = version(req.name)
+        except PackageNotFoundError:
+            missing.append(f"{raw}（未安装）")
+            continue
+        except Exception as e:  # noqa: BLE001 — 依赖声明写错不该拖垮启动
+            _log(f"warn    : 依赖声明 {raw!r} 解析失败，已跳过: {e}")
+            continue
+        if req.specifier and installed not in req.specifier:
+            missing.append(f"{raw}（当前 {installed}）")
+
+    if missing:
+        image = env.get("LAB_IMAGE") or "(未知镜像)"
+        _log(f"运行环境不满足方法 {spec.recipe_name} 的依赖要求：")
+        for m in missing:
+            _log(f"    - {m}")
+        _log(f"当前镜像: {image}")
+        _log("修复：重建 overlay 镜像并把缺失依赖加进 EXTRA_PIP，例如")
+        _log(f"    EXTRA_PIP=\"{' '.join(requires)}\" bash deploy/ray-cluster/build.sh")
+        _log("（内网 Nexus3 已代理 PyPI，构建期可直接拉包）")
+    return missing
+
+
 def install_plugins(spec: JobSpec) -> list[str]:
     """装载 spec 声明的算法补丁。
 
@@ -216,6 +271,10 @@ def main(argv: list[str] | None = None) -> int:
     env = dict(os.environ)
     try:
         spec = load_spec(work_dir)
+        if missing := verify_runtime(spec, env):
+            raise LaunchError(
+                f"方法 {spec.recipe_name} 需要的依赖不在当前镜像里: {', '.join(missing)}"
+            )
         install_plugins(spec)
         cmd = build_command(spec, work_dir, env)
     except (LaunchError, Exception) as e:  # noqa: BLE001 — 启动期任何失败都要给清楚的原因
