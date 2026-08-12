@@ -266,6 +266,26 @@ def build_command(spec: JobSpec, work_dir: Path, env: dict[str, str]) -> list[st
     return cmd
 
 
+def _lifecycle(env: dict[str, str], event: str) -> None:
+    """向 console 打一个生命周期点（阶段 4）。
+
+    只在中心化提交（有 NEMOLAB_* 凭据）时生效；本地直跑无声跳过。
+    任何失败都吞掉 —— 打点是可观测性，绝不能让训练起不来或跑不完。
+    """
+    if env.get("NEMOLAB_ENABLED") != "1":
+        return
+    try:
+        from common.observability.ingest_client import IngestClient
+
+        IngestClient(
+            endpoint=env["NEMOLAB_ENDPOINT"],
+            run_id=env["NEMOLAB_RUN_ID"],
+            token=env["NEMOLAB_TOKEN"],
+        ).send_lifecycle(event)
+    except Exception as e:  # noqa: BLE001
+        _log(f"warn    : 生命周期打点 {event} 失败（不影响训练）: {e}")
+
+
 def main(argv: list[str] | None = None) -> int:
     work_dir = Path(os.environ.get("LAB_WORK_DIR") or os.getcwd()).resolve()
     env = dict(os.environ)
@@ -284,7 +304,14 @@ def main(argv: list[str] | None = None) -> int:
     if env.get("LAB_DRY_RUN") == "1":
         print(" ".join(shlex.quote(c) for c in cmd), flush=True)
         return 0
-    return subprocess.call(cmd, cwd=str(work_dir))
+
+    # started 在 exec 之前打：此刻 venv 已就绪、插件已装载、配置已解析，
+    # 是「训练真正开始」最接近的时刻。Ray 报的 RUNNING 要早得多 ——
+    # 建 venv、拉模型可能占好几分钟，用它当计量起点会系统性偏长。
+    _lifecycle(env, "started")
+    rc = subprocess.call(cmd, cwd=str(work_dir))
+    _lifecycle(env, "succeeded" if rc == 0 else "failed")
+    return rc
 
 
 def spec_summary(spec: JobSpec) -> dict[str, Any]:

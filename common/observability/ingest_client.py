@@ -85,6 +85,32 @@ class IngestClient:
             print(f"NeMoLab environment nodes upload failed: {e}")
             return False
 
+    def send_lifecycle(self, event: str) -> bool:
+        """上报生命周期事件（started / succeeded / failed）。阶段 4。
+
+        不走队列：一个作业只发两三次，且要求尽快到达 —— 排队会让 started 事件
+        滞后于第一批指标，反而失去「真实训练起点」的意义。
+
+        失败只告警不抛：上报通道不通时服务端仍会靠 Ray 轮询兜底收敛状态，
+        绝不能因为打点失败而让训练起不来。
+        """
+        from datetime import datetime, timezone
+
+        try:
+            self._post(
+                "lifecycle",
+                {
+                    "run_id": self.run_id,
+                    "event": event,
+                    "ts": datetime.now(timezone.utc).isoformat(),
+                },
+                timeout=10,
+            )
+            return True
+        except Exception as e:
+            print(f"NeMoLab lifecycle({event}) report failed: {e}")
+            return False
+
     def enqueue_log(self, chunk: str) -> None:
         if not chunk:
             return

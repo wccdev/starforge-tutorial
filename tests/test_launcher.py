@@ -279,3 +279,58 @@ def test_recipes_without_requires_skip_verification(tmp_path):
 def test_legacy_jobs_skip_verification(tmp_path):
     wd = _workdir(tmp_path, spec=_spec_dict(recipe={"name": "legacy"}))
     assert verify_runtime(load_spec(wd), _env()) == []
+
+
+# ── 生命周期打点（阶段 4：状态同步从纯轮询改为事件驱动 + 轮询兜底）──────────
+
+
+def test_lifecycle_is_silent_for_local_runs(tmp_path, monkeypatch):
+    """本地直跑没有 NEMOLAB_* 凭据，不该尝试上报，也不该报错。"""
+    from nemo_rl_lab.launcher import _lifecycle
+
+    called = []
+    monkeypatch.setattr(
+        "common.observability.ingest_client.IngestClient",
+        lambda **kw: called.append(kw),
+    )
+    _lifecycle({}, "started")
+    assert called == []
+
+
+def test_lifecycle_failure_never_breaks_training(monkeypatch, capsys):
+    """打点是可观测性，绝不能让训练起不来。"""
+    from nemo_rl_lab.launcher import _lifecycle
+
+    class _Boom:
+        def __init__(self, **kw):
+            raise RuntimeError("网络不通")
+
+    monkeypatch.setattr("common.observability.ingest_client.IngestClient", _Boom)
+    _lifecycle(
+        {"NEMOLAB_ENABLED": "1", "NEMOLAB_ENDPOINT": "http://x", "NEMOLAB_RUN_ID": "r",
+         "NEMOLAB_TOKEN": "t"},
+        "started",
+    )
+    assert "不影响训练" in capsys.readouterr().out
+
+
+def test_lifecycle_sends_event_when_enabled(monkeypatch):
+    from nemo_rl_lab.launcher import _lifecycle
+
+    sent = []
+
+    class _Fake:
+        def __init__(self, **kw):
+            self.kw = kw
+
+        def send_lifecycle(self, event):
+            sent.append((self.kw["run_id"], event))
+            return True
+
+    monkeypatch.setattr("common.observability.ingest_client.IngestClient", _Fake)
+    _lifecycle(
+        {"NEMOLAB_ENABLED": "1", "NEMOLAB_ENDPOINT": "http://x", "NEMOLAB_RUN_ID": "run-7",
+         "NEMOLAB_TOKEN": "t"},
+        "succeeded",
+    )
+    assert sent == [("run-7", "succeeded")]
