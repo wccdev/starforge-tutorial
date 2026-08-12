@@ -308,16 +308,20 @@ def _bearer_request(server: str, method: str, path: str, *, data: Optional[bytes
 
 def submit_via_server(exp_rel: str, profile: Optional[str], repo_root: Path,
                       server: Optional[str] = None, project: Optional[str] = None,
-                      reporter=None) -> dict:
+                      reporter=None, spec=None) -> dict:
     """server 模式提交：打包上传 + 服务端注入密钥后代理提交，返回 {job_id, run_id, ...}。
 
     reporter：可选进度上报对象（见 cli_ui.submit_progress），驱动「打包 → 上传 → 受理」进度条。
+    spec：JobSpec。带上它服务端就知道这是什么方法、超参是什么，能在提交时校验、
+          按方法记账与展示；不带则服务端合成 legacy spec（老行为）。
     返回值附带 upload_files / upload_skipped / upload_bytes 便于 CLI 展示。
     """
     srv = current_server(server)
     meta = {"exp": exp_rel, "profile": profile or "", **git_provenance(repo_root, exp_rel)}
     if project:
         meta["project"] = project
+    if spec is not None:
+        meta["spec"] = spec.to_dict()
     result = _upload_and_submit(srv, "/api/jobs", meta, repo_root, reporter, "提交失败，请稍后重试。")
     return result
 

@@ -188,14 +188,37 @@ def _validate_exp(exp_path: str) -> tuple[list[str], list[str]]:
     return errors, warns
 
 
-@app.command(help="提交训练作业（提交前自动校验 config）")
+@app.command(help="提交训练作业（提交前自动校验 config 与超参）")
 def submit(
     exp: str = typer.Argument(..., autocompletion=_complete_exp, help="实验名或路径"),
     profile: Optional[str] = _PROF_OPT,
     project: Optional[str] = typer.Option(
         None, "--project", "-p", help="实验名称（用于分组展示），不传则默认使用目录名"
     ),
-    no_validate: bool = typer.Option(False, "--no-validate", help="跳过提交前 config 校验"),
+    method: Optional[str] = typer.Option(
+        None, "--method", "-m",
+        help="后训练方法（grpo/sft/dpo/distillation/opsd/maxrl）。不传则读实验目录的 method 文件；"
+             "都没有则按老路径提交（服务端合成 legacy spec）",
+    ),
+    set_: list[str] = typer.Option(
+        [], "--set", "-s", metavar="KEY=VALUE",
+        help="覆盖超参，可重复。本地按方法声明校验类型与区间，拼错立刻报错",
+    ),
+    pool: list[str] = typer.Option(
+        [], "--pool", metavar="NAME:SERIES:NODES:GPUS",
+        help="资源池，可重复。例：--pool train:h200:1:4 --pool rollout:h100:1:2",
+    ),
+    role: list[str] = typer.Option(
+        [], "--role", metavar="ROLE:POOL", help="角色到资源池的映射，可重复。例：--role rollout:rollout",
+    ),
+    init_from: Optional[str] = typer.Option(
+        None, "--init-from", metavar="run/<RUN_ID>/checkpoint[@step=N]",
+        help="从上一阶段的产物起训（SFT → DPO → GRPO 流水线）",
+    ),
+    then: list[str] = typer.Option(
+        [], "--then", metavar="ACTION", help="训练成功后自动执行（export/eval），可重复",
+    ),
+    no_validate: bool = typer.Option(False, "--no-validate", help="跳过提交前校验"),
 ) -> None:
     cli_login.gate("submit")
     exp_path = _resolve_exp(exp)
@@ -208,10 +231,56 @@ def submit(
                 hint="修复后重试，或加 --no-validate 跳过",
             )
             raise typer.Exit(1)
+
+    spec = _build_spec_or_exit(
+        exp_path, method=method, project=project, sets=set_, pools=pool, roles=role,
+        init_from=init_from, then=then, validate=not no_validate,
+    )
     # 打包 working-dir → 上传到中心化服务 → 服务端注入密钥/路径后代理提交（密钥/地址不外泄）。
     with cli_ui.submit_progress() as reporter:
-        res = cli_login.submit_via_server(exp_path, profile, ROOT, project=project, reporter=reporter)
+        res = cli_login.submit_via_server(
+            exp_path, profile, ROOT, project=project, reporter=reporter, spec=spec,
+        )
     _echo_submit_result(res)
+
+
+def _build_spec_or_exit(exp_path: str, *, method, project, sets, pools, roles,
+                        init_from, then, validate: bool):
+    """构建 JobSpec；未指定方法且实验没声明时返回 None（走老路径）。
+
+    校验失败在这里就退出 —— 超参拼错不该等上传完、排完队、跑起来才发现。
+    """
+    from nemo_lab_sdk.contract import SpecError
+
+    from nemo_rl_lab import spec_builder
+
+    recipe = (method or "").strip() or spec_builder.infer_recipe(ROOT / exp_path)
+    if not recipe:
+        if sets or pools or roles or init_from or then:
+            cli_ui.emit_error(
+                "这些参数需要先确定后训练方法",
+                items=[f"用到了 {'/'.join(k for k, v in (('--set', sets), ('--pool', pools), ('--role', roles), ('--init-from', init_from), ('--then', then)) if v)}"],
+                hint="加 --method <方法名>，或在实验目录放一个 method 文件；`lab methods` 可列出可用方法",
+            )
+            raise typer.Exit(1)
+        return None
+    try:
+        return spec_builder.build_spec(
+            exp_path,
+            recipe=recipe,
+            project=project or "",
+            sets=list(sets or []),
+            pools=list(pools or []),
+            roles=list(roles or []),
+            init_from=init_from or "",
+            on_success=list(then or []),
+            provenance=cli_login.git_provenance(ROOT, exp_path),
+            validate=validate,
+        )
+    except SpecError as e:
+        cli_ui.emit_error("作业规格校验未通过", items=[str(e)],
+                          hint="用 `lab methods` 查看可用方法与超参")
+        raise typer.Exit(1) from e
 
 
 def _echo_submit_result(res: dict, label: str = "") -> None:
@@ -275,6 +344,52 @@ def clean(
     res = cli_login.clean_via_server(exp_path)
     typer.secho(f"✓ 已提交清理  作业 {res.get('job_id')}", fg=typer.colors.GREEN)
     typer.echo(f"  查看进度：lab logs {res.get('job_id')}")
+
+
+@app.command(name="methods", help="列出可用的后训练方法与它们的超参")
+def methods(
+    name: Optional[str] = typer.Argument(None, help="方法名；不传则列出全部"),
+) -> None:
+    """方法目录来自 nemo-lab-sdk，与服务端是同一份 —— 这里看到的就是提交时会被校验的。"""
+    from nemo_lab_sdk.contract import SpecError
+    from nemo_lab_sdk.recipes import all_recipes, get_recipe
+
+    if not name:
+        for n, r in sorted(all_recipes().items()):
+            typer.echo(f"{n:14s} {r.title}")
+            typer.echo(f"{'':14s} {r.summary.strip()}")
+        typer.echo("\n用 `lab methods <方法名>` 看它的可调超参。")
+        return
+
+    try:
+        r = get_recipe(name)
+    except SpecError as e:
+        cli_ui.emit_error(str(e))
+        raise typer.Exit(1) from e
+
+    typer.echo(f"{r.name} v{r.version} —— {r.title}")
+    typer.echo(f"  {r.summary.strip()}\n")
+    typer.echo(f"  角色      : {', '.join(r.roles)}")
+    typer.echo(f"  训练后动作: {', '.join(r.lifecycle) or '（无）'}")
+    if r.plugins:
+        typer.echo(f"  算法插件  : {', '.join(r.plugins)}")
+    if r.runtime.requires:
+        typer.echo(f"  依赖要求  : {', '.join(r.runtime.requires)}")
+    typer.echo(f"  核心指标  : {', '.join(r.primary_metrics)}\n")
+    typer.echo("  可调超参（--set KEY=VALUE）:")
+    for p in r.params.values():
+        rng = []
+        if p.minimum is not None:
+            rng.append(f"≥{p.minimum}" if not p.exclusive_minimum else f">{p.minimum}")
+        if p.maximum is not None:
+            rng.append(f"≤{p.maximum}")
+        if p.choices:
+            rng.append("|".join(str(c) for c in p.choices))
+        meta = f"{p.type}{' ' + ','.join(rng) if rng else ''}"
+        default = f" (默认 {p.default})" if p.default is not None else ""
+        typer.echo(f"    {p.name:32s} {meta}{default}")
+        if p.doc:
+            typer.echo(f"    {'':32s} {p.doc.strip()}")
 
 
 @app.command(help="校验实验 config（提交前本地检查）")
