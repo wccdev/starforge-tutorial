@@ -37,11 +37,47 @@ lab logs                                        # 跟随最近一个作业的实
 
 | Profile | 说明 | 配置目录 |
 | --- | --- | --- |
-| `h100` | 单机 1× NVIDIA H100 80GB（单节点单卡，远程微调平台主力） | `cluster/h100/` |
-| `gb10-spark` | 2× NVIDIA DGX Spark（GB10 Grace-Blackwell），通过 Ray 组成 2 节点集群 | `cluster/gb10-spark/` |
-| `h200` | 单机 8× NVIDIA H200 141GB（异构集群新增卡型） | `cluster/h200/` |
+| `h200` | 单机 8× NVIDIA H200 141GB（**当前主力**） | `cluster/h200/` |
+| `h200-2g` | 同机器，只要 2 张卡（小实验 / 调试，别占满集群） | `cluster/h200-2g/` |
+| `h100` | 单机 1× NVIDIA H100 80GB | `cluster/h100/` |
+| `gb10-spark` | 2× NVIDIA DGX Spark（GB10 Grace-Blackwell），Ray 组成 2 节点集群 | `cluster/gb10-spark/` |
 
 训练配置与硬件解耦：NeMo-RL 通过 CLI override 调集群（`cluster.num_nodes` / `cluster.gpus_per_node`）；硬件相关 override 抽到 `cluster/<profile>/overrides.conf`。每个实验**自带目标集群**（实验目录下 `cluster` 文件，`lab new --cluster` 写入）——因为 batch/seq/LoRA/显存等超参都是按某张卡的显存调出来的；`lab submit --profile` 可临时换卡跑。
+
+## 它和控制平面是什么关系
+
+本仓是**客户端**：管实验、改超参、提交、看结果。真正的鉴权 / 配额 / 排队 / 调度
+在控制平面 `nemo-rl-console` 里，本机不直连 Ray。
+
+两边靠一份独立的契约包 `nemo-lab-sdk` 对接（源码在 console 仓的 `sdk/`）：
+
+```
+              nemo-lab-sdk          JobSpec、后训练方法目录、集群侧 launcher
+             ╱      │      ╲
+       lab CLI   console   训练镜像
+```
+
+**这个方向很重要**：以前是 console `pip install nemo-rl-lab`，控制平面依赖客户端 ——
+本仓发个版就可能让服务端跑不起来。现在三方都只依赖契约包，彼此不再互相依赖。
+
+「一个作业长什么样」也从 32 个环境变量的隐式约定，变成了一份带版本的 `JobSpec`：
+
+```yaml
+apiVersion: lab/v1
+kind: TrainingJob
+spec:
+  recipe:    {name: grpo, version: 0.7.0}
+  resources: {pools: [{name: train, series: h200, nodes: 1, gpus_per_node: 8}]}
+```
+
+`lab submit` 生成它，服务端据此装配作业。两边各有一份 golden test 钉住这份映射，
+契约漂移会在 CI 当场失败，而不是在某次训练跑到一半时。
+
+**加一种后训练方法不需要改本仓代码** —— 方法定义在 SDK 的 recipe 目录里，
+`lab methods` 列的就是它。
+
+> 本地联调 SDK：`uv pip install -e ../nemo-rl-console/sdk`
+> （默认从内网 Git 拉，见 `pyproject.toml` 的 `[tool.uv.sources]`）
 
 ## 目录结构
 
@@ -115,7 +151,8 @@ agent-grpo_qwen3.5-9b_toolbench_v1
 ```bash
 uv run lab login                               # 接入官方 Lab 服务（默认 https://nemolab.gcoreinc.com）
 uv run lab ls                                # 列出实验 / 项目
-uv run lab new grpo_qwen3.5-4b_gsm8k_v1 --method grpo --cluster h100   # 从骨架新建实验（grpo|sft|agent）
+uv run lab methods                           # 有哪些后训练方法、各自能调什么超参（--method 的取值来源）
+uv run lab new grpo_qwen3.5-4b_gsm8k_v1 --method grpo --cluster h200   # 从骨架新建实验
 uv run lab diff grpo_qwen3.5-4b_gsm8k_v1 grpo_qwen3.5-9b_gsm8k_v1      # 对比两实验有效 config 差异（fork 调参常用）
 uv run lab prepare gsm8k                     # 预处理数据集（gsm8k / alpaca / qa_rl）
 uv run lab doctor                            # 体检：是否已登录 / 服务可达 / 当前配额
