@@ -98,9 +98,9 @@ def _validate_recipe_template(dest: Path, recipe) -> None:
 
 
 def _copy_recipe_template(dest: Path, recipe) -> None:
-    from nemo_lab_sdk.recipes import CATALOG_DIR
+    from nemo_lab_sdk.recipes import recipe_directory
 
-    template = CATALOG_DIR / recipe.name / recipe.template
+    template = recipe_directory(recipe.name) / recipe.template
     if not template.is_dir():
         raise NewExperimentError(f"recipe {recipe.name} 缺少模板目录: {template}")
     shutil.copytree(template, dest, dirs_exist_ok=True)
@@ -139,7 +139,12 @@ def _fork_experiment(
 
 
 def _create_from_template(
-    repo_root: Path, kind: str, name: str, cluster: str, method: str
+    repo_root: Path,
+    kind: str,
+    name: str,
+    cluster: str,
+    method: str,
+    framework_version: str = "",
 ) -> None:
     dest = repo_root / kind / name
     if dest.exists():
@@ -150,6 +155,8 @@ def _create_from_template(
 
     try:
         recipe = get_recipe(method)
+        selected_framework_version = framework_version.strip() or recipe.runtime.default_version
+        recipe.runtime.resolve(selected_framework_version)
     except SpecError as exc:
         raise NewExperimentError(
             f"未知 --method: {method}（可选 {' | '.join(recipe_names())}）"
@@ -172,7 +179,12 @@ def _create_from_template(
         from nemo_rl_lab.migrate_v2 import LOCK_FILE, recipe_lock
 
         (staging / LOCK_FILE).write_text(
-            json.dumps(recipe_lock(recipe.name), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            json.dumps(
+                recipe_lock(recipe.name, selected_framework_version),
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            ) + "\n",
             encoding="utf-8",
         )
         _validate_recipe_template(staging, recipe)
@@ -181,7 +193,10 @@ def _create_from_template(
         shutil.rmtree(staging, ignore_errors=True)
         raise
 
-    print(f"已创建实验: {dest}（method={recipe.name}, framework={recipe.framework}）")
+    print(
+        f"已创建实验: {dest}（method={recipe.name}, "
+        f"framework={recipe.framework}@{selected_framework_version}）"
+    )
     print(f"  · 目标集群(cluster): {_read_cluster_file(dest)}（按需改：echo h100 > {dest}/cluster）")
     print("下一步:")
     print(f"  1. 编辑 {dest}/README.md（目标 / 模型 / 数据 / SwanLab）")
@@ -197,6 +212,7 @@ def create_experiment(
     src: str = "",
     cluster: str = "",
     method: str = "grpo",
+    framework_version: str = "",
 ) -> None:
     """新建或 fork 实验；失败时抛 NewExperimentError。"""
     if kind not in ("experiments", "projects"):
@@ -206,7 +222,14 @@ def create_experiment(
     if src:
         _fork_experiment(repo_root, kind, name, src, cluster)
     else:
-        _create_from_template(repo_root, kind, name, cluster, method)
+        _create_from_template(
+            repo_root,
+            kind,
+            name,
+            cluster,
+            method,
+            framework_version=framework_version,
+        )
 
 
 def main(argv: list[str] | None = None) -> int:

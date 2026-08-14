@@ -92,6 +92,7 @@ def build_spec(
     exp_rel: str,
     *,
     recipe: str,
+    framework_version: str = "",
     user: str = "",
     project: str = "",
     display_name: str = "",
@@ -119,6 +120,18 @@ def build_spec(
         raise SpecError(
             f"未知的后训练方法 {recipe!r}。可用: {', '.join(recipe_names())}"
         ) from None
+    selected_framework_version = framework_version.strip() or r.runtime.default_version
+    selected_runtime = r.runtime.resolve(selected_framework_version)
+    requested_image = image.strip()
+    if r.framework == "custom":
+        selected_image = requested_image
+    else:
+        if requested_image:
+            raise SpecError(
+                f"{r.framework}@{selected_framework_version} 的执行工件由 Console deployment "
+                "runtime registry 按 runtime_id 精确解析；一等框架不允许 --image"
+            )
+        selected_image = ""
 
     observability = r.adapter_options.get("observability")
     if observability == "external" and not observability_url.strip():
@@ -127,7 +140,9 @@ def build_spec(
         )
     if observability == "platform" and observability_url.strip():
         raise SpecError(f"方法 {r.name} 使用 platform observability，不允许 --observability-url")
-    if r.framework == "verl" and operation == "train":
+    if r.framework == "custom" and not selected_image:
+        raise SpecError("custom recipe 要求显式提供 --image")
+    if r.framework in {"verl", "trl"} and operation == "train":
         missing = [
             flag
             for flag, value in (
@@ -138,7 +153,7 @@ def build_spec(
             if not value.strip()
         ]
         if missing:
-            raise SpecError(f"verl recipe 要求显式提供：{' '.join(missing)}")
+            raise SpecError(f"{r.framework} recipe 要求显式提供：{' '.join(missing)}")
 
     hyperparams = parse_set(sets or [])
     if validate:
@@ -193,7 +208,9 @@ def build_spec(
             source=SourceSpec(exp=exp_rel),
             framework=FrameworkRef(
                 kind=r.framework,
-                image=image,
+                version=selected_framework_version,
+                runtime_id=selected_runtime.runtime_id,
+                image=selected_image,
                 observability_url=observability_url.strip(),
             ),
             model=ModelSpec(

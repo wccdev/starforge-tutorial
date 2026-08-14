@@ -47,7 +47,9 @@ def test_verl_smoke_contract_is_exact_and_compiles(name, pool, gpus, script):
 
     smoke_script = (ROOT / "scripts" / script).read_text(encoding="utf-8")
     assert spec.spec.resources.total_gpus == gpus
-    assert recipe.runtime.image.endswith(
+    source = recipe.runtime.resolve(recipe.runtime.default_version).source
+    assert source is not None
+    assert source.reference.endswith(
         "@sha256:75ac03f34b82134da757e989357e8df456404a535c962cb4d0fb3dc496624648"
     )
     assert MODEL in smoke_script

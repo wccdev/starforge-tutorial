@@ -1,7 +1,7 @@
 # nemo-rl-lab
 
-面向多框架的大模型后训练实验室。**NeMo-RL 是默认且第一优先级框架**，verl 是第二个
-一等 adapter，此外提供必须显式选择的 custom recipe。涵盖：
+面向多框架的大模型后训练实验室。**NeMo-RL 是默认且第一优先级框架**，verl 与
+Hugging Face TRL 也是一等 adapter，此外提供必须显式选择的 custom recipe。涵盖：
 
 - **SFT**（监督微调）
 - **GRPO / 强化学习**（RL）
@@ -26,6 +26,8 @@ lab login                                       # 登录官方 Lab 服务（默�
 # 2) 选实验、按需调参：打开 experiments/<exp>/config.yaml 顶部「调参速查」改几行
 lab ls                                          # 看现成实验
 lab new my_run --from grpo_qwen3.5-4b_gsm8k_v1  # 或 fork 一个来调参（自动改 SwanLab 名、继承目标集群）
+# 新建 TRL 论文实验（版本写入 recipe.lock.json，不在提交端再猜）
+lab new trl_paper_run --method trl-grpo --framework-version 1.10.0
 
 # 3) 准备数据 → 提交 → 看结果
 lab prepare gsm8k
@@ -62,9 +64,11 @@ flowchart LR
   Executor --> Launcher["nemo-lab-launch\nverify → compile → run → report"]
   Launcher --> NeMo["NeMoRLAdapter（默认）"]
   Launcher --> Verl["VerlAdapter"]
+  Launcher --> TRL["TRLAdapter\nAccelerate + Trainer"]
   Launcher --> Custom["CustomAdapter（显式）"]
   NeMo --> Output["规范化指标 + lab/artifacts/v1"]
   Verl --> Output
+  TRL --> Output
   Custom --> Output
   Output --> Console
 ```
@@ -79,14 +83,22 @@ apiVersion: lab/v2
 kind: TrainingJob
 spec:
   recipe:    {name: grpo, version: 0.7.0, digest: "sha256:…"}
-  framework: {kind: nemo-rl}
+  framework:
+    kind: nemo-rl
+    version: 0.7.0
+    image: "nvcr.io/nvidia/nemo-rl:v0.7.0@sha256:…"
   resources: {pools: [{name: train, series: h200, nodes: 1, gpus_per_node: 8}]}
 ```
 
 `lab submit` 生成它，服务端据此装配作业。两边各有一份 golden test 钉住这份映射，
 契约漂移会在 CI 当场失败，而不是在某次训练跑到一半时。
 
-**加一种后训练方法不需要改本仓代码** —— 方法定义在 SDK 的 recipe 目录里，
+recipe identity 与 framework runtime identity 分开记录；`recipe.lock.json` v2 固定
+recipe digest 和精确 framework version。`--framework-version` 只能选择 catalog 已发布版本，
+不接受 `latest`、范围或分支，也不会在失败时换版本/换 adapter。
+
+**加一种后训练方法不需要改本仓代码** —— 方法定义在 SDK 的
+`recipes/catalog/<framework>/<recipe>/` 两级目录里，
 `lab methods` 列的就是它。
 
 生产环境从 Nexus 安装精确的 `nemo-lab-sdk==2.1.0`；开发环境由 `pyproject.toml` 的
@@ -126,7 +138,7 @@ nemo-rl-lab/
 
 > NeMo-RL 配置工作流：每个实验有自己的 `config.yaml`，通过 `defaults` **继承基底 + 模型片段，只写差异**。
 > recipe 固定入口，adapter 读取该配置并叠加 `cluster/<profile>/overrides.conf`；实验目录不再拥有
-> `run.sh` 或可覆盖入口。verl/custom 使用各自 recipe 模板和校验器。
+> `run.sh` 或可覆盖入口。verl、TRL、custom 使用各自 recipe 模板和校验器。
 
 ## experiments vs projects
 
@@ -296,7 +308,7 @@ uv run lab job stop <job_id>        # 停止作业
 ## 训练后闭环（导出 / 评测）
 
 训练产物由 `lab/artifacts/v1` manifest 登记。两条命令与训练共用 `nemo-lab-launch`，
-由 recipe 的 adapter 编译 NeMo-RL 或 verl 原生命令：
+由 recipe 的 adapter 编译 NeMo-RL、verl 或 TRL 原生命令：
 
 ```bash
 # 导出：checkpoint 路径和格式都必须显式给出，不猜测后端

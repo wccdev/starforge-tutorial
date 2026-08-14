@@ -10,7 +10,7 @@ from nemo_lab_sdk.contract import SpecError
 from nemo_lab_sdk.recipes import get_recipe
 
 LOCK_FILE = "recipe.lock.json"
-LOCK_VERSION = "lab/recipe-lock/v1"
+LOCK_VERSION = "lab/recipe-lock/v2"
 
 
 @dataclass(frozen=True)
@@ -21,8 +21,10 @@ class MigrationItem:
     error: str = ""
 
 
-def recipe_lock(recipe_name: str) -> dict:
+def recipe_lock(recipe_name: str, framework_version: str = "") -> dict:
     recipe = get_recipe(recipe_name)
+    selected = framework_version.strip() or recipe.runtime.default_version
+    recipe.runtime.resolve(selected)
     return {
         "apiVersion": LOCK_VERSION,
         "sdk_version": SDK_VERSION,
@@ -31,11 +33,12 @@ def recipe_lock(recipe_name: str) -> dict:
             "version": recipe.version,
             "digest": recipe.digest,
             "framework": recipe.framework,
+            "framework_version": selected,
         },
     }
 
 
-def validate_recipe_lock(exp_dir: Path, recipe_name: str) -> None:
+def validate_recipe_lock(exp_dir: Path, recipe_name: str) -> str:
     path = exp_dir / LOCK_FILE
     if not path.is_file():
         raise ValueError(f"实验缺少 {LOCK_FILE}；运行 `lab migrate-v2 --write`")
@@ -43,11 +46,18 @@ def validate_recipe_lock(exp_dir: Path, recipe_name: str) -> None:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ValueError(f"{path} 非法: {exc}") from exc
-    expected = recipe_lock(recipe_name)
+    locked_version = str((payload.get("recipe") or {}).get("framework_version") or "")
+    if not locked_version:
+        raise ValueError(
+            f"{path} 是旧版或缺少 framework_version；"
+            "运行 `lab migrate-v2 --write` 显式升级"
+        )
+    expected = recipe_lock(recipe_name, locked_version)
     if payload != expected:
         raise ValueError(
             f"{path} 与当前 SDK recipe 不一致；运行 `lab migrate-v2 --write` 显式升级"
         )
+    return locked_version
 
 
 def _infer_legacy_recipe(exp_dir: Path) -> str:
@@ -77,7 +87,9 @@ def _infer_legacy_recipe(exp_dir: Path) -> str:
 
 def _experiment_dirs(repo_root: Path) -> list[Path]:
     out: list[Path] = []
-    for kind in ("experiments", "projects"):
+    # Smoke fixtures are executable experiments too. Keeping them outside this
+    # migration made the documented repair command unable to repair their locks.
+    for kind in ("experiments", "projects", "smoke"):
         base = repo_root / kind
         if base.is_dir():
             out.extend(path for path in base.iterdir() if path.is_dir())

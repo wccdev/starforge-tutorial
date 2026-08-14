@@ -1,6 +1,8 @@
 """new_experiment 跨平台逻辑单测。"""
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from nemo_rl_lab.migrate_v2 import LOCK_FILE, recipe_lock
@@ -30,6 +32,9 @@ def test_create_grpo_from_template(tmp_path):
     assert (dest / "config.yaml").is_file()
     assert (dest / "cluster").read_text(encoding="utf-8").strip() == "h100"
     assert (dest / "method").read_text(encoding="utf-8").strip() == "grpo"
+    lock = json.loads((dest / LOCK_FILE).read_text(encoding="utf-8"))
+    assert lock["apiVersion"] == "lab/recipe-lock/v2"
+    assert lock["recipe"]["framework_version"] == "0.7.0"
 
 
 def test_create_rejects_unknown_cluster(tmp_path):
@@ -114,6 +119,28 @@ def test_create_verl_recipe_copies_its_own_template(tmp_path):
     assert "trainer:" in (dest / "config.yaml").read_text(encoding="utf-8")
     assert (dest / "eval.py").is_file()
     assert (dest / "method").read_text().strip() == "verl-grpo"
+
+
+def test_create_trl_recipe_copies_framework_template_and_pins_version(tmp_path):
+    repo = tmp_path / "repo"
+    template = repo / "templates" / "experiment-template"
+    template.mkdir(parents=True)
+    (template / "config.yaml").write_text("wrong: nemo\n", encoding="utf-8")
+    (repo / "experiments").mkdir()
+
+    create_experiment(
+        repo,
+        "experiments",
+        "trl_test",
+        method="trl-grpo",
+        framework_version="1.10.0",
+    )
+    dest = repo / "experiments" / "trl_test"
+    assert "num_generations:" in (dest / "config.yaml").read_text(encoding="utf-8")
+    assert (dest / "train.py").is_file()
+    lock = json.loads((dest / LOCK_FILE).read_text(encoding="utf-8"))
+    assert lock["recipe"]["framework"] == "trl"
+    assert lock["recipe"]["framework_version"] == "1.10.0"
 
 
 def test_recipe_template_failure_is_atomic(tmp_path, monkeypatch):

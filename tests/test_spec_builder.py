@@ -118,6 +118,9 @@ def test_spec_carries_recipe_identity_and_defaults():
     assert spec.spec.recipe.digest.startswith("sha256:")
     assert spec.provenance.sdk_version == "2.1.0"
     assert spec.spec.framework.kind == "nemo-rl"
+    assert spec.spec.framework.version == "0.7.0"
+    assert spec.spec.framework.runtime_id == "nemo-rl-0.7.0"
+    assert spec.spec.framework.image == ""
     assert "opsd" in spec.spec.recipe.plugins
     # 默认值在本地就补齐 —— 作业记录因此自解释
     assert spec.spec.hyperparams["teacher_mode"] == "self"
@@ -183,9 +186,32 @@ def test_framework_is_derived_from_recipe():
     ).spec.framework.kind == "verl"
 
 
-def test_verl_requires_explicit_model_and_data_bindings():
+def test_framework_version_is_selected_from_exact_catalog_matrix():
+    spec = build_spec(
+        "experiments/demo",
+        recipe="trl-grpo",
+        framework_version="1.10.0",
+        pools=_POOL,
+        base_model="Qwen/Qwen3-0.6B",
+        train_data="/data/train.parquet",
+        validation_data="/data/val.parquet",
+    )
+    assert spec.spec.framework.kind == "trl"
+    assert spec.spec.framework.version == "1.10.0"
+    assert spec.spec.framework.runtime_id == "trl-1.10.0"
+    with pytest.raises(SpecError, match="不支持 framework version"):
+        build_spec(
+            "experiments/demo",
+            recipe="trl-grpo",
+            framework_version="latest",
+            pools=_POOL,
+        )
+
+
+@pytest.mark.parametrize("recipe", ["verl-grpo", "trl-grpo"])
+def test_external_frameworks_require_explicit_model_and_data_bindings(recipe):
     with pytest.raises(SpecError, match="--model.*--train-data.*--validation-data"):
-        build_spec("experiments/demo", recipe="verl-grpo", pools=_POOL)
+        build_spec("experiments/demo", recipe=recipe, pools=_POOL)
 
 
 def test_external_observability_requires_explicit_url():
@@ -196,6 +222,7 @@ def test_external_observability_requires_explicit_url():
         recipe="custom",
         pools=_POOL,
         observability_url="https://metrics.example/runs/1",
+        image="docker.io/example/custom@sha256:" + "a" * 64,
     )
     assert spec.spec.framework.observability_url == "https://metrics.example/runs/1"
 

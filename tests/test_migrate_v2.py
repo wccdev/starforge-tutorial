@@ -38,7 +38,26 @@ def test_check_and_write_migrates_nemo_and_custom(tmp_path):
     apply_migration(repo, items)
     assert (nemo / "method").read_text().strip() == "grpo"
     assert (custom / "method").read_text().strip() == "custom"
-    assert json.loads((nemo / "recipe.lock.json").read_text())["apiVersion"] == "lab/recipe-lock/v1"
+    lock = json.loads((nemo / "recipe.lock.json").read_text())
+    assert lock["apiVersion"] == "lab/recipe-lock/v2"
+    assert lock["recipe"]["framework_version"] == "0.7.0"
+
+
+def test_migration_includes_smoke_experiments(tmp_path):
+    _profile(tmp_path)
+    smoke = tmp_path / "smoke" / "verl-sft"
+    smoke.mkdir(parents=True)
+    (smoke / "method").write_text("verl-sft\n")
+    (smoke / "cluster").write_text("h100\n")
+
+    items = check_repo(tmp_path)
+    assert [(item.path, item.recipe, item.needs_write) for item in items] == [
+        (smoke, "verl-sft", True)
+    ]
+    apply_migration(tmp_path, items)
+    lock = json.loads((smoke / "recipe.lock.json").read_text())
+    assert lock["recipe"]["framework"] == "verl"
+    assert lock["recipe"]["framework_version"] == "0.8.0"
 
 
 def test_check_reports_unclassifiable_experiment(tmp_path):

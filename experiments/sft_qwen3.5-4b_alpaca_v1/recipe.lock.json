@@ -1,8 +1,9 @@
 {
-  "apiVersion": "lab/recipe-lock/v1",
+  "apiVersion": "lab/recipe-lock/v2",
   "recipe": {
-    "digest": "sha256:de521ef22fdf1bd92976831463a3b393f169dcfb0ee56f215d49ac41f28e858e",
+    "digest": "sha256:ec8751e7418a709f0512cf7a6fb4e223f4706b03975a01c40a3f5c177e2d2871",
     "framework": "nemo-rl",
+    "framework_version": "0.7.0",
     "name": "sft",
     "version": "0.7.0"
   },

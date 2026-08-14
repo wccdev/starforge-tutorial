@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -125,6 +126,11 @@ def new(
         "grpo", "--method", "-m", autocompletion=_complete_method,
         help="recipe 名；默认 grpo（NeMo-RL），`lab methods` 查看全部",
     ),
+    framework_version: Optional[str] = typer.Option(
+        None,
+        "--framework-version",
+        help="精确框架版本；必须是 recipe catalog 已发布版本",
+    ),
     cluster: Optional[str] = typer.Option(
         None, "--cluster", autocompletion=_complete_profile,
         help="目标集群 profile",
@@ -144,6 +150,7 @@ def new(
             src=src,
             cluster=cluster or "",
             method=method,
+            framework_version=framework_version or "",
         )
     except NewExperimentError as e:
         cli_ui.fail(str(e))
@@ -194,13 +201,13 @@ def _validate_exp(exp_path: str, recipe_override: str = "") -> tuple[list[str], 
     cfg_file = exp_dir / "config.yaml"
     if not cfg_file.is_file():
         return [f"{recipe.framework} 实验缺少 config.yaml: {exp_path}"], []
-    if recipe.framework == "verl":
+    if recipe.framework in {"verl", "trl"}:
         try:
             cfg = yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
         except Exception as exc:  # noqa: BLE001
-            return [f"解析 verl config 失败: {exc}"], []
+            return [f"解析 {recipe.framework} config 失败: {exc}"], []
         if not isinstance(cfg, dict):
-            return ["verl config 根节点必须是对象"], []
+            return [f"{recipe.framework} config 根节点必须是对象"], []
         return [], []
     if recipe.framework != "nemo-rl":
         return [f"没有注册 framework validator: {recipe.framework}"], []
@@ -242,10 +249,19 @@ def submit(
         None, "--init-from", metavar="run/<RUN_ID>/checkpoint[@step=N]",
         help="从上一阶段的产物起训（SFT → DPO → GRPO 流水线）",
     ),
-    model: Optional[str] = typer.Option(None, "--model", help="基座模型路径或 Hub id；verl 必填"),
-    train_data: Optional[str] = typer.Option(None, "--train-data", help="训练数据路径；verl 必填"),
+    model: Optional[str] = typer.Option(
+        None, "--model", help="基座模型路径或 Hub id；verl/TRL 必填"
+    ),
+    train_data: Optional[str] = typer.Option(
+        None, "--train-data", help="训练数据路径；verl/TRL 必填"
+    ),
     validation_data: Optional[str] = typer.Option(
-        None, "--validation-data", help="验证数据路径；verl 必填"
+        None, "--validation-data", help="验证数据路径；verl/TRL 必填"
+    ),
+    image: Optional[str] = typer.Option(
+        None,
+        "--image",
+        help="仅 custom recipe 使用；一等框架镜像由版本 catalog 精确固定",
     ),
     then: list[str] = typer.Option(
         [], "--then", metavar="ACTION", help="训练成功后自动执行（export/eval），可重复",
@@ -254,6 +270,11 @@ def submit(
         None,
         "--observability-url",
         help="仅 external observability recipe 使用；platform recipe 禁止设置",
+    ),
+    framework_version: Optional[str] = typer.Option(
+        None,
+        "--framework-version",
+        help="精确框架版本；显式指定会更新 recipe.lock.json",
     ),
     no_validate: bool = typer.Option(False, "--no-validate", help="跳过提交前校验"),
 ) -> None:
@@ -273,6 +294,8 @@ def submit(
         exp_path, method=method, project=project, sets=set_, pools=pool, roles=role,
         init_from=init_from, then=then, observability_url=observability_url,
         model=model, train_data=train_data, validation_data=validation_data,
+        framework_version=framework_version,
+        image=image,
         validate=not no_validate,
     )
     # 打包 working-dir → 上传到中心化服务 → 服务端注入密钥/路径后代理提交（密钥/地址不外泄）。
@@ -285,7 +308,8 @@ def submit(
 
 def _build_spec_or_exit(exp_path: str, *, method, project, sets, pools, roles,
                         init_from, then, observability_url=None, model=None,
-                        train_data=None, validation_data=None, validate: bool):
+                        train_data=None, validation_data=None,
+                        framework_version=None, image=None, validate: bool):
     """构建强 JobSpec；缺少显式 recipe 时立即退出。"""
     from nemo_lab_sdk.contract import SpecError
 
@@ -299,12 +323,25 @@ def _build_spec_or_exit(exp_path: str, *, method, project, sets, pools, roles,
         )
         raise typer.Exit(1)
     try:
-        from nemo_rl_lab.migrate_v2 import validate_recipe_lock
+        from nemo_rl_lab.migrate_v2 import LOCK_FILE, recipe_lock, validate_recipe_lock
 
-        validate_recipe_lock(ROOT / exp_path, recipe)
+        locked_version = validate_recipe_lock(ROOT / exp_path, recipe)
+        selected_version = (framework_version or "").strip() or locked_version
+        if selected_version != locked_version:
+            # The option is an explicit pin operation, not a transient override.
+            (ROOT / exp_path / LOCK_FILE).write_text(
+                json.dumps(
+                    recipe_lock(recipe, selected_version),
+                    ensure_ascii=False,
+                    indent=2,
+                    sort_keys=True,
+                ) + "\n",
+                encoding="utf-8",
+            )
         return spec_builder.build_spec(
             exp_path,
             recipe=recipe,
+            framework_version=selected_version,
             project=project or "",
             sets=list(sets or []),
             pools=list(pools or []),
@@ -315,6 +352,7 @@ def _build_spec_or_exit(exp_path: str, *, method, project, sets, pools, roles,
             base_model=model or "",
             train_data=train_data or "",
             validation_data=validation_data or "",
+            image=image or "",
             provenance=cli_login.git_provenance(ROOT, exp_path),
             validate=validate,
         )
@@ -441,6 +479,10 @@ def methods(
         for n in recipe_names():
             r = get_recipe(n)
             typer.echo(f"{n:14s} {r.title}")
+            typer.echo(
+                f"{'':14s} 默认 {r.framework}@{r.runtime.default_version}"
+                f" · 支持 {', '.join(r.runtime.supported_versions)}"
+            )
             typer.echo(f"{'':14s} {r.summary.strip()}")
         typer.echo("\n用 `lab methods <方法名>` 看它的可调超参。")
         return
@@ -453,12 +495,14 @@ def methods(
 
     typer.echo(f"{r.name} v{r.version} —— {r.title}")
     typer.echo(f"  {r.summary.strip()}\n")
+    typer.echo(f"  框架      : {r.framework}@{r.runtime.default_version}（默认）")
+    typer.echo(f"  支持版本  : {', '.join(r.runtime.supported_versions)}")
     typer.echo(f"  角色      : {', '.join(r.roles)}")
     typer.echo(f"  训练后动作: {', '.join(r.lifecycle) or '（无）'}")
     if r.plugins:
         typer.echo(f"  算法插件  : {', '.join(r.plugins)}")
     if r.runtime.requires:
-        typer.echo(f"  依赖要求  : {', '.join(r.runtime.requires)}")
+        typer.echo(f"  默认依赖  : {', '.join(r.runtime.requires)}")
     typer.echo(f"  核心指标  : {', '.join(r.primary_metrics)}\n")
     typer.echo("  可调超参（--set KEY=VALUE）:")
     for p in r.params.values():

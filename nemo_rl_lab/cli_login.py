@@ -426,6 +426,21 @@ def verify_catalog_compatibility(spec, payload: dict) -> None:
         raise CatalogCompatibilityError(
             f"recipe {spec.recipe_name!r} 精确契约不一致: {json.dumps(drift, ensure_ascii=False)}"
         )
+    framework_version = spec.spec.framework.version
+    supported = selected.get("supported_framework_versions")
+    if not isinstance(supported, list) or framework_version not in supported:
+        raise CatalogCompatibilityError(
+            f"Console 未发布 {spec.spec.framework.kind}@{framework_version}；server={supported!r}"
+        )
+    runtime = selected.get("runtime") or {}
+    variants = runtime.get("versions") if isinstance(runtime, dict) else None
+    variant = variants.get(framework_version) if isinstance(variants, dict) else None
+    server_runtime_id = variant.get("runtime_id") if isinstance(variant, dict) else None
+    if server_runtime_id != spec.spec.framework.runtime_id:
+        raise CatalogCompatibilityError(
+            f"Console runtime_id 不兼容：server={server_runtime_id!r}, "
+            f"cli={spec.spec.framework.runtime_id!r}"
+        )
 
 
 def verify_server_compatibility(spec, server: Optional[str] = None) -> None:

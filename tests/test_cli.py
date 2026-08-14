@@ -34,6 +34,7 @@ def test_list_profiles_has_h100():
 def test_method_completion_is_sdk_catalog_driven():
     assert "grpo" in cli._complete_method("g")
     assert "verl-grpo" in cli._complete_method("verl-")
+    assert "trl-grpo" in cli._complete_method("trl-")
     assert "agent" not in cli._complete_method("")
 
 
@@ -69,6 +70,28 @@ def test_verl_validation_only_requires_mapping_config(tmp_path, monkeypatch):
     (exp / "recipe.lock.json").write_text(json.dumps(recipe_lock("verl-grpo")))
     (exp / "config.yaml").write_text("trainer:\n  total_epochs: 1\n")
     assert cli._validate_exp("experiments/verl") == ([], [])
+
+
+def test_trl_validation_requires_entrypoint_and_mapping_config(tmp_path, monkeypatch):
+    import json
+
+    from nemo_rl_lab.migrate_v2 import recipe_lock
+
+    monkeypatch.setattr(cli, "ROOT", tmp_path)
+    exp = tmp_path / "experiments" / "trl"
+    exp.mkdir(parents=True)
+    (exp / "method").write_text("trl-grpo\n")
+    (exp / "recipe.lock.json").write_text(json.dumps(recipe_lock("trl-grpo")))
+    (exp / "train.py").write_text("# experiment reward hook\n")
+    (exp / "config.yaml").write_text("max_steps: 1\n")
+    assert cli._validate_exp("experiments/trl") == ([], [])
+
+
+def test_methods_summary_exposes_default_and_supported_versions(capsys):
+    cli.methods(None)
+    output = capsys.readouterr().out
+    assert "默认 nemo-rl@0.7.0 · 支持 0.7.0" in output
+    assert "默认 trl@1.10.0 · 支持 1.10.0" in output
 
 
 # --------------------------- config diff（_flatten）---------------------------

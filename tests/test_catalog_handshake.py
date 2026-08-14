@@ -18,6 +18,9 @@ def _payload(spec, **recipe_overrides):
         "digest": recipe.digest,
         "framework": recipe.framework,
         "adapter": recipe.framework,
+        "framework_version": recipe.runtime.default_version,
+        "supported_framework_versions": list(recipe.runtime.supported_versions),
+        "runtime": recipe.runtime.to_dict(),
     }
     item.update(recipe_overrides)
     canonical = [{"name": item["name"], "version": item["version"], "digest": item["digest"]}]
@@ -64,6 +67,18 @@ def test_catalog_handshake_rejects_tampered_catalog_digest():
     payload = _payload(spec)
     payload["catalog_digest"] = "sha256:tampered"
     with pytest.raises(CatalogCompatibilityError, match="catalog digest"):
+        verify_catalog_compatibility(spec, payload)
+
+
+def test_catalog_handshake_rejects_framework_version_or_runtime_id_drift():
+    spec = _spec()
+    payload = _payload(spec, supported_framework_versions=["9.9.9"])
+    with pytest.raises(CatalogCompatibilityError, match="未发布"):
+        verify_catalog_compatibility(spec, payload)
+
+    payload = _payload(spec)
+    payload["recipes"][0]["runtime"]["versions"]["0.7.0"]["runtime_id"] = "wrong-runtime"
+    with pytest.raises(CatalogCompatibilityError, match="runtime_id"):
         verify_catalog_compatibility(spec, payload)
 
 
