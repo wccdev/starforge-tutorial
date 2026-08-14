@@ -52,7 +52,7 @@ loss_fn:
 
 # ────────────────────────── ② 一般不动（数据接法 / 日志）──────────────────────────
 # 用 ResponseDataset 接预处理好的 GSM8K jsonl（与 9B 实验共用 datasets/gsm8k）。
-# 先 `lab prepare gsm8k`；GSM8K_DATA_DIR 由 run.sh 自动指向仓库内 datasets/gsm8k（提交时随作业上传），无需手填。
+# 先 `lab prepare gsm8k`；数据 manifest 由统一 launcher 校验并准备。
 data:
   _override_: true
   max_input_seq_length: ${policy.max_total_sequence_length}

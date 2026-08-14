@@ -1,0 +1,10 @@
+{
+  "apiVersion": "lab/recipe-lock/v1",
+  "recipe": {
+    "digest": "sha256:c534f8d6d6d65b6bebbd9fd45beeb1143dabd4034e6000906c966c34a35d0032",
+    "framework": "nemo-rl",
+    "name": "maxrl",
+    "version": "0.1.0"
+  },
+  "sdk_version": "2.1.0"
+}

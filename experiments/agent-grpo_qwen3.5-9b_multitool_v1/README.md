@@ -31,7 +31,7 @@ Agent / 自定义环境 / 多工具链路。
 
 - `config.yaml` — 继承 `grpo_sliding_puzzle`（多轮基底）+ `qwen3.5-9b` + `grpo_megatron`(Megatron+GB10) + `grpo_lora`(LoRA)，`_override_` 替换 env。
 - `run.py` — 自定义训练脚本：生成三类任务 + KB，实例化 `ToolAgentEnv`，调 `grpo_train`。
-- `run.sh` — 检测到本目录有 `run.py`，自动以它为入口。
+- `method` / `recipe.lock.json` — 显式固定 recipe 与入口，不按文件存在性探测框架。
 
 ## 关键超参（GB10 实测起点）
 
@@ -54,7 +54,7 @@ Agent / 自定义环境 / 多工具链路。
 ## 运行
 
 ```bash
-NEMO_RL_DIR=/path/to/NeMo-RL CLUSTER_PROFILE=gb10-spark bash run.sh
+lab submit agent-grpo_qwen3.5-9b_multitool_v1
 ```
 
 > ⚠️ `python` 工具会执行模型生成的代码，请只在隔离的 NeMo-RL 训练容器内运行。

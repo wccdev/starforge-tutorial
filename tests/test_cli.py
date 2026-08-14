@@ -31,9 +31,44 @@ def test_list_profiles_has_h100():
     assert "h100" in profiles
 
 
+def test_method_completion_is_sdk_catalog_driven():
+    assert "grpo" in cli._complete_method("g")
+    assert "verl-grpo" in cli._complete_method("verl-")
+    assert "agent" not in cli._complete_method("")
+
+
 def test_validate_exp_clean_on_real_experiment():
     errors, _ = cli._validate_exp("experiments/grpo_qwen3.5-4b_gsm8k_v1")
     assert errors == []
+
+
+def test_custom_validation_does_not_run_nemo_config_parser(tmp_path, monkeypatch):
+    import json
+
+    from nemo_rl_lab.migrate_v2 import recipe_lock
+
+    monkeypatch.setattr(cli, "ROOT", tmp_path)
+    exp = tmp_path / "experiments" / "custom"
+    exp.mkdir(parents=True)
+    (exp / "method").write_text("custom\n")
+    (exp / "recipe.lock.json").write_text(json.dumps(recipe_lock("custom")))
+    (exp / "train.sh").write_text("#!/usr/bin/env bash\n")
+    (exp / "config.yaml").write_text("this: [is: not: nemo]\n")
+    assert cli._validate_exp("experiments/custom") == ([], [])
+
+
+def test_verl_validation_only_requires_mapping_config(tmp_path, monkeypatch):
+    import json
+
+    from nemo_rl_lab.migrate_v2 import recipe_lock
+
+    monkeypatch.setattr(cli, "ROOT", tmp_path)
+    exp = tmp_path / "experiments" / "verl"
+    exp.mkdir(parents=True)
+    (exp / "method").write_text("verl-grpo\n")
+    (exp / "recipe.lock.json").write_text(json.dumps(recipe_lock("verl-grpo")))
+    (exp / "config.yaml").write_text("trainer:\n  total_epochs: 1\n")
+    assert cli._validate_exp("experiments/verl") == ([], [])
 
 
 # --------------------------- config diff（_flatten）---------------------------

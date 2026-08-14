@@ -50,7 +50,7 @@ def test_upload_kept_paths(rel):
 @pytest.mark.parametrize(
     "rel,expected",
     [
-        ("experiments/x/run.sh", True),
+        ("scripts/launch.sh", True),
         ("cluster/h100/overrides.conf", True),
         ("lab", True),
         ("nemo_rl_lab/cli.py", False),
@@ -66,9 +66,9 @@ def test_normalize_unix_lf():
 
 
 def test_pack_working_dir_normalizes_crlf_for_cluster_scripts(tmp_path):
-    run_sh = tmp_path / "experiments" / "demo" / "run.sh"
-    run_sh.parent.mkdir(parents=True)
-    run_sh.write_bytes(b"#!/bin/bash\r\nset -euo pipefail\r\n")
+    launch_sh = tmp_path / "scripts" / "launch.sh"
+    launch_sh.parent.mkdir(parents=True)
+    launch_sh.write_bytes(b"#!/bin/bash\r\nset -euo pipefail\r\n")
     conf = tmp_path / "cluster" / "h100" / "overrides.conf"
     conf.parent.mkdir(parents=True)
     conf.write_bytes(b"cluster.num_nodes=1\r\n")
@@ -77,7 +77,7 @@ def test_pack_working_dir_normalizes_crlf_for_cluster_scripts(tmp_path):
     blob = cli_login.pack_working_dir(
         tmp_path,
         files=[
-            "experiments/demo/run.sh",
+            "scripts/launch.sh",
             "cluster/h100/overrides.conf",
             "keep.py",
         ],
@@ -86,7 +86,7 @@ def test_pack_working_dir_normalizes_crlf_for_cluster_scripts(tmp_path):
     import tarfile
 
     with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as tar:
-        run_data = tar.extractfile("experiments/demo/run.sh").read()
+        run_data = tar.extractfile("scripts/launch.sh").read()
         conf_data = tar.extractfile("cluster/h100/overrides.conf").read()
         py_data = tar.extractfile("keep.py").read()
     assert run_data == b"#!/bin/bash\nset -euo pipefail\n"

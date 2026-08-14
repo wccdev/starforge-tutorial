@@ -369,22 +369,92 @@ def api_post(path: str, payload: dict, server: Optional[str] = None) -> dict:
         cli_ui.fail_http(e, fallback="请求失败，请稍后重试。")
 
 
+class CatalogCompatibilityError(ValueError):
+    """CLI、Console 与 recipe catalog 不是同一份精确契约。"""
+
+
+def verify_catalog_compatibility(spec, payload: dict) -> None:
+    """在上传前验证 Console 公布的精确 SDK/recipe/adapter 契约。"""
+    from nemo_lab_sdk import __version__ as sdk_version
+    from nemo_lab_sdk.contract import API_VERSION
+
+    if payload.get("apiVersion") != "lab/recipe-catalog/v1":
+        raise CatalogCompatibilityError("Console recipe catalog apiVersion 不兼容")
+    versions = (payload.get("contract") or {}).get("versions")
+    if versions != [API_VERSION]:
+        raise CatalogCompatibilityError(
+            f"Console JobSpec contract 不兼容：server={versions!r}, cli={[API_VERSION]!r}"
+        )
+    server_sdk = payload.get("sdk") or {}
+    if server_sdk.get("version") != sdk_version or server_sdk.get("requirement") != f"=={sdk_version}":
+        raise CatalogCompatibilityError(
+            f"SDK 版本不兼容：server={server_sdk!r}, cli=={sdk_version}"
+        )
+    recipes = payload.get("recipes")
+    if not isinstance(recipes, list):
+        raise CatalogCompatibilityError("Console recipe catalog 缺少 recipes 数组")
+    canonical = []
+    for item in recipes:
+        if not isinstance(item, dict):
+            raise CatalogCompatibilityError("Console recipe catalog 含非法 recipe 项")
+        canonical.append({
+            "name": item.get("name"),
+            "version": item.get("version"),
+            "digest": item.get("digest"),
+        })
+    digest = hashlib.sha256(
+        json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    if payload.get("catalog_digest") != f"sha256:{digest}":
+        raise CatalogCompatibilityError("Console recipe catalog digest 校验失败")
+
+    selected = next((item for item in recipes if item.get("name") == spec.recipe_name), None)
+    if selected is None:
+        raise CatalogCompatibilityError(f"Console 未启用 recipe {spec.recipe_name!r}")
+    expected = {
+        "version": spec.spec.recipe.version,
+        "digest": spec.spec.recipe.digest,
+        "framework": spec.spec.framework.kind,
+        "adapter": spec.spec.framework.kind,
+    }
+    drift = {
+        key: {"server": selected.get(key), "cli": value}
+        for key, value in expected.items()
+        if selected.get(key) != value
+    }
+    if drift:
+        raise CatalogCompatibilityError(
+            f"recipe {spec.recipe_name!r} 精确契约不一致: {json.dumps(drift, ensure_ascii=False)}"
+        )
+
+
+def verify_server_compatibility(spec, server: Optional[str] = None) -> None:
+    """联网握手；任何不匹配都在打包前终止。"""
+    srv = current_server(server)
+    payload = api_get("/api/recipes", server=srv)
+    try:
+        verify_catalog_compatibility(spec, payload)
+    except CatalogCompatibilityError as exc:
+        cli_ui.fail(str(exc), hint="升级 CLI/SDK 或让平台发布完全一致的 recipe 版本")
+
+
 def submit_via_server(exp_rel: str, profile: Optional[str], repo_root: Path,
                       server: Optional[str] = None, project: Optional[str] = None,
                       reporter=None, spec=None) -> dict:
     """server 模式提交：打包上传 + 服务端注入密钥后代理提交，返回 {job_id, run_id, ...}。
 
     reporter：可选进度上报对象（见 cli_ui.submit_progress），驱动「打包 → 上传 → 受理」进度条。
-    spec：JobSpec。带上它服务端就知道这是什么方法、超参是什么，能在提交时校验、
-          按方法记账与展示；不带则服务端合成 legacy spec（老行为）。
+    spec：必填的 lab/v2 JobSpec。上传前先与 Console 做精确 catalog 握手。
     返回值附带 upload_files / upload_skipped / upload_bytes 便于 CLI 展示。
     """
+    if spec is None:
+        raise ValueError("提交必须携带 lab/v2 JobSpec")
     srv = current_server(server)
+    verify_server_compatibility(spec, server=srv)
     meta = {"exp": exp_rel, "profile": profile or "", **git_provenance(repo_root, exp_rel)}
     if project:
         meta["project"] = project
-    if spec is not None:
-        meta["spec"] = spec.to_dict()
+    meta["spec"] = spec.to_dict()
     result = _upload_and_submit(srv, "/api/jobs", meta, repo_root, reporter, "提交失败，请稍后重试。")
     return result
 
@@ -423,11 +493,15 @@ def _upload_and_submit(srv: str, path: str, meta: dict, repo_root: Path, reporte
 
 
 def submit_post_via_server(action: str, exp_rel: str, profile: Optional[str], flags: list[str],
-                           repo_root: Path, server: Optional[str] = None, reporter=None) -> dict:
-    """server 模式训练后闭环（export/eval）：打包上传 → 服务端代理提交 post_train.sh。"""
+                           repo_root: Path, server: Optional[str] = None, reporter=None,
+                           spec=None) -> dict:
+    """server 模式训练后闭环：与训练共用 lab/v2 launcher 与 catalog 握手。"""
+    if spec is None:
+        raise ValueError("训练后作业必须携带 lab/v2 JobSpec")
     srv = current_server(server)
+    verify_server_compatibility(spec, server=srv)
     meta = {"action": action, "exp": exp_rel, "profile": profile or "",
-            "flags": flags, **git_provenance(repo_root, exp_rel)}
+            "flags": flags, "spec": spec.to_dict(), **git_provenance(repo_root, exp_rel)}
     label = "导出" if action == "export" else "评测"
     return _upload_and_submit(srv, "/api/post", meta, repo_root, reporter, f"{label}提交失败，请稍后重试。")
 

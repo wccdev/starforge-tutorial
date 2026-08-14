@@ -77,7 +77,7 @@ lab eval opsd_qwen3.5-9b_math_h200_1n2g --run-id <训练 run_id>
 lab eval opsd_qwen3.5-9b_math_h200_1n2g --run-id <run_id> -- --datasets aime24 --n 4
 ```
 
-本目录的 `eval.py` 会被 `scripts/post_train.sh` 自动选用（与训练入口 `run.py` 同款约定）。
+本目录的 `eval.py` 由 OPSD recipe 的显式 eval 生命周期入口调用。
 它按论文协议（每题 12 条 / temp 1.0 / max_tokens 38912）在三个评测集上打分，
 输出可与论文表格逐项对照的 `avg@N / pass@N / majority@N`。
 

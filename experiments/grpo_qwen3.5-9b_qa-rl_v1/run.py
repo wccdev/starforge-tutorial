@@ -3,7 +3,7 @@
 # 数据：datasets/qa_rl 的 train/val jsonl（每行 {"query", "expected_answer": "[type] ..."}）。
 # 奖励：common/environments/qa_env.py 的 QARewardEnv，内部调用 common/rewards 的判分逻辑
 #       （简答可走 LLM 裁判，端点连不上自动回退关键词覆盖率）。
-# 由本实验 run.sh 通过 ENTRY 自动调用（本目录存在 run.py 时优先用它）。
+# 由 grpo recipe 的显式入口通过 NeMoRLAdapter 调用。
 import argparse
 import json
 import os

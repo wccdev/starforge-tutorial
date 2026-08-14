@@ -17,13 +17,13 @@ GSM8K 的答案是「推理 + #### 数字」，需抽取干净金标准答案：
 lab prepare gsm8k                              # 写到 datasets/gsm8k/{train,val}.jsonl
 ```
 
-- **`lab submit`（经服务端到集群）**：`datasets/gsm8k/` 随作业上传，`run.sh` 自动把 `GSM8K_DATA_DIR` 指向它，**无需手动 export**；想用别处的数据时由服务端注入 `GSM8K_DATA_DIR=/abs/dir` 覆盖。
+- **`lab submit`（经服务端到集群）**：`datasets/gsm8k/` 随作业上传，统一 launcher 校验并准备 dataset manifest。
 
 ## 组成
 
 - `config.yaml` — 继承 `grpo_math_1B` + `qwen3.5-9b` + `grpo_megatron`(Megatron+GB10 调优) + `grpo_lora`(LoRA)，
   `_override_` 替换 `data` 为 `ResponseDataset` 指向上面的 jsonl，处理器 `math_hf_data_processor`、环境 `math`。
-- `run.sh` — 无自定义 `run.py`，自动用官方入口 `examples/run_grpo.py`。
+- `method` / `recipe.lock.json` — 固定 grpo recipe、官方入口与 digest。
 
 ## 关键超参（GB10 实测起点）
 
@@ -38,8 +38,7 @@ lab prepare gsm8k                              # 写到 datasets/gsm8k/{train,va
 ## 运行
 
 ```bash
-# 确保已 export GSM8K_DATA_DIR
-NEMO_RL_DIR=/path/to/NeMo-RL CLUSTER_PROFILE=gb10-spark bash run.sh
+lab submit grpo_qwen3.5-9b_gsm8k_v1
 ```
 
 产物落到本目录 `outputs/`（已 .gitignore）。

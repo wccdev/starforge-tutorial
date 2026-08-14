@@ -1,4 +1,4 @@
-# 单机 8× H200 (141GB) 环境。被实验 run.sh 在集群侧统一 source。
+# 单机 8× H200 (141GB) 环境。由统一集群 launcher 加载。
 # 单节点 8 卡走 NVLink/NVSwitch，节点内通信无需 RoCE/IB；不要设 NCCL_IB_* / 网卡名，
 # 否则会误绑不存在的接口（那是 gb10-spark 多节点才需要的）。
 

@@ -1,6 +1,6 @@
 # 单轮 GRPO 实验：qwen3.5-9b 在 GSM8K 上做数学推理（与多轮 Agent 实验做对照）。
 # 继承官方 grpo_math_1B 基底 + qwen3.5-9b 片段，只写差异。用官方 examples/run_grpo.py 入口
-# （本目录无 run.py，run.sh 会自动用官方入口）。
+# （grpo recipe 固定使用官方入口）。
 defaults:
   - ../../configs/base/grpo_math_1B.yaml
   - ../../configs/models/qwen3.5-9b.yaml
@@ -43,7 +43,7 @@ loss_fn:
 
 # ────────────────────────── ② 一般不动（数据接法 / 日志）──────────────────────────
 # 用 ResponseDataset 接预处理好的 GSM8K jsonl（见 common/data/prepare_gsm8k.py）。
-# 先 `lab prepare gsm8k`；GSM8K_DATA_DIR 由 run.sh 自动指向仓库内 datasets/gsm8k（提交时随作业上传），无需手填。
+# 先 `lab prepare gsm8k`；数据 manifest 由统一 launcher 校验并准备。
 data:
   _override_: true
   max_input_seq_length: ${policy.max_total_sequence_length}

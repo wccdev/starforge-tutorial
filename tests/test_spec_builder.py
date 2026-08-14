@@ -14,6 +14,8 @@ from nemo_lab_sdk.contract import SpecError
 
 from nemo_rl_lab.spec_builder import build_spec, infer_recipe, parse_pool, parse_set
 
+_POOL = ["all:h100:1:1"]
+
 # ── --set 解析 ───────────────────────────────────────────────────────────────
 
 
@@ -73,7 +75,7 @@ def test_unknown_method_lists_available():
 
 def test_unsupported_lifecycle_action_rejected():
     with pytest.raises(SpecError, match="serve"):
-        build_spec("experiments/demo", recipe="grpo", on_success=["serve"])
+        build_spec("experiments/demo", recipe="grpo", pools=_POOL, on_success=["serve"])
 
 
 def test_unknown_role_rejected():
@@ -110,9 +112,12 @@ def test_single_pool_infers_roles():
 
 
 def test_spec_carries_recipe_identity_and_defaults():
-    spec = build_spec("experiments/demo", recipe="opsd")
+    spec = build_spec("experiments/demo", recipe="opsd", pools=_POOL)
     assert spec.recipe_name == "opsd"
     assert spec.spec.recipe.version
+    assert spec.spec.recipe.digest.startswith("sha256:")
+    assert spec.provenance.sdk_version == "2.1.0"
+    assert spec.spec.framework.kind == "nemo-rl"
     assert "opsd" in spec.spec.recipe.plugins
     # 默认值在本地就补齐 —— 作业记录因此自解释
     assert spec.spec.hyperparams["teacher_mode"] == "self"
@@ -121,6 +126,7 @@ def test_spec_carries_recipe_identity_and_defaults():
 def test_init_from_becomes_artifact_ref():
     spec = build_spec(
         "experiments/dpo_v1", recipe="dpo", init_from="run/sft-1/checkpoint@step=2000",
+        pools=_POOL,
     )
     ref = spec.spec.model.init_from
     assert (ref.run_id, ref.kind, ref.step) == ("sft-1", "checkpoint", 2000)
@@ -129,6 +135,7 @@ def test_init_from_becomes_artifact_ref():
 def test_provenance_is_recorded():
     spec = build_spec(
         "experiments/demo", recipe="grpo",
+        pools=_POOL,
         provenance={"git_commit": "abc", "git_dirty": True, "config_sha": "sha"},
     )
     assert spec.provenance.git_commit == "abc" and spec.provenance.git_dirty
@@ -136,23 +143,68 @@ def test_provenance_is_recorded():
 
 def test_owner_left_empty_for_server_to_fill():
     """客户端声明 owner 无效 —— 服务端会权威覆写。"""
-    assert build_spec("experiments/demo", recipe="grpo").metadata.owner == ""
+    assert build_spec("experiments/demo", recipe="grpo", pools=_POOL).metadata.owner == ""
 
 
 def test_validation_can_be_skipped():
     """--no-validate 时不校验超参，但仍产出结构合法的 spec。"""
-    spec = build_spec("experiments/demo", recipe="grpo", sets=["whatever=1"], validate=False)
+    spec = build_spec(
+        "experiments/demo", recipe="grpo", pools=_POOL, sets=["whatever=1"], validate=False,
+    )
     assert spec.spec.hyperparams["whatever"] == 1
+
+
+def test_missing_resource_pool_is_rejected():
+    with pytest.raises(SpecError, match="--pool"):
+        build_spec("experiments/demo", recipe="grpo")
 
 
 # ── 方法推断 ─────────────────────────────────────────────────────────────────
 
 
 def test_method_inferred_from_experiment_dir(tmp_path):
-    """与 cluster / framework 同款约定：跟着实验走，fork 时自动继承。"""
+    """recipe 元数据跟着实验走，fork 时自动继承。"""
     (tmp_path / "method").write_text("opsd\n", encoding="utf-8")
     assert infer_recipe(tmp_path) == "opsd"
 
 
 def test_no_method_file_returns_empty(tmp_path):
     assert infer_recipe(tmp_path) == ""
+
+
+def test_framework_is_derived_from_recipe():
+    assert build_spec(
+        "experiments/demo",
+        recipe="verl-grpo",
+        pools=_POOL,
+        base_model="Qwen/Qwen3-0.6B",
+        train_data="/data/train.parquet",
+        validation_data="/data/val.parquet",
+    ).spec.framework.kind == "verl"
+
+
+def test_verl_requires_explicit_model_and_data_bindings():
+    with pytest.raises(SpecError, match="--model.*--train-data.*--validation-data"):
+        build_spec("experiments/demo", recipe="verl-grpo", pools=_POOL)
+
+
+def test_external_observability_requires_explicit_url():
+    with pytest.raises(SpecError, match="observability"):
+        build_spec("experiments/demo", recipe="custom", pools=_POOL)
+    spec = build_spec(
+        "experiments/demo",
+        recipe="custom",
+        pools=_POOL,
+        observability_url="https://metrics.example/runs/1",
+    )
+    assert spec.spec.framework.observability_url == "https://metrics.example/runs/1"
+
+
+def test_platform_observability_rejects_external_url():
+    with pytest.raises(SpecError, match="不允许"):
+        build_spec(
+            "experiments/demo",
+            recipe="grpo",
+            pools=_POOL,
+            observability_url="https://metrics.example/runs/1",
+        )

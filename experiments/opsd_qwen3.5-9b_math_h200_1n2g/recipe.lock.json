@@ -1,0 +1,10 @@
+{
+  "apiVersion": "lab/recipe-lock/v1",
+  "recipe": {
+    "digest": "sha256:174684ab52c0ad3c4d3a3fe08b480b3667b8b1a5ae077e39950d7822d2bb77f2",
+    "framework": "nemo-rl",
+    "name": "opsd",
+    "version": "0.1.0"
+  },
+  "sdk_version": "2.1.0"
+}

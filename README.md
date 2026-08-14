@@ -1,12 +1,14 @@
 # nemo-rl-lab
 
-基于 **NVIDIA NeMo-RL** 的大模型微调实验室。涵盖：
+面向多框架的大模型后训练实验室。**NeMo-RL 是默认且第一优先级框架**，verl 是第二个
+一等 adapter，此外提供必须显式选择的 custom recipe。涵盖：
 
 - **SFT**（监督微调）
 - **GRPO / 强化学习**（RL）
 - **多轮 Agent 训练**（NeMo-RL 较新特性，工具调用 / 多轮对话）
 
-横跨多个基础模型（如 `qwen3.5-4b`、`qwen3.5-9b` 等）× 多个数据集。所有训练日志统一上传到云端 **SwanLab**。
+横跨多个基础模型与数据集。生命周期、规范化指标和产物统一进入 Lab 平台；recipe 也可以
+显式声明 external observability。
 
 > **本项目的初衷**：拿到仓库、配好远程机器，就能直接开跑微调——环境/分布式/提交这些脏活都内化掉，
 > 你只需要关注**调参本身**（学习率、KL、采样数、数据、奖励）。
@@ -51,10 +53,20 @@ lab logs                                        # 跟随最近一个作业的实
 
 两边靠一份独立的契约包 `nemo-lab-sdk` 对接（源码在 console 仓的 `sdk/`）：
 
-```
-              nemo-lab-sdk          JobSpec、后训练方法目录、集群侧 launcher
-             ╱      │      ╲
-       lab CLI   console   训练镜像
+```mermaid
+flowchart LR
+  CLI["lab CLI\nrecipe 驱动脚手架/校验"] -->|"lab/v2 JobSpec"| Console["Console\n握手 · 准入 · 排队 · 装配"]
+  SDK["nemo-lab-sdk==2.1.0\ncontract · catalog · adapters · launcher"] -. "精确版本" .-> CLI
+  SDK -. "精确版本" .-> Console
+  Console --> Executor["Local / KubeRay\n同一 LaunchRequest"]
+  Executor --> Launcher["nemo-lab-launch\nverify → compile → run → report"]
+  Launcher --> NeMo["NeMoRLAdapter（默认）"]
+  Launcher --> Verl["VerlAdapter"]
+  Launcher --> Custom["CustomAdapter（显式）"]
+  NeMo --> Output["规范化指标 + lab/artifacts/v1"]
+  Verl --> Output
+  Custom --> Output
+  Output --> Console
 ```
 
 **这个方向很重要**：以前是 console `pip install nemo-rl-lab`，控制平面依赖客户端 ——
@@ -63,10 +75,11 @@ lab logs                                        # 跟随最近一个作业的实
 「一个作业长什么样」也从 32 个环境变量的隐式约定，变成了一份带版本的 `JobSpec`：
 
 ```yaml
-apiVersion: lab/v1
+apiVersion: lab/v2
 kind: TrainingJob
 spec:
-  recipe:    {name: grpo, version: 0.7.0}
+  recipe:    {name: grpo, version: 0.7.0, digest: "sha256:…"}
+  framework: {kind: nemo-rl}
   resources: {pools: [{name: train, series: h200, nodes: 1, gpus_per_node: 8}]}
 ```
 
@@ -76,8 +89,9 @@ spec:
 **加一种后训练方法不需要改本仓代码** —— 方法定义在 SDK 的 recipe 目录里，
 `lab methods` 列的就是它。
 
-> 本地联调 SDK：`uv pip install -e ../nemo-rl-console/sdk`
-> （默认从内网 Git 拉，见 `pyproject.toml` 的 `[tool.uv.sources]`）
+生产环境从 Nexus 安装精确的 `nemo-lab-sdk==2.1.0`；开发环境由 `pyproject.toml` 的
+editable path 指向 `../nemo-rl-console/sdk`。提交前会与 Console 做精确 catalog 握手，
+不匹配时在打包之前失败。
 
 ## 目录结构
 
@@ -110,9 +124,9 @@ nemo-rl-lab/
 └── projects/                 # 正式 / 交付级项目
 ```
 
-> 配置工作流：每个实验有自己的 `config.yaml`，通过 `defaults` **继承基底 + 模型片段，只写差异**
-> （NeMo-RL 0.6.0 原生支持，官方亦如此）。`run.sh` 以该 `config.yaml` 为 `--config`，运行时再叠加
-> `cluster/<profile>/overrides.conf` 的硬件 override。详见 `configs/README.md`。
+> NeMo-RL 配置工作流：每个实验有自己的 `config.yaml`，通过 `defaults` **继承基底 + 模型片段，只写差异**。
+> recipe 固定入口，adapter 读取该配置并叠加 `cluster/<profile>/overrides.conf`；实验目录不再拥有
+> `run.sh` 或可覆盖入口。verl/custom 使用各自 recipe 模板和校验器。
 
 ## experiments vs projects
 
@@ -245,7 +259,7 @@ uv run lab new grpo_qwen3.5-4b_gsm8k_lr1e4 --from grpo_qwen3.5-4b_gsm8k_v1
 cd experiments/<新实验名>
 # 1. 改 config.yaml 顶部「调参区」：lr / kl / 采样数 / 数据集 / seq（这些数值按目标集群的卡调）
 # 2. 目标集群写在同目录 cluster 文件（lab new 已写好；想改：echo gb10-spark > cluster）
-# 3. （新建空白时）改 README.md 与 defaults；若是 SFT/Agent，run.sh 顶部改 ENTRY（见 configs/README.md）
+# 3. 改 README.md 与 recipe 模板允许的 config；入口由 recipe 固定，不能在实验内覆盖
 # 4. 提交（用实验自带集群；--profile 可临时换）：
 uv run lab submit <新实验名>
 ```
@@ -281,27 +295,27 @@ uv run lab job stop <job_id>        # 停止作业
 
 ## 训练后闭环（导出 / 评测）
 
-训练产物（checkpoint）落在集群 `OUTPUT_ROOT[/<RUN_USER>]/<实验名>/step_<N>/`。两条命令把它变成「可交付资产」，
-执行同样在集群（薄封装 NeMo-RL 0.6.0 官方脚本，经服务端提交、不进容器）：
+训练产物由 `lab/artifacts/v1` manifest 登记。两条命令与训练共用 `nemo-lab-launch`，
+由 recipe 的 adapter 编译 NeMo-RL 或 verl 原生命令：
 
 ```bash
-# 导出：DCP/Megatron checkpoint → HuggingFace 格式（按后端自适应选转换器，自动带上 tokenizer）
-uv run lab export grpo_qwen3.5-9b_gsm8k_v1                 # 默认最新 step；产物落 <ckpt>/hf_export/step_<N>
-uv run lab export grpo_qwen3.5-9b_gsm8k_v1 --step 170 --push-repo myorg/qwen-gsm8k   # 指定步数并推到 HF Hub
-uv run lab export grpo_qwen3.5-9b_gsm8k_v1 --dry-run       # 只打印将执行的转换命令，不提交
+# 导出：checkpoint 路径和格式都必须显式给出，不猜测后端
+uv run lab export grpo_qwen3.5-9b_gsm8k_v1 \
+  --checkpoint /outputs/run/checkpoints/step_170 --checkpoint-format nemo-megatron
+uv run lab export grpo_qwen3.5-9b_gsm8k_v1 \
+  --checkpoint /outputs/run/checkpoints/step_170 --checkpoint-format nemo-megatron \
+  --push-repo myorg/qwen-gsm8k --dry-run
 
-# 评测：对 checkpoint 跑 run_eval.py（仅吃 HF 格式；未给 --model 时先自动导出再评测）
-uv run lab eval grpo_qwen3.5-9b_gsm8k_v1                                  # 默认 eval 配置
+# 评测：参数按 framework 严格校验
 uv run lab eval grpo_qwen3.5-9b_gsm8k_v1 --eval-config examples/configs/evals/math_eval.yaml \
-    -- generation.temperature=0.6 generation.top_p=0.95                  # `--` 之后透传给 run_eval.py
-uv run lab eval grpo_qwen3.5-9b_gsm8k_v1 --model myorg/qwen-gsm8k         # 直接评测某 HF 模型/Hub id
+  --model myorg/qwen-gsm8k -- generation.temperature=0.6 generation.top_p=0.95
+uv run lab eval smoke/verl-sft --data /data/nemo-lab/smoke/gsm8k/test.parquet --dry-run
 ```
 
-- **后端自适应**：GRPO（Megatron 后端）走 `convert_megatron_to_hf.py`（`--extra mcore`），SFT（DTensor）走 `convert_dcp_to_hf.py`。
-  脚本按 checkpoint 里是否存在 `policy/weights/iter_*` 自动判别，无需手选。
-- **step 选择**：默认取最新 `step_<N>`；`--step N` 指定。
+- **格式不推断**：调用者必须提供 `--checkpoint-format`；adapter 对不支持的组合立即报错。
 - **导出/评测也记台账**：与 `submit` 一样由服务端记录 action / run_id / commit，可追溯（`lab runs` 查看）。
-- 集群侧细节见 [`scripts/post_train.sh`](scripts/post_train.sh)（支持 `LAB_DRY_RUN=1`）。
+- **GPU smoke（可选）**：准备固定路径的最小 GSM8K parquet 后，运行
+  `scripts/smoke_verl_sft.sh`（1×H100）或 `scripts/smoke_verl_grpo.sh`（2×H200）。
 
 ## 快速开始
 

@@ -2,7 +2,7 @@
 # 调参就改下面「本实验差异」部分；基底不动。
 #
 # 切换方法：
-#   - SFT       : 把第一个 default 换成 ../../configs/base/sft.yaml，并设 run.sh 的 ENTRY=examples/run_sft.py
+#   - SFT       : 使用 sft recipe 模板；入口由 recipe 固定为 examples/run_sft.py
 #   - 多轮 Agent: 换成 ../../configs/base/grpo_sliding_puzzle.yaml（已含 max_rollout_turns/env 范例）
 defaults:
   - ../../configs/base/grpo_math_1B.yaml
@@ -39,6 +39,6 @@ logger:
     name: "<超参组合>"                            # 如 lr1e6-g16-kl0.01
   monitor_gpus: true
 # =====================================================
-# 注：checkpoint 目录与 log 目录由 run.sh 自动指到本实验 outputs/（已 .gitignore），
+# 注：checkpoint 目录与 log 目录由统一 launcher 指到本实验 outputs/（已 .gitignore），
 #     集群/硬件相关（节点数、并行度）由 cluster/<profile>/overrides.conf 在运行时叠加。
 #     本实验默认集群写在同目录 cluster 文件（lab new --cluster 设置）；下列数值应按该卡显存调。

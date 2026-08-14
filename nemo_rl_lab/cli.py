@@ -82,6 +82,12 @@ def _complete_dataset(incomplete: str) -> list[str]:
     return [d for d in sorted(DATA_PREP) if d.startswith(incomplete)]
 
 
+def _complete_method(incomplete: str) -> list[str]:
+    from nemo_lab_sdk.recipes import recipe_names
+
+    return [name for name in recipe_names() if name.startswith(incomplete)]
+
+
 # 共享的 profile 选项（submit/export/eval 提交时把硬件 profile 转发给服务端，决定集群 overrides）。
 _PROF_OPT = typer.Option(
     None, "--profile", autocompletion=_complete_profile,
@@ -93,19 +99,6 @@ _PROF_OPT = typer.Option(
 class Kind(str, Enum):
     experiments = "experiments"
     projects = "projects"
-
-
-class Method(str, Enum):
-    """训练方法骨架。
-
-    agent 本质是 GRPO 的多轮变体（base=grpo_sliding_puzzle + 自定义 run.py 环境）。
-    custom 则完全不经 NeMo-RL：实验自带 train.sh，用来跑 TRL / verl / 纯 HF Trainer 等外部框架
-    （见 templates/custom-framework/train.sh 里的 LAB_* 契约）。
-    """
-    grpo = "grpo"
-    sft = "sft"
-    agent = "agent"
-    custom = "custom"
 
 
 # ----------------------------- 子命令 -----------------------------
@@ -121,16 +114,16 @@ def ls() -> None:
             typer.echo(f"  - {e}")
 
 
-@app.command(help="新建实验（--from fork 现成实验；--method 选 grpo/sft/agent 骨架）")
+@app.command(help="新建实验（--from fork 现成实验；--method 来自 SDK recipe catalog）")
 def new(
     name: str = typer.Argument(..., help="实验名"),
     from_exp: Optional[str] = typer.Option(
         None, "--from", autocompletion=_complete_exp,
         help="从已有实验 fork",
     ),
-    method: Method = typer.Option(
-        Method.grpo, "--method", "-m",
-        help="空白模板：grpo | sft | agent（--from 时忽略）",
+    method: str = typer.Option(
+        "grpo", "--method", "-m", autocompletion=_complete_method,
+        help="recipe 名；默认 grpo（NeMo-RL），`lab methods` 查看全部",
     ),
     cluster: Optional[str] = typer.Option(
         None, "--cluster", autocompletion=_complete_profile,
@@ -138,7 +131,7 @@ def new(
     ),
     kind: Kind = typer.Option(Kind.experiments, "--kind", help="experiments 或 projects"),
 ) -> None:
-    if from_exp and method is not Method.grpo:
+    if from_exp and method != "grpo":
         typer.secho("fork 会继承来源实验配置，--method 已忽略。", fg=typer.colors.YELLOW)
     src = ""
     if from_exp:
@@ -150,7 +143,7 @@ def new(
             name,
             src=src,
             cluster=cluster or "",
-            method=method.value,
+            method=method,
         )
     except NewExperimentError as e:
         cli_ui.fail(str(e))
@@ -171,21 +164,56 @@ def prepare(
     raise typer.Exit(_run([sys.executable, str(script), *ctx.args]))
 
 
-def _validate_exp(exp_path: str) -> tuple[list[str], list[str]]:
-    """解析 + 校验某实验 config，返回 (errors, warns)。解析失败按 1 个 error 计。"""
-    from nemo_rl_lab.config_resolve import resolve, validate_config
+def _validate_exp(exp_path: str, recipe_override: str = "") -> tuple[list[str], list[str]]:
+    """只运行 recipe 所属框架的 validator，不跨框架猜测。"""
+    import yaml
+    from nemo_lab_sdk.contract import SpecError
+    from nemo_lab_sdk.recipes import get_recipe
 
-    cfg_file = ROOT / exp_path / "config.yaml"
+    from nemo_rl_lab.config_resolve import resolve, validate_config
+    from nemo_rl_lab.migrate_v2 import validate_recipe_lock
+    from nemo_rl_lab.spec_builder import infer_recipe
+
+    exp_dir = ROOT / exp_path
+    recipe_name = recipe_override.strip() or infer_recipe(exp_dir)
+    if not recipe_name:
+        return [f"实验缺少 method recipe 声明: {exp_path}"], []
+    try:
+        recipe = get_recipe(recipe_name)
+        validate_recipe_lock(exp_dir, recipe_name)
+    except (SpecError, ValueError) as exc:
+        return [str(exc)], []
+
+    if recipe.entrypoint.kind == "experiment":
+        entry = (exp_dir / recipe.entrypoint.value).resolve()
+        if not entry.is_relative_to(exp_dir.resolve()) or not entry.is_file():
+            return [f"{recipe.framework} 实验缺少入口: {recipe.entrypoint.value}"], []
+    if recipe.framework == "custom":
+        return [], []
+
+    cfg_file = exp_dir / "config.yaml"
     if not cfg_file.is_file():
-        return [f"实验缺少 config.yaml: {exp_path}"], []
+        return [f"{recipe.framework} 实验缺少 config.yaml: {exp_path}"], []
+    if recipe.framework == "verl":
+        try:
+            cfg = yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            return [f"解析 verl config 失败: {exc}"], []
+        if not isinstance(cfg, dict):
+            return ["verl config 根节点必须是对象"], []
+        return [], []
+    if recipe.framework != "nemo-rl":
+        return [f"没有注册 framework validator: {recipe.framework}"], []
+
     try:
         cfg = resolve(cfg_file)
-    except Exception as e:  # noqa: BLE001
-        return [f"解析 config 失败: {e}"], []
+    except Exception as exc:  # noqa: BLE001
+        return [f"解析 NeMo-RL config 失败: {exc}"], []
     issues = validate_config(cfg, repo_root=ROOT)
-    errors = [m for lvl, m in issues if lvl == "error"]
-    warns = [m for lvl, m in issues if lvl == "warn"]
-    return errors, warns
+    return (
+        [message for level, message in issues if level == "error"],
+        [message for level, message in issues if level == "warn"],
+    )
 
 
 @app.command(help="提交训练作业（提交前自动校验 config 与超参）")
@@ -196,9 +224,8 @@ def submit(
         None, "--project", "-p", help="实验名称（用于分组展示），不传则默认使用目录名"
     ),
     method: Optional[str] = typer.Option(
-        None, "--method", "-m",
-        help="后训练方法（grpo/sft/dpo/distillation/opsd/maxrl）。不传则读实验目录的 method 文件；"
-             "都没有则按老路径提交（服务端合成 legacy spec）",
+        None, "--method", "-m", autocompletion=_complete_method,
+        help="recipe 名；不传则必须由实验目录的 method 文件声明",
     ),
     set_: list[str] = typer.Option(
         [], "--set", "-s", metavar="KEY=VALUE",
@@ -215,15 +242,25 @@ def submit(
         None, "--init-from", metavar="run/<RUN_ID>/checkpoint[@step=N]",
         help="从上一阶段的产物起训（SFT → DPO → GRPO 流水线）",
     ),
+    model: Optional[str] = typer.Option(None, "--model", help="基座模型路径或 Hub id；verl 必填"),
+    train_data: Optional[str] = typer.Option(None, "--train-data", help="训练数据路径；verl 必填"),
+    validation_data: Optional[str] = typer.Option(
+        None, "--validation-data", help="验证数据路径；verl 必填"
+    ),
     then: list[str] = typer.Option(
         [], "--then", metavar="ACTION", help="训练成功后自动执行（export/eval），可重复",
+    ),
+    observability_url: Optional[str] = typer.Option(
+        None,
+        "--observability-url",
+        help="仅 external observability recipe 使用；platform recipe 禁止设置",
     ),
     no_validate: bool = typer.Option(False, "--no-validate", help="跳过提交前校验"),
 ) -> None:
     cli_login.gate("submit")
     exp_path = _resolve_exp(exp)
     if not no_validate:
-        errors, _ = _validate_exp(exp_path)
+        errors, _ = _validate_exp(exp_path, method or "")
         if errors:
             cli_ui.emit_error(
                 f"config 校验未通过（{len(errors)} 处）",
@@ -234,7 +271,9 @@ def submit(
 
     spec = _build_spec_or_exit(
         exp_path, method=method, project=project, sets=set_, pools=pool, roles=role,
-        init_from=init_from, then=then, validate=not no_validate,
+        init_from=init_from, then=then, observability_url=observability_url,
+        model=model, train_data=train_data, validation_data=validation_data,
+        validate=not no_validate,
     )
     # 打包 working-dir → 上传到中心化服务 → 服务端注入密钥/路径后代理提交（密钥/地址不外泄）。
     with cli_ui.submit_progress() as reporter:
@@ -245,26 +284,24 @@ def submit(
 
 
 def _build_spec_or_exit(exp_path: str, *, method, project, sets, pools, roles,
-                        init_from, then, validate: bool):
-    """构建 JobSpec；未指定方法且实验没声明时返回 None（走老路径）。
-
-    校验失败在这里就退出 —— 超参拼错不该等上传完、排完队、跑起来才发现。
-    """
+                        init_from, then, observability_url=None, model=None,
+                        train_data=None, validation_data=None, validate: bool):
+    """构建强 JobSpec；缺少显式 recipe 时立即退出。"""
     from nemo_lab_sdk.contract import SpecError
 
     from nemo_rl_lab import spec_builder
 
     recipe = (method or "").strip() or spec_builder.infer_recipe(ROOT / exp_path)
     if not recipe:
-        if sets or pools or roles or init_from or then:
-            cli_ui.emit_error(
-                "这些参数需要先确定后训练方法",
-                items=[f"用到了 {'/'.join(k for k, v in (('--set', sets), ('--pool', pools), ('--role', roles), ('--init-from', init_from), ('--then', then)) if v)}"],
-                hint="加 --method <方法名>，或在实验目录放一个 method 文件；`lab methods` 可列出可用方法",
-            )
-            raise typer.Exit(1)
-        return None
+        cli_ui.emit_error(
+            "实验没有声明 recipe",
+            hint="加 --method <recipe>，或在实验目录写 method 文件；`lab methods` 查看可用值",
+        )
+        raise typer.Exit(1)
     try:
+        from nemo_rl_lab.migrate_v2 import validate_recipe_lock
+
+        validate_recipe_lock(ROOT / exp_path, recipe)
         return spec_builder.build_spec(
             exp_path,
             recipe=recipe,
@@ -274,10 +311,14 @@ def _build_spec_or_exit(exp_path: str, *, method, project, sets, pools, roles,
             roles=list(roles or []),
             init_from=init_from or "",
             on_success=list(then or []),
+            observability_url=observability_url or "",
+            base_model=model or "",
+            train_data=train_data or "",
+            validation_data=validation_data or "",
             provenance=cli_login.git_provenance(ROOT, exp_path),
             validate=validate,
         )
-    except SpecError as e:
+    except (SpecError, ValueError) as e:
         cli_ui.emit_error("作业规格校验未通过", items=[str(e)],
                           hint="用 `lab methods` 查看可用方法与超参")
         raise typer.Exit(1) from e
@@ -394,10 +435,11 @@ def methods(
 ) -> None:
     """方法目录来自 nemo-lab-sdk，与服务端是同一份 —— 这里看到的就是提交时会被校验的。"""
     from nemo_lab_sdk.contract import SpecError
-    from nemo_lab_sdk.recipes import all_recipes, get_recipe
+    from nemo_lab_sdk.recipes import get_recipe, recipe_names
 
     if not name:
-        for n, r in sorted(all_recipes().items()):
+        for n in recipe_names():
+            r = get_recipe(n)
             typer.echo(f"{n:14s} {r.title}")
             typer.echo(f"{'':14s} {r.summary.strip()}")
         typer.echo("\n用 `lab methods <方法名>` 看它的可调超参。")
@@ -432,6 +474,33 @@ def methods(
         typer.echo(f"    {p.name:32s} {meta}{default}")
         if p.doc:
             typer.echo(f"    {'':32s} {p.doc.strip()}")
+
+
+@app.command(name="migrate-v2", help="检查或写入实验的显式 recipe/lab-v2 元数据")
+def migrate_v2(
+    write: bool = typer.Option(False, "--write", help="仅在全部实验检查通过后写入元数据"),
+) -> None:
+    from nemo_rl_lab.migrate_v2 import apply_migration, check_repo
+
+    items = check_repo(ROOT)
+    for item in items:
+        rel = item.path.relative_to(ROOT)
+        if item.error:
+            typer.echo(f"✗ {rel}: {item.error}")
+        elif item.needs_write:
+            typer.echo(f"△ {rel}: recipe={item.recipe} 需要写入")
+        else:
+            typer.echo(f"✓ {rel}: recipe={item.recipe}")
+    if any(item.error for item in items):
+        raise typer.Exit(1)
+    if write:
+        apply_migration(ROOT, items)
+        typer.secho(
+            f"✓ 已迁移 {sum(item.needs_write for item in items)} 个实验",
+            fg=typer.colors.GREEN,
+        )
+    elif any(item.needs_write for item in items):
+        typer.echo("检查通过；运行 `lab migrate-v2 --write` 写入。")
 
 
 @app.command(help="校验实验 config（提交前本地检查）")
@@ -557,10 +626,66 @@ def doctor() -> None:
 
 # ----------------------------- 训练后闭环（export / eval；提交到集群执行）-----------------------------
 def _submit_post(action: str, exp_path: str, profile: Optional[str], flags: list[str], dry_run: bool) -> int:
-    """把 export/eval 作业经服务端代理提交到集群（入口 scripts/post_train.sh）。"""
+    """构建并预编译训练后强契约，再通过统一 launcher 提交。"""
+    from nemo_lab_sdk.frameworks import CompileRequest, compile_launch_plan
+    from nemo_lab_sdk.recipes import get_recipe
+
+    from nemo_rl_lab import spec_builder
+    from nemo_rl_lab.migrate_v2 import validate_recipe_lock
+
+    recipe_name = spec_builder.infer_recipe(ROOT / exp_path)
+    if not recipe_name:
+        cli_ui.emit_error(
+            "实验没有声明 recipe",
+            hint="在实验目录写 method 文件后重试；`lab methods` 查看可用值",
+        )
+        return 1
+    recipe = get_recipe(recipe_name)
+    try:
+        validate_recipe_lock(ROOT / exp_path, recipe.name)
+    except ValueError as exc:
+        cli_ui.emit_error("实验 recipe 锁校验失败", items=[str(exc)])
+        return 1
+    if not recipe.supports(action):
+        cli_ui.emit_error(
+            f"recipe {recipe.name} 不支持 {action}",
+            hint=f"支持：{', '.join(recipe.lifecycle) or '（无）'}",
+        )
+        return 1
+    series = (profile or "").strip()
+    if not series:
+        cluster_file = ROOT / exp_path / "cluster"
+        if not cluster_file.is_file() or not cluster_file.read_text(encoding="utf-8").strip():
+            cli_ui.emit_error("训练后作业必须通过 --profile 或实验 cluster 文件声明硬件 profile")
+            return 1
+        series = cluster_file.read_text(encoding="utf-8").strip()
+    try:
+        spec = spec_builder.build_spec(
+            exp_path,
+            recipe=recipe.name,
+            pools=[f"lifecycle:{series}:1:{recipe.lifecycle_resources[action]}"],
+            provenance=cli_login.git_provenance(ROOT, exp_path),
+            operation=action,
+        )
+        plan = compile_launch_plan(CompileRequest(
+            operation=action,
+            spec=spec,
+            recipe=recipe,
+            work_dir=ROOT,
+            env={"NEMOLAB_ENABLED": "0", "OUTPUT_ROOT": "/tmp/nemo-lab-dry-run"},
+            action_args=tuple(flags),
+        ))
+    except (ValueError, OSError) as exc:
+        cli_ui.emit_error("训练后作业规格校验未通过", items=[str(exc)])
+        return 1
+    if dry_run:
+        typer.echo(" ".join(plan.argv))
+        return 0
     cli_login.gate(action)
     with cli_ui.submit_progress() as reporter:
-        res = cli_login.submit_post_via_server(action, exp_path, profile, flags, ROOT, reporter=reporter)
+        res = cli_login.submit_post_via_server(
+            action, exp_path, profile, flags, ROOT, reporter=reporter, spec=spec
+        )
     _echo_submit_result(res, label="导出" if action == "export" else "评测")
     return 0
 
@@ -568,49 +693,42 @@ def _submit_post(action: str, exp_path: str, profile: Optional[str], flags: list
 @app.command(name="export", help="将 checkpoint 转为 HuggingFace 格式（可推 Hub）")
 def export_ckpt(
     exp: str = typer.Argument(..., autocompletion=_complete_exp, help="实验名或路径"),
-    step: Optional[int] = typer.Option(None, "--step", help="checkpoint 步数（默认最新 step_<N>）"),
-    out: Optional[str] = typer.Option(None, "--out", help="HF 输出目录（容器内；默认 <ckpt>/hf_export/step_<N>）"),
+    checkpoint: str = typer.Option(..., "--checkpoint", help="artifact registry 中记录的 checkpoint 路径"),
+    checkpoint_format: str = typer.Option(
+        ..., "--checkpoint-format",
+        help="nemo-dcp | nemo-megatron | verl-fsdp | verl-megatron | huggingface",
+    ),
     push_repo: Optional[str] = typer.Option(None, "--push-repo", help="转换后上传到 HF Hub repo（user/name，需 HF_TOKEN）"),
-    ckpt_dir: Optional[str] = typer.Option(None, "--ckpt-dir", help="覆盖 checkpoint 根目录（容器内绝对路径）"),
     profile: Optional[str] = _PROF_OPT,
     dry_run: bool = typer.Option(False, "--dry-run", help="只打印将提交的命令，不实际提交"),
 ) -> None:
-    flags: list[str] = []
-    if step is not None:
-        flags += ["--step", str(step)]
-    if out:
-        flags += ["--out", out]
+    flags = ["--checkpoint", checkpoint, "--checkpoint-format", checkpoint_format]
     if push_repo:
         flags += ["--push-repo", push_repo]
-    if ckpt_dir:
-        flags += ["--ckpt-dir", ckpt_dir]
     raise typer.Exit(_submit_post("export", _resolve_exp(exp), profile, flags, dry_run))
 
 
 @app.command(
     name="eval",
-    help="对 checkpoint 跑评测（未指定 --model 时会先自动导出）",
+    help="按 recipe 的原生评测入口执行；NeMo-RL 用 --model/--eval-config，verl 用 --data",
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
 )
 def eval_ckpt(
     ctx: typer.Context,
     exp: str = typer.Argument(..., autocompletion=_complete_exp, help="实验名或路径"),
-    step: Optional[int] = typer.Option(None, "--step", help="checkpoint 步数（默认最新；给 --model 时忽略）"),
-    model: Optional[str] = typer.Option(None, "--model", help="直接评测此 HF 模型路径/Hub id（给了就跳过导出）"),
-    eval_config: Optional[str] = typer.Option(None, "--eval-config", help="NeMo-RL 评测配置（默认 examples/configs/evals/eval.yaml）"),
-    ckpt_dir: Optional[str] = typer.Option(None, "--ckpt-dir", help="覆盖 checkpoint 根目录（容器内绝对路径）"),
+    model: Optional[str] = typer.Option(None, "--model", help="NeMo-RL：HF 模型路径/Hub id"),
+    eval_config: Optional[str] = typer.Option(None, "--eval-config", help="NeMo-RL：显式评测配置路径"),
+    data: Optional[str] = typer.Option(None, "--data", help="verl：显式评测数据路径"),
     profile: Optional[str] = _PROF_OPT,
     dry_run: bool = typer.Option(False, "--dry-run", help="只打印将提交的命令，不实际提交"),
 ) -> None:
     flags: list[str] = []
-    if step is not None:
-        flags += ["--step", str(step)]
     if model:
         flags += ["--model", model]
     if eval_config:
         flags += ["--eval-config", eval_config]
-    if ckpt_dir:
-        flags += ["--ckpt-dir", ckpt_dir]
+    if data:
+        flags += ["--data", data]
     extra = list(ctx.args)  # `--` 之后透传给 run_eval.py 的覆盖项
     if extra:
         flags += ["--", *extra]

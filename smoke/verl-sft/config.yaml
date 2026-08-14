@@ -1,0 +1,6 @@
+model: hf_model
+engine: fsdp
+optim: fsdp
+trainer:
+  logger: [console]
+  resume_mode: disable

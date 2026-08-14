@@ -1,6 +1,6 @@
 # SFT 实验：qwen3.5-4b 在 Alpaca 指令数据上做监督微调（补齐 SFT/GRPO/Agent 三种方法）。
 # 继承官方 sft.yaml 基底 + qwen3.5-4b 片段，只写差异。官方入口 examples/run_sft.py
-# （run.sh 已默认 SFT 入口）。
+# （sft recipe 已固定 SFT 入口）。
 defaults:
   - ../../configs/base/sft.yaml
   - ../../configs/models/qwen3.5-4b.yaml

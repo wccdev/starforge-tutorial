@@ -1,10 +1,12 @@
 """跨平台新建 / fork 实验（替代 scripts/new_experiment.sh，macOS / Linux / Windows 共用）。"""
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -82,81 +84,26 @@ def _patch_fork_metadata(dest: Path, name: str) -> None:
         readme.write_text("\n".join(rl) + "\n", encoding="utf-8")
 
 
-def _drop_yaml_block(text: str, key: str) -> str:
-    lines, out, i = text.splitlines(keepends=True), [], 0
-    while i < len(lines):
-        if re.match(rf"^{key}:\s*$", lines[i]):
-            i += 1
-            while i < len(lines) and not re.match(r"^[A-Za-z_]+:", lines[i]):
-                i += 1
-        else:
-            out.append(lines[i])
-            i += 1
-    return "".join(out)
+def _validate_recipe_template(dest: Path, recipe) -> None:
+    """只校验 recipe 声明的结构，不跨框架执行别的 validator。"""
+    if recipe.framework in {"nemo-rl", "verl"} and not (dest / "config.yaml").is_file():
+        raise NewExperimentError(f"recipe {recipe.name} 模板缺少 config.yaml")
+    if recipe.entrypoint.kind == "experiment":
+        entry = (dest / recipe.entrypoint.value).resolve()
+        root = dest.resolve()
+        if not entry.is_relative_to(root) or not entry.is_file():
+            raise NewExperimentError(
+                f"recipe {recipe.name} 模板缺少实验入口 {recipe.entrypoint.value}"
+            )
 
 
-def _apply_sft_method(dest: Path) -> None:
-    cfg = dest / "config.yaml"
-    t = cfg.read_text(encoding="utf-8").replace(
-        "../../configs/base/grpo_math_1B.yaml", "../../configs/base/sft.yaml"
-    )
-    t = _drop_yaml_block(_drop_yaml_block(t, "grpo"), "loss_fn")
-    sft_block = (
-        "sft:\n"
-        "  max_num_epochs: 1\n"
-        "  val_period: 50\n"
-        "  val_batches: 8\n\n"
-        "# 数据集：SFT 读指令数据（见 common/data/README.md 与官方 examples/run_sft.py）\n"
-        "# data:\n"
-        "#   train:\n"
-        "#     data_path: /abs/path/train.jsonl\n\n"
-    )
-    t = t.replace("logger:", sft_block + "logger:", 1)
-    cfg.write_text(t, encoding="utf-8")
+def _copy_recipe_template(dest: Path, recipe) -> None:
+    from nemo_lab_sdk.recipes import CATALOG_DIR
 
-    run_sh = dest / "run.sh"
-    t = run_sh.read_text(encoding="utf-8")
-    t = re.sub(
-        r'^#\s*export ENTRY="\$\{ENTRY:-examples/run_sft\.py\}"',
-        'export ENTRY="${ENTRY:-examples/run_sft.py}"',
-        t,
-        flags=re.M,
-    )
-    run_sh.write_text(t, encoding="utf-8")
-
-
-def _apply_agent_method(dest: Path, repo_root: Path) -> None:
-    cfg = dest / "config.yaml"
-    t = cfg.read_text(encoding="utf-8").replace(
-        "../../configs/base/grpo_math_1B.yaml", "../../configs/base/grpo_sliding_puzzle.yaml"
-    )
-    t = re.sub(
-        r"^(\s*max_rollout_turns:\s*)1\b.*$",
-        r"\g<1>6            # 多轮 Agent：工具调用 + 答题轮数上限",
-        t,
-        flags=re.M,
-    )
-    cfg.write_text(t, encoding="utf-8")
-    shutil.copy2(repo_root / "templates" / "agent-run.py.tmpl", dest / "run.py")
-
-
-def _apply_custom_method(dest: Path, repo_root: Path) -> None:
-    """自定义框架骨架：实验自带 train.sh，不经 NeMo-RL 启动。
-
-    只放 train.sh + framework 标记；config.yaml 留着但由 train.sh 自己解释（各框架配置格式不同，
-    强行套 NeMo-RL 的 defaults 继承体系反而添乱）。
-    """
-    tmpl = repo_root / "templates" / "custom-framework" / "train.sh"
-    if not tmpl.is_file():
-        raise NewExperimentError(f"缺少模板: {tmpl}")
-    shutil.copy2(tmpl, dest / "train.sh")
-    (dest / "framework").write_text("custom\n", encoding="utf-8")
-    # NeMo-RL 的 defaults 继承对自定义框架没意义，清成一个空壳让用户自己填。
-    (dest / "config.yaml").write_text(
-        "# 本实验用自定义框架（FRAMEWORK=custom），本文件由 train.sh 自行解释。\n"
-        "# NeMo-RL 的 defaults 继承体系在这里不生效——想用什么格式都行（yaml/json/argparse）。\n",
-        encoding="utf-8",
-    )
+    template = CATALOG_DIR / recipe.name / recipe.template
+    if not template.is_dir():
+        raise NewExperimentError(f"recipe {recipe.name} 缺少模板目录: {template}")
+    shutil.copytree(template, dest, dirs_exist_ok=True)
 
 
 def _fork_experiment(
@@ -167,6 +114,15 @@ def _fork_experiment(
         raise NewExperimentError(f"已存在: {dest}")
 
     src_dir = _resolve_src_dir(repo_root, src)
+    method_file = src_dir / "method"
+    if not method_file.is_file() or not method_file.read_text(encoding="utf-8").strip():
+        raise NewExperimentError(f"来源实验缺少 method recipe 声明: {src_dir}")
+    from nemo_rl_lab.migrate_v2 import validate_recipe_lock
+
+    try:
+        validate_recipe_lock(src_dir, method_file.read_text(encoding="utf-8").strip())
+    except ValueError as exc:
+        raise NewExperimentError(str(exc)) from exc
     shutil.copytree(src_dir, dest)
     outputs = dest / "outputs"
     if outputs.exists():
@@ -189,46 +145,48 @@ def _create_from_template(
     if dest.exists():
         raise NewExperimentError(f"已存在: {dest}")
 
+    from nemo_lab_sdk.contract import SpecError
+    from nemo_lab_sdk.recipes import get_recipe, recipe_names
+
+    try:
+        recipe = get_recipe(method)
+    except SpecError as exc:
+        raise NewExperimentError(
+            f"未知 --method: {method}（可选 {' | '.join(recipe_names())}）"
+        ) from exc
     template = repo_root / "templates" / "experiment-template"
     if not template.is_dir():
         raise NewExperimentError(f"缺少模板目录: {template}")
 
-    shutil.copytree(template, dest)
-    gitkeep = dest / ".gitkeep"
-    if gitkeep.is_file():
-        gitkeep.unlink()
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=f".{name}.staging-", dir=dest.parent))
+    try:
+        shutil.copytree(template, staging, dirs_exist_ok=True)
+        _copy_recipe_template(staging, recipe)
+        gitkeep = staging / ".gitkeep"
+        if gitkeep.is_file():
+            gitkeep.unlink()
+        if cluster:
+            _write_cluster_file(staging, cluster)
+        (staging / "method").write_text(f"{recipe.name}\n", encoding="utf-8")
+        from nemo_rl_lab.migrate_v2 import LOCK_FILE, recipe_lock
 
-    if cluster:
-        _write_cluster_file(dest, cluster)
+        (staging / LOCK_FILE).write_text(
+            json.dumps(recipe_lock(recipe.name), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        _validate_recipe_template(staging, recipe)
+        staging.replace(dest)
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
 
-    if method == "grpo":
-        pass
-    elif method == "sft":
-        _apply_sft_method(dest)
-    elif method == "agent":
-        _apply_agent_method(dest, repo_root)
-    elif method == "custom":
-        _apply_custom_method(dest, repo_root)
-    else:
-        shutil.rmtree(dest)
-        raise NewExperimentError(f"未知 --method: {method}（可选 grpo | sft | agent | custom）")
-
-    print(f"已创建实验: {dest}（method={method}）")
+    print(f"已创建实验: {dest}（method={recipe.name}, framework={recipe.framework}）")
     print(f"  · 目标集群(cluster): {_read_cluster_file(dest)}（按需改：echo h100 > {dest}/cluster）")
     print("下一步:")
     print(f"  1. 编辑 {dest}/README.md（目标 / 模型 / 数据 / SwanLab）")
-    print(f"  2. 编辑 {dest}/config.yaml（基底已设为 {method}；写本实验差异）")
-    if method == "sft":
-        print(f"  3. SFT 入口已设好（run.sh 的 ENTRY=examples/run_sft.py）；填好数据后 lab submit {name}")
-    elif method == "agent":
-        print(
-            f"  3. 编辑 {dest}/run.py（已放骨架：实现你的环境 + 数据，见文件内 TODO 与 multitool 范例）"
-        )
-    elif method == "custom":
-        print(f"  3. 编辑 {dest}/train.sh（填你的启动命令；文件头写清了可用的 LAB_* 契约）")
-        print("     ⚠️ 新依赖装不进作业，需要 overlay 镜像——先看 cluster/README.md")
-    else:
-        print(f"  3. 自定义多轮环境：写 {dest}/run.py（自动选用）。见 configs/README.md")
+    print(f"  2. 按 {recipe.name} recipe 编辑模板文件")
+    print(f"  3. 用 lab submit {name} --pool all:<series>:1:<gpus> 提交")
 
 
 def create_experiment(

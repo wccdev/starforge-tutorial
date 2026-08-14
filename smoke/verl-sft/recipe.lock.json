@@ -1,0 +1,10 @@
+{
+  "apiVersion": "lab/recipe-lock/v1",
+  "sdk_version": "2.1.0",
+  "recipe": {
+    "name": "verl-sft",
+    "version": "0.8.0",
+    "digest": "sha256:37885a31d0819a25bedd8d0f441c48168fed419339ec0483a79e58cbcf433e84",
+    "framework": "verl"
+  }
+}

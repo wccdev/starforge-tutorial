@@ -12,8 +12,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Optional
 
+from nemo_lab_sdk import __version__ as SDK_VERSION
 from nemo_lab_sdk.contract import (
     ArtifactRef,
+    DataRef,
+    DataSpec,
     FrameworkRef,
     JobSpec,
     JobSpecBody,
@@ -97,8 +100,12 @@ def build_spec(
     roles: Optional[list[str]] = None,
     init_from: str = "",
     on_success: Optional[list[str]] = None,
-    framework: str = "nemo-rl",
     image: str = "",
+    observability_url: str = "",
+    base_model: str = "",
+    train_data: str = "",
+    validation_data: str = "",
+    operation: str = "train",
     provenance: Optional[dict] = None,
     validate: bool = True,
 ) -> JobSpec:
@@ -113,12 +120,34 @@ def build_spec(
             f"未知的后训练方法 {recipe!r}。可用: {', '.join(recipe_names())}"
         ) from None
 
+    observability = r.adapter_options.get("observability")
+    if observability == "external" and not observability_url.strip():
+        raise SpecError(
+            f"方法 {r.name} 使用 external observability，必须显式提供 --observability-url"
+        )
+    if observability == "platform" and observability_url.strip():
+        raise SpecError(f"方法 {r.name} 使用 platform observability，不允许 --observability-url")
+    if r.framework == "verl" and operation == "train":
+        missing = [
+            flag
+            for flag, value in (
+                ("--model", base_model),
+                ("--train-data", train_data),
+                ("--validation-data", validation_data),
+            )
+            if not value.strip()
+        ]
+        if missing:
+            raise SpecError(f"verl recipe 要求显式提供：{' '.join(missing)}")
+
     hyperparams = parse_set(sets or [])
     if validate:
         # 与服务端同一份 recipe 声明：不会出现「本地说没问题、服务端说不行」。
         hyperparams = r.validate_hyperparams(hyperparams, strict=True)
 
     pool_objs = tuple(parse_pool(p) for p in (pools or []))
+    if not pool_objs:
+        raise SpecError("lab/v2 要求显式资源池；请至少传一个 --pool name:series:nodes:gpus_per_node")
     role_map: dict[str, str] = {}
     for raw in roles or []:
         if ":" not in raw:
@@ -160,15 +189,27 @@ def build_spec(
             display_name=display_name or "",
         ),
         spec=JobSpecBody(
-            recipe=RecipeRef(name=r.name, version=r.version, plugins=r.plugins),
+            recipe=RecipeRef(name=r.name, version=r.version, digest=r.digest, plugins=r.plugins),
             source=SourceSpec(exp=exp_rel),
-            framework=FrameworkRef(kind=framework, image=image),
-            model=ModelSpec(init_from=ArtifactRef.parse(init_from) if init_from else None),
+            framework=FrameworkRef(
+                kind=r.framework,
+                image=image,
+                observability_url=observability_url.strip(),
+            ),
+            model=ModelSpec(
+                base=base_model.strip(),
+                init_from=ArtifactRef.parse(init_from) if init_from else None,
+            ),
+            data=DataSpec(
+                train=DataRef(path=train_data.strip()) if train_data.strip() else None,
+                validation=DataRef(path=validation_data.strip()) if validation_data.strip() else None,
+            ),
             resources=ResourceSpec(pools=pool_objs, roles=role_map),
             hyperparams=hyperparams,
             lifecycle=LifecycleSpec(on_success=actions),
         ),
         provenance=Provenance(
+            sdk_version=SDK_VERSION,
             git_commit=str(prov.get("git_commit") or ""),
             git_dirty=bool(prov.get("git_dirty")),
             config_sha=str(prov.get("config_sha") or ""),
@@ -177,10 +218,10 @@ def build_spec(
 
 
 def infer_recipe(exp_path: Path) -> str:
-    """从实验目录推断方法：读同目录的 `method` 文件（与既有 cluster/framework 同款约定）。
+    """从实验目录读取显式 recipe：同目录的 `method` 文件。
 
-    与 cluster / framework 一样跟着实验走，fork 实验时自动继承。
-    读不到返回空串，由调用方决定是报错还是回落 legacy。
+    它跟着实验走，fork 时自动继承。读不到返回空串，由调用方明确报错；
+    不读取 framework 文件，也不按其他文件的存在性推断。
     """
     f = exp_path / "method"
     if f.is_file():

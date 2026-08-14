@@ -78,7 +78,7 @@ def collect_image_id() -> str:
     代码版本（git commit）和配置版本（config_sha）本来就有记录，唯独环境没有——
     而依赖一升级，老作业就永远说不清结果差异到底来自代码还是环境。这里把它补上。
 
-    优先级：`_run_experiment.sh` 已导出的 LAB_IMAGE（集群侧唯一事实来源）>
+    优先级：统一 launcher 已导出的 LAB_IMAGE（集群侧唯一事实来源）>
     指纹文件 > 官方 NeMo-RL 镜像自带的 build id > unknown。
     """
     if env_image := os.environ.get("LAB_IMAGE", "").strip():

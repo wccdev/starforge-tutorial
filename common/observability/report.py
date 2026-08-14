@@ -54,7 +54,7 @@ def init(
 ) -> bool:
     """启动上报会话。可重复调用（幂等）。返回是否真的启用了上报。
 
-    与 `nemolab_boot.py` 共享同一个 `ObservabilitySession`：若入口已经过 boot 包装
+    与 SDK launcher 共享同一个 `ObservabilitySession`：若入口已经过 runtime bridge 包装
     （集中提交的默认路径），这里只是复用现成会话，不会重复建连或重复装终端捕获。
 
     Args:

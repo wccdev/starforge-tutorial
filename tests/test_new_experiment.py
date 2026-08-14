@@ -3,7 +3,15 @@ from __future__ import annotations
 
 import pytest
 
+from nemo_rl_lab.migrate_v2 import LOCK_FILE, recipe_lock
 from nemo_rl_lab.new_experiment import NewExperimentError, create_experiment
+
+
+def _lock(path, recipe):
+    import json
+
+    (path / "method").write_text(f"{recipe}\n")
+    (path / LOCK_FILE).write_text(json.dumps(recipe_lock(recipe)))
 
 
 def test_create_grpo_from_template(tmp_path):
@@ -11,7 +19,6 @@ def test_create_grpo_from_template(tmp_path):
     template = repo / "templates" / "experiment-template"
     template.mkdir(parents=True)
     (template / "config.yaml").write_text("defaults:\n  - ../../configs/base/grpo_math_1B.yaml\n", encoding="utf-8")
-    (template / "run.sh").write_text("# export ENTRY\n", encoding="utf-8")
     (template / "cluster").write_text("h100\n", encoding="utf-8")
     (repo / "cluster" / "h100").mkdir(parents=True)
     (repo / "cluster" / "h100" / "overrides.conf").write_text("# test\n", encoding="utf-8")
@@ -22,6 +29,7 @@ def test_create_grpo_from_template(tmp_path):
     assert dest.is_dir()
     assert (dest / "config.yaml").is_file()
     assert (dest / "cluster").read_text(encoding="utf-8").strip() == "h100"
+    assert (dest / "method").read_text(encoding="utf-8").strip() == "grpo"
 
 
 def test_create_rejects_unknown_cluster(tmp_path):
@@ -45,6 +53,7 @@ def test_fork_patches_swanlab_and_readme(tmp_path):
     )
     (src / "README.md").write_text("# old title\n", encoding="utf-8")
     (src / "cluster").write_text("h100\n", encoding="utf-8")
+    _lock(src, "grpo")
     (repo / "experiments").mkdir(exist_ok=True)
 
     create_experiment(repo, "experiments", "new_exp", src="src_exp")
@@ -54,7 +63,16 @@ def test_fork_patches_swanlab_and_readme(tmp_path):
     assert (repo / "experiments" / "new_exp" / "README.md").read_text(encoding="utf-8").startswith("# new_exp")
 
 
-def test_create_sft_method(tmp_path):
+def test_fork_rejects_source_without_recipe_metadata(tmp_path):
+    repo = tmp_path / "repo"
+    src = repo / "experiments" / "legacy"
+    src.mkdir(parents=True)
+    (src / "config.yaml").write_text("defaults: []\n")
+    with pytest.raises(NewExperimentError, match="method"):
+        create_experiment(repo, "experiments", "copy", src="legacy")
+
+
+def test_create_sft_method_from_recipe_template(tmp_path):
     repo = tmp_path / "repo"
     template = repo / "templates" / "experiment-template"
     template.mkdir(parents=True)
@@ -62,16 +80,53 @@ def test_create_sft_method(tmp_path):
         "defaults:\n  - ../../configs/base/grpo_math_1B.yaml\n\ngrpo:\n  x: 1\n\nloss_fn:\n  y: 2\n\nlogger:\n  z: 3\n",
         encoding="utf-8",
     )
-    (template / "run.sh").write_text(
-        '# export ENTRY="${ENTRY:-examples/run_sft.py}"\n',
-        encoding="utf-8",
-    )
     (repo / "experiments").mkdir()
 
     create_experiment(repo, "experiments", "sft_test", method="sft")
     cfg = (repo / "experiments" / "sft_test" / "config.yaml").read_text(encoding="utf-8")
-    assert "../../configs/base/sft.yaml" in cfg
-    assert "grpo:" not in cfg
-    assert "sft:" in cfg
-    run_sh = (repo / "experiments" / "sft_test" / "run.sh").read_text(encoding="utf-8")
-    assert run_sh.startswith('export ENTRY="${ENTRY:-examples/run_sft.py}"')
+    assert "defaults:" in cfg
+    assert (repo / "experiments" / "sft_test" / "method").read_text().strip() == "sft"
+
+
+def test_create_custom_uses_recipe_metadata_not_framework_marker(tmp_path):
+    repo = tmp_path / "repo"
+    template = repo / "templates" / "experiment-template"
+    template.mkdir(parents=True)
+    (template / "config.yaml").write_text("defaults: []\n", encoding="utf-8")
+    (repo / "experiments").mkdir()
+
+    create_experiment(repo, "experiments", "custom_test", method="custom")
+    dest = repo / "experiments" / "custom_test"
+    assert (dest / "method").read_text(encoding="utf-8").strip() == "custom"
+    assert (dest / "train.sh").is_file()
+    assert not (dest / "framework").exists()
+
+
+def test_create_verl_recipe_copies_its_own_template(tmp_path):
+    repo = tmp_path / "repo"
+    template = repo / "templates" / "experiment-template"
+    template.mkdir(parents=True)
+    (template / "config.yaml").write_text("wrong: nemo\n", encoding="utf-8")
+    (repo / "experiments").mkdir()
+
+    create_experiment(repo, "experiments", "verl_test", method="verl-grpo")
+    dest = repo / "experiments" / "verl_test"
+    assert "trainer:" in (dest / "config.yaml").read_text(encoding="utf-8")
+    assert (dest / "eval.py").is_file()
+    assert (dest / "method").read_text().strip() == "verl-grpo"
+
+
+def test_recipe_template_failure_is_atomic(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    template = repo / "templates" / "experiment-template"
+    template.mkdir(parents=True)
+    (template / "config.yaml").write_text("defaults: []\n", encoding="utf-8")
+    (repo / "experiments").mkdir()
+
+    def fail(*_args, **_kwargs):
+        raise NewExperimentError("template invalid")
+
+    monkeypatch.setattr("nemo_rl_lab.new_experiment._validate_recipe_template", fail)
+    with pytest.raises(NewExperimentError, match="template invalid"):
+        create_experiment(repo, "experiments", "never_visible", method="grpo")
+    assert not (repo / "experiments" / "never_visible").exists()

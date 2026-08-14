@@ -6,7 +6,7 @@ requires-python = ">=3.10"
 dependencies = [
     # 平台契约 SDK：JobSpec、recipe 目录、集群侧 launcher。
     # console / 本 CLI / 训练镜像三方共用同一份契约，彼此不再互相依赖。
-    "nemo-lab-sdk",
+    "nemo-lab-sdk==2.1.0",
     "typer>=0.12", # 统一 CLI 入口 lab
     "datasets>=2.18",
     "pyyaml>=6", # 解析/校验实验 config.yaml（lab validate）
@@ -28,10 +28,15 @@ build-backend = "hatchling.build"
 # 只打包 CLI 包；common/ configs/ 等是运行期按路径访问的仓库数据，靠 editable 安装就地访问。
 packages = ["nemo_rl_lab"]
 
-# SDK 由平台侧（nemo-rl-console 仓）发布到内网 Nexus 私有 PyPI。
-# 本地联调：uv pip install -e ../nemo-rl-console/sdk
+[[tool.uv.index]]
+name = "gcore-pypi"
+url = "http://nexus.gcoreinc.com/repository/pypi-group/simple/"
+default = true
+
+# 本地开发精确指向同版本 SDK；构建出的 CLI wheel 只保留 ==2.1.0 元数据，
+# 干净环境从上面的 Nexus 索引解析，不依赖 Git 分支。
 [tool.uv.sources]
-nemo-lab-sdk = { git = "https://gitea.wochacha.cn/wochacha/nemo-rl-console.git", subdirectory = "sdk", branch = "main" }
+nemo-lab-sdk = { path = "../nemo-rl-console/sdk", editable = true }
 
 [tool.pytest.ini_options]
 # 让测试能 import 仓库根的 common / nemo_rl_lab（无需安装 common 包）。

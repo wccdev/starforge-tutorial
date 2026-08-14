@@ -1,0 +1,7 @@
+actor_rollout_ref:
+  actor:
+    strategy: fsdp2
+  rollout:
+    name: vllm
+trainer:
+  logger: [console]

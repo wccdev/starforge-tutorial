@@ -11,19 +11,21 @@ NeMo-RL 0.6.0 的集群设置（`cluster.num_nodes`、`cluster.gpus_per_node`）
 
 ## 用法
 
-每个实验**自带目标集群**（实验目录下一行 `cluster` 文件，记录 profile 名）。`run.sh` 默认读它选 profile，自动把对应 `overrides.conf` 追加到训练命令；`CLUSTER_PROFILE` 环境变量 / `lab submit --profile` 可临时覆盖：
+每个实验**自带目标集群**（实验目录下一行 `cluster` 文件，记录 profile 名）。`lab submit`
+读取它；`--profile` 可以显式覆盖：
 
 ```bash
-bash run.sh                              # 用实验自带 cluster（软绑定）
-CLUSTER_PROFILE=h100 bash run.sh         # 临时换单机单卡
+lab submit grpo_qwen3.5-4b_gsm8k_v1
+lab submit grpo_qwen3.5-4b_gsm8k_v1 --profile h100
 ```
 
-> **profile 优先级**：`--profile`（显式）> 实验自带 `cluster` 文件 > `gb10-spark` 兜底。
+> **profile 优先级**：`--profile`（显式）> 实验自带 `cluster` 文件。两者都没有时直接失败，
+> 不选择默认集群。
 > 新建实验时用 `lab new <名字> --cluster h100` 写好绑定；`lab new <名字> --from <实验>` 会继承来源实验的绑定。
 
 提交一律经**中心化 Lab 服务**：本机不读任何 `submit.env`，Ray 地址 / 密钥 / 产物根目录（`OUTPUT_ROOT`）/
-数据目录 / 裁判 LLM 等都由服务端在集群侧注入。`--profile` 只决定用哪份 `overrides.conf` + `env.sh`，
-随作业一起上传，在集群侧由 `scripts/_run_experiment.sh` 叠加。
+数据目录 / 裁判 LLM 等都由服务端在集群侧注入。`--profile` 选择受控 profile；集群侧
+`scripts/launch.sh` 只加载受信环境，SDK adapter 负责编译配置和拓扑。
 
 等价于（集群侧实际执行）：
 
@@ -35,11 +37,13 @@ uv run python examples/run_grpo.py --config <base.yaml> \
 ## 各 profile 包含
 
 - `overrides.conf` — 节点数 / 每节点 GPU / 并行度等 NeMo-RL 覆盖项（CLI override）
-- `env.sh` — 集群 env（NCCL/RoCE 网络 + Ray 内存监控 + PyTorch 显存分配），被实验 `run.sh` 在集群侧 source
+- `env.sh` — 集群 env（NCCL/RoCE 网络 + Ray 内存监控 + PyTorch 显存分配），由统一 launcher 加载
 
 > `overrides.conf` 走 CLI override（进 NeMo-RL 配置）；`env.sh` 走进程环境变量（NCCL/Ray/PyTorch 这类不属于训练配置的开关）。两者互补。
 
-> **⚠️ 拓扑以服务端为权威（集中提交时）**：`cluster.num_nodes` / `cluster.gpus_per_node` 决定占几张卡、也决定配额计量。经中心化服务提交时，这两项由**服务端 profile 注册表**权威下发（`LAB_CLUSTER_NUM_NODES/GPUS_PER_NODE`），并在集群侧 `_run_experiment.sh` 里**覆盖** `overrides.conf` 的对应行——保证「实际占卡 == 服务端记账」，改本地文件的卡数不会影响集中提交的占卡与配额。要调整集中提交的拓扑，请让管理员改服务端注册表（`LAB_CLUSTER_PROFILES`）。`overrides.conf` 里的这两行只在**本地直跑**（无服务端注入）时生效。experiment 级的并行/调参（TP/PP、colocated 等）仍归研究员、放实验 config。
+> **⚠️ 拓扑以 JobSpec 与服务端注册表为权威**：`resources.pools` 决定占卡与配额计量；
+> Console 校验 profile、池和 recipe role，adapter 再把同一拓扑写入框架原生命令。平台不解析
+> `overrides.conf` 猜 GPU，也不会在配置冲突时悄悄改用另一组数量。
 
 ## 集群与 Ray
 
@@ -110,8 +114,8 @@ NeMo-RL 的依赖来源，用 `uv.lock` 实际枚举出来是这样：
 
 #### 运行时索引
 
-运行时其实**不需要索引**（`_run_experiment.sh` 用的是 `uv run --no-sync`，且 venv 已预热）。
-但配上仍有价值——排错时进容器装个包、或跑 `FRAMEWORK=custom` 的轻量脚本。
+运行时使用 recipe 固定的镜像和依赖，不在作业启动时从索引补装框架。
+索引只用于镜像构建或排错环境。
 服务端已有 `passthrough_env` 透传机制，写进 `LAB_PASSTHROUGH_ENV` 即对所有作业生效，零代码：
 
 ```bash
@@ -136,11 +140,12 @@ docker compose --profile head up -d                     # 节点起停
 **⚠️ 装额外依赖前先想版本冲突**：TRL 和 NeMo-RL 都吃 transformers，装错版本会让**所有**
 NeMo-RL 训练一起挂。这是「单胖镜像」路线的天花板，撞到了就该上多 Ray 集群方案。
 
-#### 跑非 NeMo-RL 框架
+#### 跑 verl 或 custom
 
-镜像备好后，实验侧用 `FRAMEWORK=custom`：实验目录放一个 `train.sh`，
-`scripts/_run_experiment.sh` 会把密钥 / profile env / 产物目录 / 拓扑都准备好再 exec 它。
-骨架与完整契约见 `templates/custom-framework/train.sh`，或直接 `lab new <名字> --method custom`。
+verl 是一等 adapter：用 `lab new <名字> --method verl-sft|verl-grpo` 创建固定模板，并在提交时
+显式传 `--model`、`--train-data`、`--validation-data`。自定义框架必须选择 `custom` recipe：
+`lab new <名字> --method custom`。平台不读取 `FRAMEWORK` 或 `framework` 文件，也不会在其他
+adapter 失败后执行 `train.sh`。
 
 > 配额不靠自觉：服务端按 profile 注册表记账，watchdog 还会做集群级 Ray 用卡对账。
 > `custom` 放开的是「跑什么代码」，不是「占多少卡」。

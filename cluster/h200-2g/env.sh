@@ -1,4 +1,4 @@
-# 单机切 2× H200 环境。被实验 run.sh 在集群侧统一 source。
+# 单机切 2× H200 环境。由统一集群 launcher 加载。
 # 与 h200 同节点内 NVLink，不设 NCCL_IB_* / 网卡名。
 
 # --- PyTorch 显存分配（缓解碎片；须与 vLLM 内存池兼容，勿用 expandable_segments）---

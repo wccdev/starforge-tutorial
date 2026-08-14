@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # OPSD 训练后离线评测：按论文协议在 AIME24 / AIME25 / HMMT25 上给 checkpoint 打分。
 #
-# 由 scripts/post_train.sh 的 eval 动作调起（实验目录有 eval.py 就用之，与 run.py 同款约定）：
+# 由 OPSD recipe 的 eval 生命周期动作通过统一 launcher 调起：
 #     lab eval opsd_qwen3.5-9b_math_h200_1n2g --run-id <训练 run_id>
 #
 # 与训练中的 in-loop validation 的分工：
@@ -30,7 +30,7 @@ from common.eval.math_eval import (  # noqa: E402
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="OPSD 离线评测（AIME24 / AIME25 / HMMT25）")
-    p.add_argument("--model", required=True, help="HF 格式模型路径（post_train.sh 导出的）")
+    p.add_argument("--model", required=True, help="HF 格式模型路径（artifact manifest 已登记）")
     p.add_argument(
         "--data-dir",
         default=os.environ.get("OPSD_DATA_DIR") or "/data/datasets/opsd_math",

@@ -31,7 +31,7 @@ logger:
     name: "lr1e6-g16-kl0.01"              # 对齐关键超参
 ```
 
-用 CLI override 等价写法（本仓库 `run.sh` 即走这条路）：
+用 CLI override 等价写法（由 NeMoRLAdapter 编译为独立 argv）：
 
 ```bash
 uv run python examples/run_grpo.py --config <base.yaml> \

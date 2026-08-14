@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
-# 自定义框架训练脚本（FRAMEWORK=custom）—— 跑 NeMo-RL 以外的训练代码。
+# 显式 custom recipe 的训练脚本。
 #
-# 由 scripts/_run_experiment.sh 在集群侧 exec 本文件。到这里为止，那些「每个人都要重写一遍」
-# 的脏活已经办完：密钥已 source、profile env.sh 已 source、产物目录已建好、数据目录变量已导出。
-# 你只需要关心「怎么起你的训练」。
+# 由 nemo-lab-sdk 的 CustomAdapter 直接执行。框架来自版本化 recipe，不读取
+# FRAMEWORK 环境变量或 framework 文件，也不会由其他 adapter 失败后回退至此。
 #
 # ── 已经给你准备好的环境变量（契约，别改名）─────────────────────────────────────
 #   LAB_OUT_DIR                 产物目录（已 mkdir）。checkpoint / 日志请写这里，
 #                               它已按 <用户>/<实验>/<run_id> 隔离好，不会和别人互相覆盖
 #   LAB_EXP_DIR                 本实验目录（就是这个文件所在目录）
-#   LAB_REPO_ROOT               仓库根（已加进 PYTHONPATH）
-#   LAB_EXP_NAME / LAB_CLUSTER_PROFILE
+#   LAB_WORK_DIR                上传包根目录
+#   LAB_FRAMEWORK / LAB_RECIPE  固定为 custom / custom
 #   LAB_CLUSTER_NUM_NODES       ★服务端权威拓扑：你实际能用几个节点
 #   LAB_CLUSTER_GPUS_PER_NODE   ★服务端权威拓扑：每节点几张卡
 #   NEMOLAB_ENDPOINT/RUN_ID/TOKEN   指标上报凭据（无则为本地直跑，上报自动 no-op）
@@ -29,6 +28,14 @@
 #    训练 worker 用的仍是容器 venv。需要 TRL / flash-attn 这类新依赖，就得做 overlay 镜像
 #    并让管理员用它重起 Ray 集群，见 cluster/README.md「overlay 镜像」一节。
 set -euo pipefail
+
+: "${LAB_WORK_DIR:?LAB_WORK_DIR is required}"
+: "${LAB_EXP_DIR:?LAB_EXP_DIR is required}"
+: "${LAB_OUT_DIR:?LAB_OUT_DIR is required}"
+: "${LAB_FRAMEWORK:?LAB_FRAMEWORK is required}"
+: "${LAB_RECIPE:?LAB_RECIPE is required}"
+: "${LAB_CLUSTER_NUM_NODES:?LAB_CLUSTER_NUM_NODES is required}"
+: "${LAB_CLUSTER_GPUS_PER_NODE:?LAB_CLUSTER_GPUS_PER_NODE is required}"
 
 echo "[train] out_dir  : ${LAB_OUT_DIR}"
 echo "[train] topology : ${LAB_CLUSTER_NUM_NODES:-?} 节点 × ${LAB_CLUSTER_GPUS_PER_NODE:-?} 卡"

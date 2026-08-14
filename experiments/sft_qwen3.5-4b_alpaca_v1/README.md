@@ -23,7 +23,7 @@ export ALPACA_DATA_DIR="$(pwd)/datasets/alpaca"   # 供 config.yaml 的 ${oc.env
 - `config.yaml` — 继承 `configs/base/sft.yaml` + `qwen3.5-4b`，`_override_` 替换 `data` 为
   `ResponseDataset` 指向上面的 jsonl，处理器 `sft_processor`；并把基底里 squad 专用的
   `chat_template` 置 null，改用模型默认对话模板。
-- `run.sh` — 无自定义 `run.py`，默认用官方入口 `examples/run_sft.py`。
+- `method` / `recipe.lock.json` — 固定 sft recipe、入口与 digest。
 
 ## SFT vs GRPO
 
@@ -40,8 +40,7 @@ export ALPACA_DATA_DIR="$(pwd)/datasets/alpaca"   # 供 config.yaml 的 ${oc.env
 ## 运行
 
 ```bash
-# 确保已 export ALPACA_DATA_DIR
-NEMO_RL_DIR=/path/to/NeMo-RL CLUSTER_PROFILE=gb10-spark bash run.sh
+lab submit sft_qwen3.5-4b_alpaca_v1
 ```
 
 产物落到本目录 `outputs/`（已 .gitignore）。

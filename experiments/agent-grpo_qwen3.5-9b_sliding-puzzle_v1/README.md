@@ -18,7 +18,7 @@
 ## 组成
 
 - `config.yaml` — 继承 `grpo_sliding_puzzle`（多轮拼图基底）+ `qwen3.5-9b` + `grpo_megatron`（Megatron 后端，单卡 **colocated**）+ `grpo_lora`（**LoRA**，单卡跑 9B 的关键），只写差异。
-- `run.sh` — 设 `ENTRY=examples/run_grpo_sliding_puzzle.py`，按 `cluster` 选 profile 叠加硬件 override，产物落到 `OUTPUT_ROOT[/<RUN_USER>]/<实验名>`。
+- `method` / `recipe.lock.json` — 固定 recipe、入口和 digest；profile 与产物由统一 launcher 处理。
 
 ## 调什么（调参面）
 

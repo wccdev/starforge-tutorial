@@ -8,15 +8,9 @@
   bash scripts/new_experiment.sh experiments grpo_qwen3.5-4b_gsm8k_v1
   # 等价：uv run lab new grpo_qwen3.5-4b_gsm8k_v1 --method grpo --cluster h100
   ```
-- `_run_experiment.sh` — **实验启动通用逻辑**（集群侧执行）：各实验 `run.sh` 收口于此，叠加
-  `cluster/<profile>/overrides.conf` + `env.sh`，落盘到服务端注入的 `OUTPUT_ROOT`。
-  支持两种框架（`FRAMEWORK` 环境变量 / 实验目录下的 `framework` 文件）：
-  - `nemo-rl`（默认）— 经 `nemolab_boot.py` 起 NeMo-RL 入口
-  - `custom` — 跑实验自带的 `train.sh`（TRL / verl / 纯 HF Trainer…）。契约见
-    `templates/custom-framework/train.sh`；`lab new <名字> --method custom` 直接生成骨架。
-    ⚠️ 新依赖装不进作业，需 overlay 镜像，见 `cluster/README.md`。
-
-  排错：置 `LAB_DRY_RUN=1` 只打印最终命令、不真正执行。
+- `launch.sh` — 集群侧薄入口：只加载受信密钥/profile 环境，然后进入 SDK launcher。
+  训练命令由版本化 recipe 选择 `nemo-rl`、`verl` 或显式 `custom` adapter 编译；
+  不读取 `FRAMEWORK` 环境变量或实验目录 `framework` 文件，也不存在 adapter 回退。
 
 > 下面三个模型下载脚本已固化成一等公民命令，日常用 `lab model` 即可，不必直接调：
 > `lab model pull <repo> --via direct|relay|nexus` · `lab model install <平铺目录>` · `lab model ls`。
@@ -82,16 +76,10 @@
   uv run python scripts/install_to_hf_cache.py --src hf_models --dry-run
   ```
 - `sync_base_configs.sh` — 升级 NeMo-RL 版本时同步官方基底配置到 `configs/base/`（薄封装 → `python -m nemo_rl_lab.sync_base`）
-- `post_train.sh` — **训练后闭环**（集群侧执行，由 `lab export` / `lab eval` 经服务端代理调起）：
-  把 checkpoint 转 HF（按后端自适应 `convert_dcp_to_hf.py` / `convert_megatron_to_hf.py`，可推 HF Hub），
-  或对 checkpoint 跑评测。带 `LAB_DRY_RUN=1` 只打印命令不执行。
+- `smoke_verl_sft.sh` — 可选真实 GPU smoke：固定 verl SFT recipe、Qwen2.5 0.5B、
+  最小数据路径与 1×H100，失败直接退出。
+- `smoke_verl_grpo.sh` — 可选真实 GPU smoke：固定 verl GRPO recipe、Qwen2.5 0.5B、
+  最小数据路径、单步训练与 2×H200，失败直接退出。
 
-  评测入口按「实验自带优先」选：**实验目录下有 `eval.py` 就用它**（与训练入口 `run.py` 同款约定），
-  否则回落官方 `examples/run_eval.py`。`--` 之后的参数原样透传给所选入口。
-  自带 `eval.py` 用于官方协议对不上的场景——比如要按论文口径每题采 N 条、
-  算 pass@N / majority@N，或一次评多个数据集（见 `experiments/opsd_qwen3.5-9b_math_h200_1n2g/eval.py`）。
-  ```bash
-  # 通常用 CLI（经服务端提交，执行在集群）：
-  uv run lab export grpo_qwen3.5-9b_gsm8k_v1 [--step N] [--push-repo user/name]
-  uv run lab eval   grpo_qwen3.5-9b_gsm8k_v1 [--step N] [-- generation.temperature=0.6]
-  ```
+训练后 `export/eval` 不再经过 shell 分支；它们和训练一样进入 `nemo-lab-launch`，由 recipe
+选定 adapter。checkpoint 格式、评测数据和不支持的动作都会在提交前严格校验。

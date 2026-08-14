@@ -1,0 +1,10 @@
+{
+  "apiVersion": "lab/recipe-lock/v1",
+  "recipe": {
+    "digest": "sha256:28c1c6ae22f9208e18cde58730a886ae7d541719789af5013380e33383e364c7",
+    "framework": "nemo-rl",
+    "name": "grpo",
+    "version": "0.7.0"
+  },
+  "sdk_version": "2.1.0"
+}

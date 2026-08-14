@@ -3,10 +3,10 @@
 启用方式（由 console 提交作业时注入环境变量，本地直跑则全程 no-op）：
   NEMOLAB_ENDPOINT / NEMOLAB_RUN_ID / NEMOLAB_TOKEN
 
-入口经 scripts/nemolab_boot.py 包装：先 apply_patch() 给 nemo_rl.utils.logger.Logger
+NeMoRLAdapter 的运行时 bridge 先 apply_patch() 给 nemo_rl.utils.logger.Logger
 挂上 NeMoLabLogger 后端，再运行原始训练入口，无需改 NeMo-RL 源码。
 
-跑 NeMo-RL 以外的框架（FRAMEWORK=custom）时上面那条补丁链路不生效，改用 report 模块——
+显式 custom recipe 不使用 NeMo-RL logger patch，而改用 report 模块——
 同一套传输设施，但不依赖 nemo_rl：
 
     from common.observability import report

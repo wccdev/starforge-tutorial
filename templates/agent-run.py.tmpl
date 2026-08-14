@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # 多轮 Agent（GRPO）训练骨架（NeMo-RL 0.6.0）。
-# agent 本质就是 GRPO + max_rollout_turns>1 + 一个自定义环境；本目录有 run.py 时 run.sh 会自动用它。
+# agent 本质就是 GRPO + max_rollout_turns>1 + 一个自定义环境；入口由所选 recipe 明确声明。
 #
 # 这是一个【可运行的最小骨架】：默认指向 NeMo-RL 官方 examples/run_grpo_sliding_puzzle.py 的范式，
 # 你要做的是把下面两个 TODO 换成自己的「环境 + 数据集」：

@@ -38,13 +38,12 @@
 lab prepare gsm8k                              # 写到 datasets/gsm8k/{train,val}.jsonl
 ```
 
-数据随作业上传，`run.sh` 会自动把 `GSM8K_DATA_DIR` 指向它，**提交时无需手动 export**
-（想用别处数据再 `export GSM8K_DATA_DIR=/abs/dir` 覆盖）。
+数据随作业上传，统一 launcher 会校验并准备 dataset manifest，提交时无需手动 export。
 
 ## 组成
 
 - `config.yaml` — 继承 `grpo_math_1B` + `qwen3.5-4b` + `grpo_megatron`(Megatron+GB10) + `grpo_lora`(覆盖成 4B 配方) + `grpo_noncolocated`。
-- `run.sh` — 无自定义 `run.py`，自动用官方入口 `examples/run_grpo.py`。
+- `method` / `recipe.lock.json` — 固定 grpo recipe、官方入口与 digest。
 
 ## 运行
 

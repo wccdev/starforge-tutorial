@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # 多轮多工具 Agent（检索 + 计算 + 代码执行）GRPO 训练脚本（NeMo-RL 0.6.0）。
 # 改编自官方 examples/run_grpo_sliding_puzzle.py：环境换成自定义多工具环境，
-# 数据集随机生成三类需要工具的任务。由本实验 run.sh 通过 ENTRY 自动调用。
+# 数据集随机生成三类需要工具的任务。由 grpo recipe 的显式入口调用。
 import argparse
 import itertools
 import os
