@@ -116,7 +116,20 @@ def install(name: str, params: Mapping[str, Any] | None = None) -> bool:
 
 
 def install_deferred(name: str, params: Mapping[str, Any] | None = None, **ctx: Any) -> None:
-    """训练入口调用：在拿到 tokenizer / 配置后装载 DEFERRED 插件。"""
+    """训练入口调用：在拿到 tokenizer / 配置后装载 DEFERRED 插件。
+
+    插件包优先：launcher 若已把同名 deferred 插件（平台注入、digest 锁定的
+    lab_plugins 包）登记到 SDK 表，这里透明切换过去 —— 训练入口零改动，
+    params 采用 launcher 登记时的 spec 超参（与 eager 插件同一口径）。
+    """
+    try:
+        from nemo_lab_sdk import plugins as sdk_plugins
+    except ImportError:
+        sdk_plugins = None
+    if sdk_plugins is not None and name in sdk_plugins.deferred_names():
+        sdk_plugins.install_deferred(name, **ctx)
+        return
+
     plugin = get(name)
     if plugin.kind != DEFERRED:
         raise PluginError(f"插件 {name} 是 {plugin.kind} 类，应由 launcher 装载，不是训练入口")

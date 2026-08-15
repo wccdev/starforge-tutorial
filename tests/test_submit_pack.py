@@ -1,7 +1,8 @@
 """清单式打包 / 流式进度逻辑单测（不触发真实网络）。
 
 覆盖：
-- 打包白名单：只有 experiments/<exp>/ + common/ + configs/ + cluster/<profile>/ + scripts/launch.sh 入包；
+- 打包白名单：只有 experiments/<exp>/ + common/ + configs/ + scripts/launch.sh 入包
+  （profile 的 env/overrides 已服务端化，cluster/ 目录不再存在也不再上传）；
 - 清单文件缺失 / 作业包为空 → 显式报错（fail-loud，不静默跳过）；
 - CRLF 规范化（集群 Linux 侧 source 的 .sh/.conf/lab）；
 - _ProgressReader 边读边回报字节、读空触发 on_done；
@@ -21,14 +22,11 @@ from nemo_rl_lab import api_client, cli_ui, packing
 # --------------------------- 打包白名单 ---------------------------
 GIT_TREE = "\n".join([
     "experiments/e/config.yaml",
-    "experiments/e/method",
+    "experiments/e/recipe.lock.json",
     "experiments/e/whitepaper.pdf",       # 清单内但属非运行时产物 → 剔除
     "experiments/other/config.yaml",      # 他人实验 → 不上传
     "common/rewards/qa_reward.py",
     "configs/base/grpo_math_1B.yaml",
-    "cluster/h100/env.sh",
-    "cluster/h100/overrides.conf",
-    "cluster/h200/env.sh",                # 未选中的 profile → 不上传
     "scripts/launch.sh",
     "scripts/download_models.py",         # 工具脚本 → 不上传
     "nemo_rl_lab/cli.py",                 # CLI 源码 → 不上传
@@ -46,11 +44,9 @@ def test_manifest_keeps_only_runtime_payload(monkeypatch):
     )
     assert files == [
         "experiments/e/config.yaml",
-        "experiments/e/method",
+        "experiments/e/recipe.lock.json",
         "common/rewards/qa_reward.py",
         "configs/base/grpo_math_1B.yaml",
-        "cluster/h100/env.sh",
-        "cluster/h100/overrides.conf",
         "scripts/launch.sh",
     ]
     assert skipped == len([ln for ln in GIT_TREE.splitlines() if ln]) - len(files)

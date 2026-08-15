@@ -1,0 +1,9 @@
+schema: lab-plugin/v1
+name: opsd
+version: 0.1.0
+kind: algorithm
+load: deferred
+summary: 同模型自蒸馏：老师=学生权重但额外看到参考解，对同一条轨迹做 teacher-forcing
+entrypoint: opsd_plugin:install
+requires:
+  sdk: ">=2.1,<3"

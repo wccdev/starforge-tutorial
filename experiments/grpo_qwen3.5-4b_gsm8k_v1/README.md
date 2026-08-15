@@ -17,7 +17,7 @@
 | `max_total_sequence_length` | 上下文长度 | 数学 1024 够用；大=更吃显存 |
 | `max_num_steps` / `val_period` | 训多久 / 多久验证 | 看收敛情况调 |
 
-> 硬件/分布式（卡数、并行度、NCCL）不在这里调，在 `cluster/<profile>/`。
+> 硬件/分布式（卡数、并行度、NCCL）不在这里调，由服务端 profile 注册表下发（LAB_PROFILE_OVERRIDES）。
 > 奖励逻辑在 `env.math`（数学判分用 NeMo-RL 内置 `math_verify`），自定义奖励才动 `common/rewards/`。
 
 ## 与 9B 版的区别
@@ -30,7 +30,7 @@
 | 生成 | **非 colocated**（1 卡生成 / 1 卡训练） | 非 colocated |
 
 > **非 colocated + 2 卡 ⇒ PP=1**：2 张卡里 1 张专跑生成、1 张训练，训练侧只剩 1 卡，
-> 无法 PP=2（PP=2 需要 2 张训练卡，那要回 colocated）。并行度在 `cluster/<profile>/overrides.conf`。
+> 无法 PP=2（PP=2 需要 2 张训练卡，那要回 colocated）。并行度由服务端 profile 注册表下发。
 
 ## 数据准备（与 9B 共用）
 
@@ -43,7 +43,7 @@ lab prepare gsm8k                              # 写到 datasets/gsm8k/{train,va
 ## 组成
 
 - `config.yaml` — 继承 `grpo_math_1B` + `qwen3.5-4b` + `grpo_megatron`(Megatron+低显存调优) + `grpo_lora`(覆盖成 4B 配方) + `grpo_noncolocated`。
-- `method` / `recipe.lock.json` — 固定 grpo recipe、官方入口与 digest。
+- `recipe.lock.json` — 固定 grpo recipe、官方入口与 digest。
 
 ## 运行
 

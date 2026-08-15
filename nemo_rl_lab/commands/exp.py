@@ -37,10 +37,6 @@ def new(
         "--framework-version",
         help="精确框架版本；必须是 recipe catalog 已发布版本",
     ),
-    cluster: Optional[str] = typer.Option(
-        None, "--cluster", autocompletion=common.complete_profile,
-        help="目标集群 profile",
-    ),
     kind: common.Kind = typer.Option(
         common.Kind.experiments, "--kind", help="experiments 或 projects"
     ),
@@ -59,7 +55,6 @@ def new(
             kind.value,
             name,
             src=src,
-            cluster=cluster or "",
             method=method,
             framework_version=framework_version or "",
         )
@@ -80,7 +75,7 @@ def _validate_exp(exp_path: str, recipe_override: str = "") -> tuple[list[str], 
     exp_dir = common.ROOT / exp_path
     recipe_name = recipe_override.strip() or infer_recipe(exp_dir)
     if not recipe_name:
-        return [f"实验缺少 method recipe 声明: {exp_path}"], []
+        return [f"实验缺少 recipe 声明（recipe.lock.json）: {exp_path}"], []
     try:
         recipe = get_recipe(recipe_name)
         validate_recipe_lock(exp_dir, recipe_name)
@@ -93,6 +88,16 @@ def _validate_exp(exp_path: str, recipe_override: str = "") -> tuple[list[str], 
             return [f"{recipe.framework} 实验缺少入口: {recipe.entrypoint.value}"], []
     if recipe.framework == "custom":
         return [], []
+
+    # 实验自带入口脚本但 recipe 不认实验内入口时，脚本会被静默忽略、跑 recipe 默认入口。
+    entry_warns: list[str] = []
+    if recipe.entrypoint.kind != "experiment" and not recipe.entrypoint.experiment_override:
+        for candidate in ("run.py", "main.py"):
+            if (exp_dir / candidate).is_file():
+                entry_warns.append(
+                    f"实验目录有 {candidate}，但 recipe {recipe_name} 未声明 entrypoint.experiment_override，"
+                    f"提交后将执行默认入口 {recipe.entrypoint.value}，{candidate} 不会被执行。"
+                )
 
     cfg_file = exp_dir / "config.yaml"
     if not cfg_file.is_file():
@@ -113,10 +118,10 @@ def _validate_exp(exp_path: str, recipe_override: str = "") -> tuple[list[str], 
             recipe.framework, cfg, repo_root=common.ROOT, recipe=recipe
         )
     except ValueError as exc:
-        return [str(exc)], []
+        return [str(exc)], entry_warns
     return (
         [message for level, message in issues if level == "error"],
-        [message for level, message in issues if level == "warn"],
+        entry_warns + [message for level, message in issues if level == "warn"],
     )
 
 
@@ -178,7 +183,12 @@ def methods(
         typer.echo(f"  默认依赖  : {', '.join(r.runtime.requires)}")
     typer.echo(f"  核心指标  : {', '.join(r.primary_metrics)}\n")
     typer.echo("  可调超参（--set KEY=VALUE）:")
+    current_group = None
     for p in r.params.values():
+        group = p.group or "其他"
+        if group != current_group:
+            typer.secho(f"    ── {group} ──", fg=typer.colors.CYAN)
+            current_group = group
         rng = []
         if p.minimum is not None:
             rng.append(f"≥{p.minimum}" if not p.exclusive_minimum else f">{p.minimum}")

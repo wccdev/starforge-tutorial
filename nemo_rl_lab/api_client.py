@@ -71,6 +71,32 @@ def api_patch(path: str, payload: dict, server: Optional[str] = None) -> dict:
         cli_ui.fail_http(e, fallback="请求失败，请稍后重试。")
 
 
+def api_post_bytes(
+    path: str, blob: bytes, *, content_type: str = "application/gzip",
+    server: Optional[str] = None,
+) -> dict:
+    """带 token 的二进制 POST（插件包发布等小体积上传），返回 JSON。"""
+    srv = current_server(server)
+    try:
+        with _bearer_request(
+            srv, "POST", path, data=blob, headers={"Content-Type": content_type},
+            timeout=120.0,
+        ) as r:
+            return json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        cli_ui.fail_http(e, fallback="上传失败，请稍后重试。")
+
+
+def api_get_bytes(path: str, server: Optional[str] = None) -> tuple[bytes, dict]:
+    """带 token 的 GET，返回 (原始字节, 响应头)。"""
+    srv = current_server(server)
+    try:
+        with _bearer_request(srv, "GET", path, timeout=120.0) as r:
+            return r.read(), dict(r.headers)
+    except urllib.error.HTTPError as e:
+        cli_ui.fail_http(e, fallback="下载失败，请稍后重试。")
+
+
 def _admin_call(method: str, path: str, *, body: Optional[dict] = None) -> dict:
     srv = current_server()
     token = get_access_token(srv)
@@ -163,7 +189,7 @@ def submit_via_server(exp_rel: str, profile: str, repo_root: Path,
                       reporter=None, spec=None) -> dict:
     """server 模式提交：清单式打包上传 + 服务端注入密钥后代理提交。
 
-    spec：必填的 lab/v2 JobSpec；profile：必填（调用方先解析实验 cluster 文件）。
+    spec：必填的 lab/v2 JobSpec；profile：必填（--profile 或旧实验遗留 cluster 标注解析而来）。
     上传前先与 Console 做精确 catalog 握手，握手不过一个字节都不上传。
     返回值附带 upload_files / upload_skipped / upload_bytes 便于 CLI 展示。
     """

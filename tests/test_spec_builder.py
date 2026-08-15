@@ -164,13 +164,23 @@ def test_missing_resource_pool_is_rejected():
 # ── 方法推断 ─────────────────────────────────────────────────────────────────
 
 
-def test_method_inferred_from_experiment_dir(tmp_path):
-    """recipe 元数据跟着实验走，fork 时自动继承。"""
+def test_method_inferred_from_recipe_lock(tmp_path):
+    """recipe 声明的唯一事实源是 recipe.lock.json，fork 时自动继承。"""
+    import json
+
+    (tmp_path / "recipe.lock.json").write_text(
+        json.dumps({"recipe": {"name": "nemo-rl/opsd"}}), encoding="utf-8"
+    )
+    assert infer_recipe(tmp_path) == "nemo-rl/opsd"
+
+
+def test_legacy_method_file_still_readable(tmp_path):
+    """旧实验遗留的 method 文件作为兼容回退。"""
     (tmp_path / "method").write_text("opsd\n", encoding="utf-8")
     assert infer_recipe(tmp_path) == "opsd"
 
 
-def test_no_method_file_returns_empty(tmp_path):
+def test_no_recipe_metadata_returns_empty(tmp_path):
     assert infer_recipe(tmp_path) == ""
 
 

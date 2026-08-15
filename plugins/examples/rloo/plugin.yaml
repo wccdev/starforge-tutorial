@@ -1,0 +1,9 @@
+schema: lab-plugin/v1
+name: rloo
+version: 0.1.0
+kind: algorithm
+load: eager
+summary: 教程示例：RLOO（leave-one-out 基线）优势估计器，自包含 algorithm 插件的写法样板
+entrypoint: rloo_plugin:install
+requires:
+  sdk: ">=2.1,<3"

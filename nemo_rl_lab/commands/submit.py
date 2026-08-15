@@ -29,7 +29,7 @@ def submit(
     method: Optional[str] = typer.Option(
         None, "--method", "-m", autocompletion=common.complete_method,
         help="方法标识 <framework>/<method>（如 nemo-rl/grpo、verl/grpo）；"
-             "不传则必须由实验目录的 method 文件声明",
+             "不传则读实验目录 recipe.lock.json 的声明",
     ),
     set_: list[str] = typer.Option(
         [], "--set", "-s", metavar="KEY=VALUE",
@@ -136,10 +136,11 @@ def _build_spec_or_exit(exp_path: str, *, method, project, sets, pools, roles,
     if not recipe:
         cli_ui.emit_error(
             "实验没有声明 recipe",
-            hint="加 --method <framework>/<method>，或在实验目录写 method 文件；`lab methods` 查看可用值",
+            hint="加 --method <framework>/<method>，或用 `lab new` 生成 recipe.lock.json；`lab methods` 查看可用值",
         )
         raise typer.Exit(1)
     try:
+        from nemo_rl_lab.plugins_lock import read_plugin_lock
         from nemo_rl_lab.recipe_lock import validate_recipe_lock, write_recipe_lock
 
         locked_version = validate_recipe_lock(common.ROOT / exp_path, recipe)
@@ -147,6 +148,8 @@ def _build_spec_or_exit(exp_path: str, *, method, project, sets, pools, roles,
         if selected_version != locked_version:
             # 显式的 --framework-version 是固定锁操作，不是一次性覆盖。
             write_recipe_lock(common.ROOT / exp_path, recipe, selected_version)
+        # 实验锁定的平台插件引用随 spec 提交；服务端校验存在性/启停/digest 并注入包体。
+        plugin_uses = read_plugin_lock(common.ROOT / exp_path)
         return spec_builder.build_spec(
             exp_path,
             recipe=recipe,
@@ -166,6 +169,7 @@ def _build_spec_or_exit(exp_path: str, *, method, project, sets, pools, roles,
             image=image or "",
             provenance=provenance or packing.git_provenance(common.ROOT, exp_path),
             validate=validate,
+            plugin_uses=plugin_uses,
         )
     except (SpecError, ValueError) as e:
         cli_ui.emit_error("作业规格校验未通过", items=[str(e)],
@@ -233,7 +237,7 @@ def _submit_post(action: str, exp_path: str, profile: Optional[str], flags: list
     if not recipe_name:
         cli_ui.emit_error(
             "实验没有声明 recipe",
-            hint="在实验目录写 method 文件后重试；`lab methods` 查看可用值",
+            hint="实验缺少 recipe.lock.json；用 `lab new` 重建或提交时补 --framework-version 生成",
         )
         return 1
     recipe = get_recipe(recipe_name)

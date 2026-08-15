@@ -5,13 +5,13 @@
   实验资产    ls / new / methods / validate（纯本地 + SDK catalog）
   作业契约    submit / export / eval / clean（JobSpec + 清单式打包，经 Console）
   观测控制    status / job *（经 Console；集群细节客户端不可见）
-外加 dataset *（数据生命周期）与 admin *（管理员）两个子组。
+外加 dataset *（数据生命周期）、plugin *（插件中心）与 admin *（管理员）三个子组。
 """
 from __future__ import annotations
 
 import typer
 
-from nemo_rl_lab.commands import admin, dataset, exp, jobs, login, submit
+from nemo_rl_lab.commands import admin, dataset, exp, jobs, login, plugin, submit
 
 app = typer.Typer(
     add_completion=True,
@@ -45,8 +45,9 @@ app.command(help="清理实验在集群上的 checkpoint 与日志（不可恢�
 app.command(help="账号、配额、用量与活跃作业")(jobs.status)
 app.add_typer(jobs.job_app, name="job")
 
-# ----------------------------- 数据集 / 管理员 -----------------------------
+# ----------------------------- 数据集 / 插件 / 管理员 -----------------------------
 app.add_typer(dataset.dataset_app, name="dataset")
+app.add_typer(plugin.plugin_app, name="plugin")
 app.add_typer(admin.admin_app, name="admin")
 
 

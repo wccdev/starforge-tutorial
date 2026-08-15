@@ -1,0 +1,28 @@
+# TRL GRPO 工具调用示例：题库 + search_docs 检索本地文档后作答。
+# 与 nemo-rl 的 grpo_qwen3.5-9b_qa-rl-agent_v3、verl 的 verl-grpo_qwen3.5-9b_qa-tools_v1
+# 是同一场景的第三种框架实现，三条路线对照见本目录 README。
+#
+# TRL 路线的形态（官方 GRPOTrainer 文档「Agent Training」一节）：
+#   多轮工具循环、奖励、数据集构造全部写在本目录 train.py（TRL 官方就是脚本式，
+#   平台 recipe 入口即 experiment train.py），这份 config 只是平铺的 GRPOConfig 键值，
+#   trl-yaml 模式直传构造器；提交时 --set 的超参覆盖在其上。
+#
+# ⚠️ output_dir 不要写（平台按 run 产物目录权威覆写）；模型/数据提交时绑定。
+# ⚠️ TRL 工具循环要求 chat template「前缀保持」；Qwen3 系官方已自动换补丁模板，
+#    模型请用 Instruct 版（如 Qwen/Qwen3.5-9B），Base 版不会产出工具调用。
+
+learning_rate: 1.0e-6
+max_steps: 400
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 8
+# 每题采样数（组内基线）。
+num_generations: 8
+# 多轮预算：所有轮生成 + 工具回灌都占 completion；单轮值（1024）不够「搜一次 + 作答」。
+max_completion_length: 3072
+max_prompt_length: 1024
+bf16: true
+logging_steps: 1
+eval_strategy: steps
+eval_steps: 25
+save_strategy: steps
+save_steps: 25

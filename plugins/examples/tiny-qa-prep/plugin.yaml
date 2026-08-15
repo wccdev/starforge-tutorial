@@ -1,0 +1,5 @@
+schema: lab-plugin/v1
+name: tiny-qa-prep
+version: 0.1.0
+kind: data-prep
+summary: 教程示例：data-prep 插件的写法样板，生成一份极小的合成 QA jsonl 用于冒烟

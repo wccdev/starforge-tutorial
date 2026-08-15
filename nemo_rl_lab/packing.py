@@ -71,11 +71,13 @@ def upload_manifest(exp_rel: str, profile: str) -> tuple[tuple[str, ...], tuple[
     """作业包白名单：(目录前缀, 精确文件)。
 
     集群侧运行时的全部依赖：
-      experiments/<exp>/   实验本体（config / method / recipe.lock / run.py …）
+      experiments/<exp>/   实验本体（config / recipe.lock / run.py …）
       common/              实验 run.py 通过 REPO_ROOT sys.path 引用的共享代码
       configs/             实验 config.yaml 用 ../../configs/ 相对路径继承的基底
-      cluster/<profile>/   launch.sh 会 source 的硬件 profile（env.sh / overrides.conf）
       scripts/launch.sh    集群侧唯一入口
+
+    profile 的 env/overrides 已服务端化（Console 硬件注册表经环境变量注入），
+    不再随包上传 cluster/ 目录；profile 参数保留用于入参完整性校验。
     """
     if not exp_rel or not profile:
         raise ValueError("打包清单需要显式的实验路径与硬件 profile")
@@ -83,7 +85,6 @@ def upload_manifest(exp_rel: str, profile: str) -> tuple[tuple[str, ...], tuple[
         exp_rel.rstrip("/") + "/",
         "common/",
         "configs/",
-        f"cluster/{profile}/",
     )
     exact = ("scripts/launch.sh",)
     return prefixes, exact
@@ -106,7 +107,7 @@ def list_working_files(repo_root: Path, *, exp_rel: str, profile: str,
     if not files:
         cli_ui.fail(
             "作业包为空：清单内没有可上传的文件。",
-            hint=f"确认实验目录 {exp_rel}/ 与 cluster/{profile}/ 存在且已入 git",
+            hint=f"确认实验目录 {exp_rel}/ 存在且已入 git",
         )
     return (files, len(raw) - len(files)) if with_stats else files
 

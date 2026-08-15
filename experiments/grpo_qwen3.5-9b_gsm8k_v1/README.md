@@ -23,7 +23,7 @@ lab prepare gsm8k                              # 写到 datasets/gsm8k/{train,va
 
 - `config.yaml` — 继承 `grpo_math_1B` + `qwen3.5-9b` + `grpo_megatron`(Megatron+低显存调优) + `grpo_lora`(LoRA)，
   `_override_` 替换 `data` 为 `ResponseDataset` 指向上面的 jsonl，处理器 `math_hf_data_processor`、环境 `math`。
-- `method` / `recipe.lock.json` — 固定 grpo recipe、官方入口与 digest。
+- `recipe.lock.json` — 固定 grpo recipe、官方入口与 digest。
 
 ## 关键超参（低显存实测起点）
 

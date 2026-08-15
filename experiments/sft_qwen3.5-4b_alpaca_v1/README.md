@@ -23,7 +23,7 @@ export ALPACA_DATA_DIR="$(pwd)/datasets/alpaca"   # 供 config.yaml 的 ${oc.env
 - `config.yaml` — 继承 `configs/base/sft.yaml` + `qwen3.5-4b`，`_override_` 替换 `data` 为
   `ResponseDataset` 指向上面的 jsonl，处理器 `sft_processor`；并把基底里 squad 专用的
   `chat_template` 置 null，改用模型默认对话模板。
-- `method` / `recipe.lock.json` — 固定 sft recipe、入口与 digest。
+- `recipe.lock.json` — 固定 sft recipe、入口与 digest。
 
 ## SFT vs GRPO
 

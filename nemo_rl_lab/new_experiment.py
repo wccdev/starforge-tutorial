@@ -11,25 +11,6 @@ class NewExperimentError(Exception):
     pass
 
 
-def _list_profiles(repo_root: Path) -> list[str]:
-    base = repo_root / "cluster"
-    if not base.is_dir():
-        return []
-    return sorted(p.name for p in base.iterdir() if (p / "overrides.conf").is_file())
-
-
-def _validate_cluster(repo_root: Path, cluster: str) -> None:
-    if not cluster:
-        return
-    conf = repo_root / "cluster" / cluster / "overrides.conf"
-    if not conf.is_file():
-        opts = " ".join(_list_profiles(repo_root))
-        raise NewExperimentError(
-            f"未知集群 profile: {cluster}（cluster/{cluster}/overrides.conf 不存在）\n"
-            f"可选: {opts or '(无)'}"
-        )
-
-
 def _resolve_src_dir(repo_root: Path, src: str) -> Path:
     for c in (src, f"experiments/{src}", f"projects/{src}"):
         p = repo_root / c
@@ -38,17 +19,6 @@ def _resolve_src_dir(repo_root: Path, src: str) -> Path:
     raise NewExperimentError(
         f"找不到来源实验: {src}（试过 {src} / experiments/{src} / projects/{src}）"
     )
-
-
-def _read_cluster_file(dest: Path) -> str:
-    cluster_file = dest / "cluster"
-    if not cluster_file.is_file():
-        return "未设置"
-    return cluster_file.read_text(encoding="utf-8").strip() or "未设置"
-
-
-def _write_cluster_file(dest: Path, cluster: str) -> None:
-    (dest / "cluster").write_text(f"{cluster}\n", encoding="utf-8")
 
 
 def _patch_fork_metadata(dest: Path, name: str) -> None:
@@ -103,21 +73,20 @@ def _copy_recipe_template(dest: Path, recipe) -> None:
     shutil.copytree(template, dest, dirs_exist_ok=True)
 
 
-def _fork_experiment(
-    repo_root: Path, kind: str, name: str, src: str, cluster: str
-) -> None:
+def _fork_experiment(repo_root: Path, kind: str, name: str, src: str) -> None:
     dest = repo_root / kind / name
     if dest.exists():
         raise NewExperimentError(f"已存在: {dest}")
 
     src_dir = _resolve_src_dir(repo_root, src)
-    method_file = src_dir / "method"
-    if not method_file.is_file() or not method_file.read_text(encoding="utf-8").strip():
-        raise NewExperimentError(f"来源实验缺少 method recipe 声明: {src_dir}")
     from nemo_rl_lab.recipe_lock import validate_recipe_lock
+    from nemo_rl_lab.spec_builder import infer_recipe
 
+    recipe_name = infer_recipe(src_dir)
+    if not recipe_name:
+        raise NewExperimentError(f"来源实验缺少 recipe.lock.json（recipe 声明）: {src_dir}")
     try:
-        validate_recipe_lock(src_dir, method_file.read_text(encoding="utf-8").strip())
+        validate_recipe_lock(src_dir, recipe_name)
     except ValueError as exc:
         raise NewExperimentError(str(exc)) from exc
     shutil.copytree(src_dir, dest)
@@ -126,31 +95,23 @@ def _fork_experiment(
         shutil.rmtree(outputs)
 
     _patch_fork_metadata(dest, name)
-    if cluster:
-        _write_cluster_file(dest, cluster)
 
     print(f"已 fork 实验: {dest}（来源: {src}）")
     print(f"  · config.yaml 的 swanlab project/name 与 README 标题已改为: {name}")
-    print(f"  · 目标集群(cluster): {_read_cluster_file(dest)}")
-    print(f"下一步: 改 {dest}/config.yaml 顶部【① 调参区】试你的超参，然后 lab submit {name}")
+    print(f"下一步: 改 {dest}/config.yaml 顶部【① 调参区】试你的超参，"
+          f"然后 lab submit {name} --profile <目标集群>")
 
 
 def _create_from_template(
     repo_root: Path,
     kind: str,
     name: str,
-    cluster: str,
     method: str,
     framework_version: str = "",
 ) -> None:
     dest = repo_root / kind / name
     if dest.exists():
         raise NewExperimentError(f"已存在: {dest}")
-    if not cluster:
-        opts = " ".join(_list_profiles(repo_root))
-        raise NewExperimentError(
-            f"新建实验必须显式指定集群 profile（--cluster）。可选: {opts or '(无)'}"
-        )
 
     from nemo_lab_sdk.contract import SpecError
     from nemo_lab_sdk.recipes import get_recipe
@@ -174,9 +135,8 @@ def _create_from_template(
         gitkeep = staging / ".gitkeep"
         if gitkeep.is_file():
             gitkeep.unlink()
-        if cluster:
-            _write_cluster_file(staging, cluster)
-        (staging / "method").write_text(f"{recipe.id}\n", encoding="utf-8")
+        # recipe 声明只存在于 recipe.lock.json（infer_recipe 从锁读），不再写 method 标注文件；
+        # 硬件 profile 在提交时用 --profile 指定（env/overrides/拓扑均由服务端注册表下发）。
         from nemo_rl_lab.recipe_lock import write_recipe_lock
 
         write_recipe_lock(staging, recipe.id, selected_framework_version)
@@ -190,11 +150,10 @@ def _create_from_template(
         f"已创建实验: {dest}（method={recipe.id}, "
         f"framework={recipe.framework}@{selected_framework_version}）"
     )
-    print(f"  · 目标集群(cluster): {_read_cluster_file(dest)}（按需改：echo h100 > {dest}/cluster）")
     print("下一步:")
     print(f"  1. 编辑 {dest}/README.md（目标 / 模型 / 数据 / 监控）")
     print(f"  2. 按 {recipe.id} recipe 编辑模板文件")
-    print(f"  3. 用 lab submit {name} --pool all:<series>:1:<gpus> 提交")
+    print(f"  3. 用 lab submit {name} --profile <目标集群> --pool all:<series>:1:<gpus> 提交")
 
 
 def create_experiment(
@@ -203,23 +162,20 @@ def create_experiment(
     name: str,
     *,
     src: str = "",
-    cluster: str = "",
     method: str = "nemo-rl/grpo",
     framework_version: str = "",
 ) -> None:
     """新建或 fork 实验；失败时抛 NewExperimentError。"""
     if kind not in ("experiments", "projects"):
         raise NewExperimentError("第一个参数必须是 experiments 或 projects")
-    _validate_cluster(repo_root, cluster)
 
     if src:
-        _fork_experiment(repo_root, kind, name, src, cluster)
+        _fork_experiment(repo_root, kind, name, src)
     else:
         _create_from_template(
             repo_root,
             kind,
             name,
-            cluster,
             method,
             framework_version=framework_version,
         )

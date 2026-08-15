@@ -1,0 +1,67 @@
+# verl Agent Loop 工具调用示例：题库 GRPO + <tool_call> 检索本地文档后作答。
+# 与 nemo-rl 的 grpo_qwen3.5-9b_qa-rl-agent_v3 是同一场景的 verl 官方实现对照：
+#   nemo-rl 路线 = 自定义 run.py 实例化 Environment 类；
+#   verl 路线   = 全 config 声明：Agent Loop（tool_agent）+ @function_tool 工具 + 自定义奖励文件。
+#   不需要自定义入口（main.py），官方 verl.trainer.main_ppo_sync 原生支持。
+#
+# 三个官方机制（见 recipe 模板 README 与 verl docs/advance/agent_loop）：
+#   1. rollout.mode=async + multi_turn.enable + agent.default_agent_loop=tool_agent → ReAct 式多轮
+#   2. multi_turn.function_tool_path → tools.py 里 @function_tool 注册的检索工具
+#   3. custom_reward_function.path → reward.py 的 compute_score 最终判分
+#
+# ⚠️ 数据集要求（见 prepare_data.py）：每行必须带 agent_name="tool_agent"，
+#    否则异步模式静默回落 single_turn_agent、工具永远不触发（verl issue #2986）。
+# ⚠️ 模型/数据不写在这里：提交时 --model / --train-data / --validation-data 绑定（平台权威键）。
+#    hermes 工具格式要求模型 chat template 支持工具调用，请用 Instruct 模型（如 Qwen/Qwen3.5-9B）。
+
+data:
+  train_batch_size: 32
+  max_prompt_length: 1024
+  # 多轮预算：所有轮生成 + 工具回灌都算 response。单轮 1024 不够「搜一次 + 作答」。
+  max_response_length: 3072
+  # Agent Loop 从原始 chat 消息构造轨迹，必须开。
+  return_raw_chat: true
+
+actor_rollout_ref:
+  actor:
+    strategy: fsdp2
+    ppo_mini_batch_size: 32
+    ppo_micro_batch_size_per_gpu: 4
+    optim:
+      lr: 1.0e-6
+    # GRPO 常规：KL 用 loss 项而不是折进 reward。
+    use_kl_loss: true
+    kl_loss_coef: 0.01
+    kl_loss_type: low_var_kl
+  rollout:
+    name: vllm
+    # Agent Loop 依赖异步 rollout 管理器；sync 模式不会走 tool_agent。
+    mode: async
+    n: 8
+    gpu_memory_utilization: 0.7
+    multi_turn:
+      enable: true
+      # 工具调用格式，须与模型 chat template 匹配（Qwen 系用 hermes）。
+      format: hermes
+      # 常规为「一次定向检索 + 作答」；留到 4 给换关键词重查的余量。
+      max_assistant_turns: 4
+      # 本目录 tools.py 的 @function_tool 检索工具；路径相对作业包根（cwd）。
+      function_tool_path: experiments/verl-grpo_qwen3.5-9b_qa-tools_v1/tools.py
+    agent:
+      # 数据集行内 agent_name 字段可按样本覆盖；这里设默认兜底。
+      default_agent_loop: tool_agent
+
+# verl 官方自定义奖励（docs/preparation/reward_function）：最终判分与工具无关，
+# 只看 \boxed{} 答案是否命中 ground_truth（与 nemo-rl 对照实验同口径）。
+custom_reward_function:
+  path: experiments/verl-grpo_qwen3.5-9b_qa-tools_v1/reward.py
+  name: compute_score
+
+algorithm:
+  use_kl_in_reward: false
+
+trainer:
+  logger: [console]
+  total_epochs: 1
+  save_freq: 25
+  test_freq: 25

@@ -18,7 +18,7 @@
 ## 组成
 
 - `config.yaml` — 继承 `grpo_sliding_puzzle`（多轮拼图基底）+ `qwen3.5-9b` + `grpo_megatron`（Megatron 后端，单卡 **colocated**）+ `grpo_lora`（**LoRA**，单卡跑 9B 的关键），只写差异。
-- `method` / `recipe.lock.json` — 固定 recipe、入口和 digest；profile 与产物由统一 launcher 处理。
+- `recipe.lock.json` — 固定 recipe、入口和 digest；profile 与产物由统一 launcher 处理。
 
 ## 调什么（调参面）
 
@@ -35,12 +35,12 @@
 | `reference_policy_kl_penalty` | 贴原模型力度 | 0~0.05 |
 | `max_num_steps` / `val_period` | 训多久 / 多久验证 | 先 50 步跑通，再调大 |
 
-> 硬件/分布式（节点数、并行度）在 `cluster/h100/`，不在本 config。
+> 硬件/分布式（节点数、并行度）由服务端 h100 profile 注册表下发，不在本 config。
 
 ## 单卡关键约束
 
 - **必须 colocated**（vLLM 与训练分时复用这一张卡）：本实验未引入 `grpo_noncolocated`，即为 colocated（别加那行，单卡没有第二张卡给生成）。
-- **vLLM TP=1**：`cluster/h100/overrides.conf` 已设。
+- **vLLM TP=1**：服务端 h100 profile 的 overrides 已设。
 - **用 LoRA**：全参数 9B 在单张 80GB 上 colocated 几乎必 OOM。
 
 ## 运行

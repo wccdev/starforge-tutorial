@@ -30,8 +30,21 @@ def test_list_exps_nonempty():
     assert "grpo_qwen3.5-4b_gsm8k_v1" in common.list_exps()
 
 
-def test_list_profiles_has_h100():
-    assert "h100" in common.list_profiles()
+def test_list_profiles_reads_server_registry(monkeypatch):
+    """profile 注册表已服务端化：列表来自 /api/cluster/status，失败时静默为空。"""
+    from nemo_rl_lab import api_client
+
+    monkeypatch.setattr(
+        api_client, "cluster_status_via_server",
+        lambda *a, **k: {"profiles": [{"name": "h200"}, {"name": "h100"}]},
+    )
+    assert common.list_profiles() == ["h100", "h200"]
+
+    def boom(*a, **k):
+        raise RuntimeError("server unreachable")
+
+    monkeypatch.setattr(api_client, "cluster_status_via_server", boom)
+    assert common.list_profiles() == []
 
 
 def test_method_completion_is_sdk_catalog_driven():
@@ -46,19 +59,24 @@ def test_resolve_profile_explicit_wins():
     assert common.resolve_profile("experiments/grpo_qwen3.5-4b_gsm8k_v1", "h100") == "h100"
 
 
-def test_resolve_profile_falls_back_to_cluster_file():
-    # 实验目录下 cluster 文件已在 v2 迁移中显式写入。
-    p = common.resolve_profile("experiments/grpo_qwen3.5-4b_gsm8k_v1", None)
-    assert p in common.list_profiles()
+def test_resolve_profile_name_passes_through_without_local_validation(monkeypatch):
+    """profile 名的合法性由服务端注册表裁决，客户端只透传选择。"""
+    monkeypatch.setattr(common, "list_profiles", lambda: [])
+    assert common.resolve_profile("experiments/grpo_qwen3.5-4b_gsm8k_v1", "some-new-profile") == "some-new-profile"
 
 
-def test_resolve_profile_unknown_fails():
-    with pytest.raises(typer.Exit):
-        common.resolve_profile("experiments/grpo_qwen3.5-4b_gsm8k_v1", "no-such-profile")
+def test_resolve_profile_reads_legacy_cluster_file(tmp_path, monkeypatch):
+    """旧实验遗留的 cluster 标注文件作为兼容回退。"""
+    monkeypatch.setattr(common, "ROOT", tmp_path)
+    e = tmp_path / "experiments" / "legacy"
+    e.mkdir(parents=True)
+    (e / "cluster").write_text("h200-2g\n", encoding="utf-8")
+    assert common.resolve_profile("experiments/legacy", None) == "h200-2g"
 
 
 def test_resolve_profile_missing_everything_fails(tmp_path, monkeypatch):
     monkeypatch.setattr(common, "ROOT", tmp_path)
+    monkeypatch.setattr(common, "list_profiles", lambda: [])
     (tmp_path / "experiments" / "x").mkdir(parents=True)
     with pytest.raises(typer.Exit):
         common.resolve_profile("experiments/x", None)
@@ -78,7 +96,6 @@ def test_custom_validation_does_not_run_nemo_config_parser(tmp_path, monkeypatch
     monkeypatch.setattr(common, "ROOT", tmp_path)
     e = tmp_path / "experiments" / "custom"
     e.mkdir(parents=True)
-    (e / "method").write_text("custom/custom\n")
     (e / "recipe.lock.json").write_text(json.dumps(recipe_lock("custom/custom")))
     (e / "train.sh").write_text("#!/usr/bin/env bash\n")
     (e / "config.yaml").write_text("this: [is: not: nemo]\n")
@@ -93,7 +110,6 @@ def test_verl_validation_only_requires_mapping_config(tmp_path, monkeypatch):
     monkeypatch.setattr(common, "ROOT", tmp_path)
     e = tmp_path / "experiments" / "verl"
     e.mkdir(parents=True)
-    (e / "method").write_text("verl/grpo\n")
     (e / "recipe.lock.json").write_text(json.dumps(recipe_lock("verl/grpo")))
     (e / "config.yaml").write_text("trainer:\n  total_epochs: 1\n")
     assert exp._validate_exp("experiments/verl") == ([], [])
@@ -107,7 +123,6 @@ def test_trl_validation_requires_entrypoint_and_mapping_config(tmp_path, monkeyp
     monkeypatch.setattr(common, "ROOT", tmp_path)
     e = tmp_path / "experiments" / "trl"
     e.mkdir(parents=True)
-    (e / "method").write_text("trl/grpo\n")
     (e / "recipe.lock.json").write_text(json.dumps(recipe_lock("trl/grpo")))
     (e / "train.py").write_text("# experiment reward hook\n")
     (e / "config.yaml").write_text("max_steps: 1\n")
@@ -143,7 +158,7 @@ EXPECTED_COMMANDS = {
     "submit", "export", "eval", "clean",
     "status",
 }
-EXPECTED_GROUPS = {"job", "dataset", "admin"}
+EXPECTED_GROUPS = {"job", "dataset", "admin", "plugin"}
 
 
 def test_command_surface_is_closed():

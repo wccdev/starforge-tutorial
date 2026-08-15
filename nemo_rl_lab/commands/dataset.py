@@ -17,37 +17,39 @@ dataset_app = typer.Typer(
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 
-DATA_PREP = {
-    "gsm8k": "prepare_gsm8k.py",
-    "alpaca": "prepare_alpaca.py",
-    "qa_rl": "prepare_qa_rl.py",
-    "opsd_math": "prepare_opsd_math.py",
-}
-
-
 def _complete_dataset(incomplete: str) -> list[str]:
-    return [d for d in sorted(DATA_PREP) if d.startswith(incomplete)]
+    from nemo_rl_lab.data_prep import discover
+
+    return [d for d in sorted(discover()) if d.startswith(incomplete)]
 
 
 @dataset_app.command(
     "prepare",
-    help="本地预处理数据集（gsm8k / alpaca / qa_rl / opsd_math）",
+    help="本地预处理数据集（按约定发现 common/data/prepare_*.py，`lab dataset prepare` 不带参数列出可选）",
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
 )
 def dataset_prepare(
     ctx: typer.Context,
-    dataset: str = typer.Argument(..., autocompletion=_complete_dataset, help="数据集名"),
+    dataset: str = typer.Argument(
+        "", autocompletion=_complete_dataset, help="数据集名；留空列出全部可选"
+    ),
 ) -> None:
     import os
     import subprocess
 
-    script_name = DATA_PREP.get(dataset)
-    if not script_name:
-        cli_ui.fail(f"未知数据集「{dataset}」", hint=f"可选：{', '.join(DATA_PREP)}")
-    script = common.ROOT / "common" / "data" / script_name
-    if not script.is_file():
-        cli_ui.fail(f"缺少脚本 {script}", hint="仓库可能不完整，检查 common/data/ 目录")
-    cmd = [sys.executable, str(script), *ctx.args]
+    from nemo_rl_lab.data_prep import discover
+
+    preps = discover()
+    if not dataset:
+        if not preps:
+            cli_ui.fail("没有可用的数据预处理脚本", hint="往 common/data/ 放 prepare_<name>.py")
+        for p in preps.values():
+            typer.echo(f"{p.name:16s} {p.summary}")
+        return
+    prep = preps.get(dataset)
+    if not prep:
+        cli_ui.fail(f"未知数据集「{dataset}」", hint=f"可选：{', '.join(sorted(preps))}")
+    cmd = [sys.executable, str(prep.script), *ctx.args]
     typer.echo("› " + " ".join(cmd))
     # 用当前解释器（项目 uv 环境，含 datasets）跑数据脚本。
     raise typer.Exit(

@@ -25,13 +25,13 @@ lab login                                       # 登录官方 Lab 服务（默�
 
 # 2) 选实验、按需调参：打开 experiments/<exp>/config.yaml 顶部「调参速查」改几行
 lab ls                                          # 看现成实验
-lab new my_run --from grpo_qwen3.5-4b_gsm8k_v1  # 或 fork 一个来调参（自动改 SwanLab 名、继承目标集群）
+lab new my_run --from grpo_qwen3.5-4b_gsm8k_v1  # 或 fork 一个来调参（自动改 SwanLab 名）
 # 新建 TRL 论文实验（版本写入 recipe.lock.json，不在提交端再猜）
 lab new trl_paper_run --method trl/grpo --framework-version 1.10.0
 
 # 3) 准备数据 → 提交 → 看结果
 lab dataset prepare gsm8k
-lab submit grpo_qwen3.5-4b_gsm8k_v1             # 用实验自带的目标集群；--profile 可临时换
+lab submit grpo_qwen3.5-4b_gsm8k_v1 --profile h200   # --profile 指定目标集群（服务端注册表管理）
 lab job logs                                    # 跟随最近一个作业的实时日志
 ```
 
@@ -39,13 +39,17 @@ lab job logs                                    # 跟随最近一个作业的实
 
 ## 硬件
 
-| Profile | 说明 | 配置目录 |
-| --- | --- | --- |
-| `h200` | 单机 8× NVIDIA H200 141GB（**当前主力**） | `cluster/h200/` |
-| `h200-2g` | 同机器，只要 2 张卡（小实验 / 调试，别占满集群） | `cluster/h200-2g/` |
-| `h100` | 单机 1× NVIDIA H100 80GB | `cluster/h100/` |
+| Profile | 说明 |
+| --- | --- |
+| `h200` | 单机 8× NVIDIA H200 141GB（**当前主力**） |
+| `h200-2g` | 同机器，只要 2 张卡（小实验 / 调试，别占满集群） |
+| `h100` | 单机 1× NVIDIA H100 80GB |
 
-训练配置与硬件解耦：NeMo-RL 通过 CLI override 调集群（`cluster.num_nodes` / `cluster.gpus_per_node`）；硬件相关 override 抽到 `cluster/<profile>/overrides.conf`。每个实验**自带目标集群**（实验目录下 `cluster` 文件，`lab new --cluster` 写入）——因为 batch/seq/LoRA/显存等超参都是按某张卡的显存调出来的；`lab submit --profile` 可临时换卡跑。
+训练配置与硬件解耦：profile 的进程环境（NCCL/显存分配）、框架覆盖项（并行度/vLLM 调优）
+与权威拓扑全部由 **Console 服务端硬件注册表**管理，提交时经环境变量注入作业
+（`LAB_PROFILE_OVERRIDES` / profile env），本仓库不再有 `cluster/` 目录。
+提交用 `lab submit --profile <名称>` 显式指定目标卡型——batch/seq/LoRA/显存等超参
+都是按某张卡的显存调出来的，每个实验 README 应写明推荐 profile。
 
 ## 它和控制平面是什么关系
 
@@ -117,10 +121,6 @@ nemo-rl-lab/
 ├── docs/                     # 文档
 │   ├── naming-convention.md  # 命名规范（务必先读）
 │   └── swanlab.md            # SwanLab 接入说明
-├── cluster/                  # 硬件 / 分布式 profile + 依赖与环境说明（见 cluster/README.md）
-│   ├── h200/                 # 单机 8× H200（当前主力）
-│   ├── h200-2g/              # 同机器只用 2 张卡（小实验 / 调试）
-│   └── h100/                 # 单机 1× H100
 ├── configs/                  # 配置继承体系（NeMo-RL 原生 defaults）
 │   ├── base/                 # 祖父：NeMo-RL v0.7.0 官方 example 原样副本（勿手改）
 │   └── models/               # 父：各基础模型公共片段（qwen3.5-4b / 9b ...）
@@ -138,8 +138,8 @@ nemo-rl-lab/
 ```
 
 > NeMo-RL 配置工作流：每个实验有自己的 `config.yaml`，通过 `defaults` **继承基底 + 模型片段，只写差异**。
-> recipe 固定入口，adapter 读取该配置并叠加 `cluster/<profile>/overrides.conf`；实验目录不再拥有
-> `run.sh` 或可覆盖入口。verl、TRL、custom 使用各自 recipe 模板和校验器。
+> recipe 固定入口，adapter 读取该配置并叠加服务端下发的 profile 覆盖项（`LAB_PROFILE_OVERRIDES`）；
+> 实验目录不再拥有 `run.sh` 或可覆盖入口。verl、TRL、custom 使用各自 recipe 模板和校验器。
 
 ## experiments vs projects
 
@@ -179,7 +179,7 @@ agent-grpo_qwen3.5-9b_toolbench_v1
 uv run lab login                             # 接入官方 Lab 服务（默认 https://nemolab.gcoreinc.com）
 uv run lab ls                                # 列出实验 / 项目
 uv run lab methods                           # 有哪些后训练方法、各自能调什么超参（--method 的取值来源）
-uv run lab new grpo_qwen3.5-4b_gsm8k_v1 --method nemo-rl/grpo --cluster h200   # 从骨架新建实验
+uv run lab new grpo_qwen3.5-4b_gsm8k_v1 --method nemo-rl/grpo   # 从骨架新建实验
 uv run lab dataset prepare gsm8k             # 本地预处理数据集（gsm8k / alpaca / qa_rl / opsd_math）
 uv run lab dataset push qa-rl v1 ./out       # 上传数据集版本（默认私有；--public 公开给所有人）
 uv run lab dataset ls                        # 可见的数据集（公开的 + 自己的），ID 为 <owner>/<name>
@@ -198,7 +198,7 @@ uv run lab job stop <job_id>                 # 停止运行中的作业
 > 首次使用：`uv run lab login` 接入官方 Lab 服务，再 `uv run lab status` 确认身份与配额，然后 `lab submit`。
 > 提交一律经服务端代理：Ray 地址 / 密钥 / 数据目录都在服务端，本机不直连 Ray、无需任何 `submit.env`。
 > 每次 `lab submit` 会自动：① 校验 config（batch 三者相等等，不过不放行，可 `--no-validate` 跳过）；
-> ② 只打包运行时清单（实验目录 + common/ + configs/ + 所选 cluster profile + launch.sh），
+> ② 只打包运行时清单（实验目录 + common/ + configs/ + launch.sh；profile 的 env/overrides 由服务端注入），
 > 工作区有未提交改动时拒绝提交（`--allow-dirty` 显式确认）；
 > ③ 由服务端记录 git commit / dirty / config 指纹与 `run_id`。
 > 事后 `lab job ls` 对上作业状态（RUNNING/SUCCEEDED/FAILED…）。
@@ -228,20 +228,18 @@ lab --show-completion       # 只打印脚本，手动粘贴到 shell 配置
 ## 新建一个实验（细节）
 
 ```bash
-# 方式一：从空白模板新建，并绑定目标集群（写入实验自带 cluster 文件）
-uv run lab new grpo_qwen3.5-4b_gsm8k_v1 --cluster h100
+# 方式一：从空白模板新建
+uv run lab new grpo_qwen3.5-4b_gsm8k_v1
 
 # 方式二（推荐调参）：fork 一个现成实验，只改超参试不同配置
 uv run lab new grpo_qwen3.5-4b_gsm8k_lr1e4 --from grpo_qwen3.5-4b_gsm8k_v1
-#   自动 copy 目录、把 config.yaml 的 swanlab project/name 改成新名（避免日志撞车）、并继承来源实验的目标集群
-#   想换到别的集群再加 --cluster <profile>
+#   自动 copy 目录、把 config.yaml 的 swanlab project/name 改成新名（避免日志撞车）
 
 cd experiments/<新实验名>
 # 1. 改 config.yaml 顶部「调参区」：lr / kl / 采样数 / 数据集 / seq（这些数值按目标集群的卡调）
-# 2. 目标集群写在同目录 cluster 文件（lab new 已写好；想改：echo h100 > cluster）
-# 3. 改 README.md 与 recipe 模板允许的 config；入口由 recipe 固定，不能在实验内覆盖
-# 4. 提交（用实验自带集群；--profile 可临时换）：
-uv run lab submit <新实验名>
+# 2. 改 README.md 与 recipe 模板允许的 config；入口由 recipe 固定，不能在实验内覆盖
+# 3. 提交（--profile 指定目标集群，README 里写明推荐值）：
+uv run lab submit <新实验名> --profile h200
 ```
 
 ## 示例实验（覆盖三种方法）

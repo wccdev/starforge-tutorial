@@ -1,0 +1,11 @@
+{
+  "apiVersion": "lab/recipe-lock/v2",
+  "recipe": {
+    "digest": "sha256:9c33774e7e62e24b2746ab34a659aafd5bd68eafc8403666561c3d9541a99c29",
+    "framework": "trl",
+    "framework_version": "1.10.0",
+    "name": "trl/grpo",
+    "version": "1.0.0"
+  },
+  "sdk_version": "2.1.0"
+}

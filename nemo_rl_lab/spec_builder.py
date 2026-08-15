@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Optional
 
@@ -22,6 +23,7 @@ from nemo_lab_sdk.contract import (
     LifecycleSpec,
     Metadata,
     ModelSpec,
+    PluginUse,
     Provenance,
     RecipeRef,
     ResourcePool,
@@ -110,6 +112,7 @@ def build_spec(
     operation: str = "train",
     provenance: Optional[dict] = None,
     validate: bool = True,
+    plugin_uses: Optional[list[dict]] = None,
 ) -> JobSpec:
     """构建并（默认）本地校验 JobSpec。
 
@@ -240,6 +243,12 @@ def build_spec(
             resources=ResourceSpec(pools=pool_objs, roles=role_map),
             hyperparams=hyperparams,
             lifecycle=LifecycleSpec(on_success=actions),
+            # 平台托管插件包的精确引用（来自实验的 plugins.lock.json）。
+            # PluginUse.from_dict 顺带做格式校验：id 两段式、digest 必须 sha256:。
+            plugins=tuple(
+                PluginUse.from_dict(p, field_path=f"spec.plugins[{i}]")
+                for i, p in enumerate(plugin_uses or [])
+            ),
         ),
         provenance=Provenance(
             sdk_version=SDK_VERSION,
@@ -251,12 +260,22 @@ def build_spec(
 
 
 def infer_recipe(exp_path: Path) -> str:
-    """从实验目录读取显式 recipe：同目录的 `method` 文件。
+    """从实验目录读取显式 recipe：`recipe.lock.json` 的 recipe.name 是唯一事实源。
 
-    它跟着实验走，fork 时自动继承。读不到返回空串，由调用方明确报错；
-    不读取 framework 文件，也不按其他文件的存在性推断。
+    锁文件本来就是实验必备（`lab new` 生成、提交前校验 digest），recipe 名与版本
+    都在里面，不再要求单独的 method 标注文件；旧实验遗留的 `method` 文件作为
+    兼容回退仍可读。读不到返回空串，由调用方明确报错；不按其他文件的存在性推断。
     """
-    f = exp_path / "method"
-    if f.is_file():
-        return f.read_text(encoding="utf-8").strip()
+    lock = exp_path / "recipe.lock.json"
+    if lock.is_file():
+        try:
+            payload = json.loads(lock.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            payload = {}
+        name = str((payload.get("recipe") or {}).get("name") or "").strip()
+        if name:
+            return name
+    legacy = exp_path / "method"
+    if legacy.is_file():
+        return legacy.read_text(encoding="utf-8").strip()
     return ""

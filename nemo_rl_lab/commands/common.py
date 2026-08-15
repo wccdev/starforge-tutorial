@@ -37,30 +37,38 @@ def list_exps() -> list[str]:
 
 
 def list_profiles() -> list[str]:
-    base = ROOT / "cluster"
-    if not base.is_dir():
+    """可用硬件 profile 名，来自服务端注册表（本仓库已无 cluster/ 目录）。
+
+    仅用于补全与提示：拿不到（未登录/服务不可达）就静默返回空，不阻断主流程。
+    """
+    try:
+        from nemo_rl_lab import api_client
+
+        data = api_client.cluster_status_via_server()
+        return sorted(
+            str(p.get("name")) for p in (data.get("profiles") or []) if p.get("name")
+        )
+    except Exception:  # 网络/鉴权失败只影响补全，不阻断主流程
         return []
-    return sorted(p.name for p in base.iterdir() if (p / "overrides.conf").is_file())
 
 
 def resolve_profile(exp_path: str, profile: Optional[str]) -> str:
-    """确定作业的硬件 profile：--profile 优先，否则读实验目录 cluster 文件；都没有直接报错。
+    """确定作业的硬件 profile：--profile 优先，否则读实验目录遗留的 cluster 标注（兼容旧实验）。
 
-    打包清单按 profile 收窄（只上传 cluster/<profile>/），所以 profile 必须在
-    客户端就确定下来，不能留给服务端猜。
+    profile 的 env/overrides/拓扑都在服务端注册表，名字的合法性也由服务端裁决；
+    客户端只负责把选择传上去。
     """
     p = (profile or "").strip()
     if not p:
-        cluster_file = ROOT / exp_path / "cluster"
-        if not cluster_file.is_file() or not cluster_file.read_text(encoding="utf-8").strip():
-            cli_ui.fail(
-                "无法确定硬件 profile",
-                hint=f"加 --profile <名称>，或写入实验目录：echo h100 > {exp_path}/cluster",
-            )
-        p = cluster_file.read_text(encoding="utf-8").strip()
-    if not (ROOT / "cluster" / p / "overrides.conf").is_file():
+        legacy = ROOT / exp_path / "cluster"
+        if legacy.is_file():
+            p = legacy.read_text(encoding="utf-8").strip()
+    if not p:
         opts = " ".join(list_profiles())
-        cli_ui.fail(f"未知硬件 profile「{p}」", hint=f"可选: {opts or '(无)'}")
+        cli_ui.fail(
+            "无法确定硬件 profile",
+            hint=f"加 --profile <名称>{f'（可选: {opts}）' if opts else ''}",
+        )
     return p
 
 
@@ -83,8 +91,8 @@ def complete_method(incomplete: str) -> list[str]:
     ]
 
 
-# 共享的 profile 选项（submit/export/eval 提交时把硬件 profile 转发给服务端，决定集群 overrides）。
+# 共享的 profile 选项（submit/export/eval 提交时把硬件 profile 转发给服务端，决定集群 env/overrides）。
 PROF_OPT = typer.Option(
     None, "--profile", autocompletion=complete_profile,
-    help="硬件 profile（默认用实验目录下的 cluster 文件）",
+    help="硬件 profile（服务端注册表管理；`lab status` 可查看可用值）",
 )
