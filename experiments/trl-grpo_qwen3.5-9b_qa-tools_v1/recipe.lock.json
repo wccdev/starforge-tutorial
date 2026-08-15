@@ -1,11 +1,21 @@
 {
-  "apiVersion": "lab/recipe-lock/v2",
+  "apiVersion": "lab/recipe-lock/v3",
+  "created_by": {
+    "sdk_version": "2.1.0"
+  },
+  "framework": {
+    "kind": "trl",
+    "runtime_id": "trl-1.10.0",
+    "version": "1.10.0"
+  },
   "recipe": {
-    "digest": "sha256:9c33774e7e62e24b2746ab34a659aafd5bd68eafc8403666561c3d9541a99c29",
-    "framework": "trl",
-    "framework_version": "1.10.0",
+    "digest": "sha256:a299c6d123ff58104075b53c99cf899ca0b0477c60d737c8aafb1be9a0b747f5",
+    "manifest_digest": "sha256:adb1a6abb3aedaf01b2860b7e5cca0704d19c10370fd8a643bbc95c447a25920",
     "name": "trl/grpo",
+    "template_digest": "sha256:9997deb4e16a41b1d24e0764370a45d10a7ef496eb1f1ce5566d8db3268665fd",
     "version": "1.0.0"
   },
-  "sdk_version": "2.1.0"
+  "requires": {
+    "sdk": ">=2.1,<3"
+  }
 }

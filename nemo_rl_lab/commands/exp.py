@@ -62,13 +62,64 @@ def new(
         cli_ui.fail(str(e))
 
 
-def _validate_exp(exp_path: str, recipe_override: str = "") -> tuple[list[str], list[str]]:
-    """只运行 recipe 所属框架的 validator，不跨框架猜测。"""
+def validate_exp_config(exp_dir, recipe, *, repo_root=None) -> list[str]:
+    """只校验实验内容与当前 recipe，不要求锁已经是最新。"""
+    errors, _ = _validate_exp_contents(exp_dir, recipe, repo_root=repo_root)
+    return errors
+
+
+def _validate_exp_contents(exp_dir, recipe, *, repo_root=None) -> tuple[list[str], list[str]]:
     import yaml
+
+    from nemo_rl_lab.config_resolve import resolve, validate_framework_config
+
+    root = repo_root or common.ROOT
+    if recipe.entrypoint.kind == "experiment":
+        entry = (exp_dir / recipe.entrypoint.value).resolve()
+        if not entry.is_relative_to(exp_dir.resolve()) or not entry.is_file():
+            return [f"{recipe.framework} 实验缺少入口: {recipe.entrypoint.value}"], []
+    if recipe.framework == "custom":
+        return [], []
+
+    entry_warns: list[str] = []
+    if recipe.entrypoint.kind != "experiment" and not recipe.entrypoint.experiment_override:
+        for candidate in ("run.py", "main.py"):
+            if (exp_dir / candidate).is_file():
+                entry_warns.append(
+                    f"实验目录有 {candidate}，但 recipe {recipe.id} 未声明 entrypoint.experiment_override，"
+                    f"提交后将执行默认入口 {recipe.entrypoint.value}，{candidate} 不会被执行。"
+                )
+
+    cfg_file = exp_dir / "config.yaml"
+    if not cfg_file.is_file():
+        return [f"{recipe.framework} 实验缺少 config.yaml: {exp_dir.name}"], []
+    try:
+        if recipe.framework == "nemo-rl":
+            cfg = resolve(cfg_file)
+        else:
+            cfg = yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        return [f"解析 {recipe.framework} config 失败: {exc}"], []
+    if not isinstance(cfg, dict):
+        return [f"{recipe.framework} config 根节点必须是对象"], []
+
+    try:
+        issues = validate_framework_config(
+            recipe.framework, cfg, repo_root=root, recipe=recipe
+        )
+    except ValueError as exc:
+        return [str(exc)], entry_warns
+    return (
+        [message for level, message in issues if level == "error"],
+        entry_warns + [message for level, message in issues if level == "warn"],
+    )
+
+
+def _validate_exp(exp_path: str, recipe_override: str = "") -> tuple[list[str], list[str]]:
+    """锁必须是当前 bundle，再跑 recipe 所属框架的 validator。"""
     from nemo_lab_sdk.contract import SpecError
     from nemo_lab_sdk.recipes import get_recipe
 
-    from nemo_rl_lab.config_resolve import resolve, validate_framework_config
     from nemo_rl_lab.recipe_lock import validate_recipe_lock
     from nemo_rl_lab.spec_builder import infer_recipe
 
@@ -81,48 +132,7 @@ def _validate_exp(exp_path: str, recipe_override: str = "") -> tuple[list[str], 
         validate_recipe_lock(exp_dir, recipe_name)
     except (SpecError, ValueError) as exc:
         return [str(exc)], []
-
-    if recipe.entrypoint.kind == "experiment":
-        entry = (exp_dir / recipe.entrypoint.value).resolve()
-        if not entry.is_relative_to(exp_dir.resolve()) or not entry.is_file():
-            return [f"{recipe.framework} 实验缺少入口: {recipe.entrypoint.value}"], []
-    if recipe.framework == "custom":
-        return [], []
-
-    # 实验自带入口脚本但 recipe 不认实验内入口时，脚本会被静默忽略、跑 recipe 默认入口。
-    entry_warns: list[str] = []
-    if recipe.entrypoint.kind != "experiment" and not recipe.entrypoint.experiment_override:
-        for candidate in ("run.py", "main.py"):
-            if (exp_dir / candidate).is_file():
-                entry_warns.append(
-                    f"实验目录有 {candidate}，但 recipe {recipe_name} 未声明 entrypoint.experiment_override，"
-                    f"提交后将执行默认入口 {recipe.entrypoint.value}，{candidate} 不会被执行。"
-                )
-
-    cfg_file = exp_dir / "config.yaml"
-    if not cfg_file.is_file():
-        return [f"{recipe.framework} 实验缺少 config.yaml: {exp_path}"], []
-    try:
-        if recipe.framework == "nemo-rl":
-            cfg = resolve(cfg_file)   # defaults 继承合并
-        else:
-            cfg = yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
-    except Exception as exc:  # noqa: BLE001
-        return [f"解析 {recipe.framework} config 失败: {exc}"], []
-    if not isinstance(cfg, dict):
-        return [f"{recipe.framework} config 根节点必须是对象"], []
-
-    # 与服务端提交入口同一份 SDK validator：本地过了，服务端就不会因同类问题 422。
-    try:
-        issues = validate_framework_config(
-            recipe.framework, cfg, repo_root=common.ROOT, recipe=recipe
-        )
-    except ValueError as exc:
-        return [str(exc)], entry_warns
-    return (
-        [message for level, message in issues if level == "error"],
-        entry_warns + [message for level, message in issues if level == "warn"],
-    )
+    return _validate_exp_contents(exp_dir, recipe)
 
 
 def validate(

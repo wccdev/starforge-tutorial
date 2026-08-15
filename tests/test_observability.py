@@ -225,6 +225,23 @@ def test_dpo_samples_extracted_from_dataset(monkeypatch):
     assert s["extra"] == {"chosen": "4", "rejected": "5"}
 
 
+def test_dpo_samples_accept_tensor_like_token_ids():
+    from common.observability.patch import _upload_dpo_samples
+
+    class TensorLike(list):
+        def __bool__(self):
+            raise RuntimeError("Boolean value of Tensor is ambiguous")
+
+    data = [_dpo_datum(TensorLike([113]), TensorLike([52]), TensorLike([53]))]
+
+    class _Loader:
+        dataset = data
+
+    ingest = _FakeIngest()
+    _upload_dpo_samples(ingest, 2, {"val": _Loader()}, _FakeTokenizer())
+    assert ingest.payloads[0]["samples"][0]["extra"] == {"chosen": "4", "rejected": "5"}
+
+
 def test_dpo_samples_respect_upload_limit(monkeypatch):
     from common.observability.patch import _upload_dpo_samples
 
@@ -239,9 +256,153 @@ def test_dpo_samples_respect_upload_limit(monkeypatch):
     assert ingest.payloads[0]["total_samples"] == 1
 
 
+def test_zero_sample_limit_disables_dpo_upload(monkeypatch):
+    from common.observability.patch import _upload_dpo_samples
+
+    monkeypatch.setenv("NEMOLAB_VAL_UPLOAD_SAMPLES", "0")
+    data = [_dpo_datum([113], [52], [53])]
+
+    class _Loader:
+        dataset = data
+
+    ingest = _FakeIngest()
+    _upload_dpo_samples(ingest, 1, {"val": _Loader()}, _FakeTokenizer())
+    assert ingest.payloads == []
+
+
+def test_zero_sample_limit_disables_conversation_upload(monkeypatch):
+    from common.observability.patch import _upload_validation_samples
+
+    monkeypatch.setenv("NEMOLAB_VAL_UPLOAD_SAMPLES", "0")
+    ingest = _FakeIngest()
+    logs = [[{"role": "user", "content": "q"}, {"role": "assistant", "content": "a"}]]
+    _upload_validation_samples(ingest, 1, logs, [1.0])
+    assert ingest.payloads == []
+
+
 def test_dpo_samples_no_dataloader_is_noop():
     from common.observability.patch import _upload_dpo_samples
 
     ingest = _FakeIngest()
     _upload_dpo_samples(ingest, 1, {}, _FakeTokenizer())
     assert ingest.payloads == []
+
+
+def _sft_datum():
+    return {
+        "message_log": [
+            {"role": "system", "content": "brief", "token_ids": [1]},
+            {"role": "user", "content": "hello", "token_ids": [2, 3]},
+            {"role": "assistant", "content": "world", "token_ids": [4]},
+        ]
+    }
+
+
+def test_sft_skeletons_do_not_advance_loader():
+    from common.observability.patch import _sft_sample_skeletons
+
+    class Loader:
+        dataset = [_sft_datum()]
+
+        def __iter__(self):
+            raise AssertionError("observer must not consume stateful loader")
+
+    samples = _sft_sample_skeletons(Loader(), _FakeTokenizer(), 8, 12000)
+    assert samples[0]["user"] == "system: brief\nuser: hello"
+    assert samples[0]["extra"] == {"reference": "world"}
+    assert samples[0]["_prompt_token_ids"] == [1, 2, 3]
+
+
+def test_sft_generation_failure_restores_training_state(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    from common.observability.patch import _materialize_sft_completions
+
+    monkeypatch.setitem(
+        sys.modules,
+        "nemo_rl.distributed.batched_data_dict",
+        SimpleNamespace(BatchedDataDict=lambda value: value),
+    )
+    class _Tensor:
+        def __init__(self, values):
+            self.values = values
+
+        def max(self):
+            return _Tensor(max(self.values))
+
+        def item(self):
+            return self.values
+
+        def __getitem__(self, index):
+            return _Tensor(self.values[index])
+
+    class _Matrix:
+        def __setitem__(self, key, value):
+            return None
+
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        SimpleNamespace(
+            long=object(),
+            tensor=lambda values, dtype=None: _Tensor(values),
+            full=lambda shape, fill, dtype=None: _Matrix(),
+        ),
+    )
+
+    class Policy:
+        cfg = {"max_total_sequence_length": 256}
+
+        def __init__(self):
+            self.events = []
+
+        def prepare_for_generation(self):
+            self.events.append("prepare_generation")
+
+        def generate(self, data, greedy):
+            assert greedy is True
+            self.events.append("generate")
+            raise RuntimeError("generation failed")
+
+        def finish_generation(self):
+            self.events.append("finish_generation")
+
+        def prepare_for_training(self):
+            self.events.append("prepare_training")
+
+    sample = {
+        "user": "q",
+        "assistant": "",
+        "extra": {"reference": "a"},
+        "_prompt_token_ids": [1, 2],
+    }
+    policy = Policy()
+    with pytest.raises(RuntimeError, match="generation failed"):
+        _materialize_sft_completions(policy, _FakeTokenizer(), [sample])
+    assert policy.events == [
+        "prepare_generation",
+        "generate",
+        "finish_generation",
+        "prepare_training",
+    ]
+
+
+def test_sft_upload_falls_back_to_reference_only(monkeypatch):
+    import common.observability.patch as patch_mod
+
+    class Loader:
+        dataset = [_sft_datum()]
+
+    def fail_generation(*args, **kwargs):
+        raise RuntimeError("oom")
+
+    monkeypatch.setattr(patch_mod, "_materialize_sft_completions", fail_generation)
+    ingest = _FakeIngest()
+    patch_mod._upload_sft_samples(
+        ingest, 7, object(), Loader(), _FakeTokenizer()
+    )
+    sample = ingest.payloads[0]["samples"][0]
+    assert sample["assistant"] == ""
+    assert sample["extra"]["reference"] == "world"
+    assert "_prompt_token_ids" not in sample

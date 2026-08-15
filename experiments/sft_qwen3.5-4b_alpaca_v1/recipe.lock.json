@@ -1,11 +1,21 @@
 {
-  "apiVersion": "lab/recipe-lock/v2",
-  "recipe": {
-    "digest": "sha256:d6b4d83348ac5bfa634c3d8350031d56bfc0d451a1a3e567722f6c99a14b75d6",
-    "framework": "nemo-rl",
-    "framework_version": "0.7.0",
-    "name": "nemo-rl/sft",
+  "apiVersion": "lab/recipe-lock/v3",
+  "created_by": {
+    "sdk_version": "2.1.0"
+  },
+  "framework": {
+    "kind": "nemo-rl",
+    "runtime_id": "nemo-rl-0.7.0",
     "version": "0.7.0"
   },
-  "sdk_version": "2.1.0"
+  "recipe": {
+    "digest": "sha256:351834da9b1919350d1258631925d90ff0a2bf72fea7d1006c5c5fddd0050523",
+    "manifest_digest": "sha256:d563bf249f0e68bb760e4811089485b48804ec37c887daa2a006cc25675630c5",
+    "name": "nemo-rl/sft",
+    "template_digest": "sha256:d17e2205a6c36df94b4cb346f7435715aab170e1d8636d8108f4edcab9d3f75f",
+    "version": "0.7.0"
+  },
+  "requires": {
+    "sdk": ">=2.1,<3"
+  }
 }

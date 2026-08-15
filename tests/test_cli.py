@@ -158,7 +158,7 @@ EXPECTED_COMMANDS = {
     "submit", "export", "eval", "clean",
     "status",
 }
-EXPECTED_GROUPS = {"job", "dataset", "admin", "plugin"}
+EXPECTED_GROUPS = {"job", "dataset", "admin", "plugin", "recipe"}
 
 
 def test_command_surface_is_closed():

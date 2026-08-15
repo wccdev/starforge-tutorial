@@ -75,7 +75,12 @@ def submit(
     framework_version: Optional[str] = typer.Option(
         None,
         "--framework-version",
-        help="精确框架版本；显式指定会更新 recipe.lock.json",
+        help="仅配合 --upgrade-recipe 使用；单独指定不会改写锁文件",
+    ),
+    upgrade_recipe: bool = typer.Option(
+        False,
+        "--upgrade-recipe",
+        help="提交前把本实验锁升级到当前 catalog，复用 lab recipe upgrade",
     ),
     allow_dirty: bool = typer.Option(
         False, "--allow-dirty", help="允许工作区有未提交改动（默认拒绝，保证可追溯）"
@@ -114,6 +119,7 @@ def submit(
         image=image,
         provenance=prov,
         validate=not no_validate,
+        upgrade_recipe=upgrade_recipe,
     )
     # 清单式打包 → 上传到中心化服务 → 服务端注入密钥/路径后代理提交（密钥/地址不外泄）。
     with cli_ui.submit_progress() as reporter:
@@ -173,7 +179,7 @@ def _build_spec_or_exit(exp_path: str, *, method, project, sets, pools, roles,
                         train_data=None, validation_data=None,
                         train_dataset=None, validation_dataset=None,
                         framework_version=None, image=None, provenance=None,
-                        validate: bool):
+                        validate: bool, upgrade_recipe: bool = False):
     """构建强 JobSpec；缺少显式 recipe 时立即退出。"""
     from nemo_lab_sdk.contract import SpecError
 
@@ -187,16 +193,33 @@ def _build_spec_or_exit(exp_path: str, *, method, project, sets, pools, roles,
         )
         raise typer.Exit(1)
     try:
+        from nemo_rl_lab.commands.exp import validate_exp_config
         from nemo_rl_lab.plugins_lock import read_plugin_lock
-        from nemo_rl_lab.recipe_lock import validate_recipe_lock, write_recipe_lock
+        from nemo_rl_lab.recipe_lock import RecipeLockManager
 
-        locked_version = validate_recipe_lock(common.ROOT / exp_path, recipe)
-        selected_version = (framework_version or "").strip() or locked_version
-        if selected_version != locked_version:
-            # 显式的 --framework-version 是固定锁操作，不是一次性覆盖。
-            write_recipe_lock(common.ROOT / exp_path, recipe, selected_version)
-        # 实验锁定的平台插件引用随 spec 提交；服务端校验存在性/启停/digest 并注入包体。
-        plugin_uses = read_plugin_lock(common.ROOT / exp_path)
+        manager = RecipeLockManager()
+        exp_dir = common.ROOT / exp_path
+        selected = (framework_version or "").strip()
+        if upgrade_recipe:
+            manager.upgrade(
+                exp_dir,
+                recipe_name=recipe,
+                framework_version=selected,
+                validate_config=lambda path, rec: validate_exp_config(
+                    path, rec, repo_root=common.ROOT
+                ),
+            )
+        elif selected:
+            inspection = manager.inspect(exp_dir, recipe)
+            if inspection.framework_version != selected:
+                raise ValueError(
+                    f"锁内 framework version 是 {inspection.framework_version or '∅'}，"
+                    f"与 --framework-version {selected} 不一致；"
+                    f"请执行 `lab recipe upgrade {exp_path} --framework-version {selected}`"
+                    " 或提交时加 --upgrade-recipe"
+                )
+        selected_version = manager.require_current(exp_dir, recipe)
+        plugin_uses = read_plugin_lock(exp_dir)
         return spec_builder.build_spec(
             exp_path,
             recipe=recipe,
@@ -219,8 +242,14 @@ def _build_spec_or_exit(exp_path: str, *, method, project, sets, pools, roles,
             plugin_uses=plugin_uses,
         )
     except (SpecError, ValueError) as e:
-        cli_ui.emit_error("作业规格校验未通过", items=[str(e)],
-                          hint="用 `lab methods` 查看可用方法与超参")
+        from nemo_rl_lab.recipe_lock import RecipeLockError
+
+        hint = (
+            f"执行 `lab recipe upgrade {exp_path}` 或提交时加 --upgrade-recipe"
+            if isinstance(e, RecipeLockError)
+            else "用 `lab methods` 查看可用方法与超参"
+        )
+        cli_ui.emit_error("作业规格校验未通过", items=[str(e)], hint=hint)
         raise typer.Exit(1) from e
 
 
@@ -284,7 +313,7 @@ def _submit_post(action: str, exp_path: str, profile: Optional[str], flags: list
     if not recipe_name:
         cli_ui.emit_error(
             "实验没有声明 recipe",
-            hint="实验缺少 recipe.lock.json；用 `lab new` 重建或提交时补 --framework-version 生成",
+            hint="实验缺少 recipe.lock.json；用 `lab new` 重建或 `lab recipe upgrade` 生成",
         )
         return 1
     recipe = get_recipe(recipe_name)
@@ -362,21 +391,27 @@ def export_ckpt(
 def eval_ckpt(
     ctx: typer.Context,
     exp: str = typer.Argument(..., autocompletion=common.complete_exp, help="实验名或路径"),
-    model: Optional[str] = typer.Option(None, "--model", help="NeMo-RL：HF 模型路径/Hub id"),
+    run_id: Optional[str] = typer.Option(None, "--run-id", help="VeRL SFT：接收验证样本的训练 run id"),
+    model: Optional[str] = typer.Option(None, "--model", help="NeMo-RL 或 VeRL SFT：HF 模型路径/Hub id"),
     eval_config: Optional[str] = typer.Option(None, "--eval-config", help="NeMo-RL：显式评测配置路径"),
     data: Optional[str] = typer.Option(None, "--data", help="verl：显式评测数据路径"),
+    step: Optional[int] = typer.Option(None, "--step", min=0, help="VeRL SFT：导出 checkpoint 对应训练步"),
     profile: Optional[str] = common.PROF_OPT,
     allow_dirty: bool = typer.Option(False, "--allow-dirty", help="允许工作区有未提交改动"),
     dry_run: bool = typer.Option(False, "--dry-run", help="只打印将提交的命令，不实际提交"),
 ) -> None:
     """按 recipe 的原生评测入口执行；NeMo-RL 用 --model/--eval-config，verl 用 --data。"""
     flags: list[str] = []
+    if run_id:
+        flags += ["--run-id", run_id]
     if model:
         flags += ["--model", model]
     if eval_config:
         flags += ["--eval-config", eval_config]
     if data:
         flags += ["--data", data]
+    if step is not None:
+        flags += ["--step", str(step)]
     extra = list(ctx.args)  # `--` 之后透传给 run_eval.py 的覆盖项
     if extra:
         flags += ["--", *extra]

@@ -79,22 +79,33 @@ def _fork_experiment(repo_root: Path, kind: str, name: str, src: str) -> None:
         raise NewExperimentError(f"已存在: {dest}")
 
     src_dir = _resolve_src_dir(repo_root, src)
-    from nemo_rl_lab.recipe_lock import validate_recipe_lock
+    from nemo_rl_lab.commands.exp import validate_exp_config
+    from nemo_rl_lab.recipe_lock import RecipeLockError, RecipeLockManager
     from nemo_rl_lab.spec_builder import infer_recipe
 
     recipe_name = infer_recipe(src_dir)
     if not recipe_name:
         raise NewExperimentError(f"来源实验缺少 recipe.lock.json（recipe 声明）: {src_dir}")
-    try:
-        validate_recipe_lock(src_dir, recipe_name)
-    except ValueError as exc:
-        raise NewExperimentError(str(exc)) from exc
     shutil.copytree(src_dir, dest)
     outputs = dest / "outputs"
     if outputs.exists():
         shutil.rmtree(outputs)
 
     _patch_fork_metadata(dest, name)
+    try:
+        RecipeLockManager().upgrade(
+            dest,
+            recipe_name=recipe_name,
+            validate_config=lambda path, recipe: validate_exp_config(
+                path, recipe, repo_root=repo_root
+            ),
+        )
+    except RecipeLockError as exc:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise NewExperimentError(
+            f"fork 后无法升级到当前 recipe：{exc}。"
+            f"先对来源执行 `lab recipe upgrade {src_dir.name}`"
+        ) from exc
 
     print(f"已 fork 实验: {dest}（来源: {src}）")
     print(f"  · config.yaml 的 swanlab project/name 与 README 标题已改为: {name}")

@@ -29,9 +29,11 @@ def test_create_grpo_from_template(tmp_path):
     assert not (dest / "method").exists()  # recipe 声明只在锁文件里
     assert not (dest / "cluster").exists()  # 硬件 profile 提交时用 --profile 指定
     lock = json.loads((dest / LOCK_FILE).read_text(encoding="utf-8"))
-    assert lock["apiVersion"] == "lab/recipe-lock/v2"
+    assert lock["apiVersion"] == "lab/recipe-lock/v3"
     assert lock["recipe"]["name"] == "nemo-rl/grpo"
-    assert lock["recipe"]["framework_version"] == "0.7.0"
+    assert lock["framework"]["version"] == "0.7.0"
+    assert lock["framework"]["runtime_id"]
+    assert lock["requires"]["sdk"] == ">=2.1,<3"
 
 
 def test_fork_patches_swanlab_and_readme(tmp_path):
@@ -51,6 +53,33 @@ def test_fork_patches_swanlab_and_readme(tmp_path):
     assert 'project: "new_exp"' in cfg
     assert 'name: "new_exp"' in cfg
     assert (repo / "experiments" / "new_exp" / "README.md").read_text(encoding="utf-8").startswith("# new_exp")
+
+
+def test_fork_upgrades_stale_source_lock_on_destination(tmp_path):
+    repo = tmp_path / "repo"
+    src = repo / "experiments" / "src_exp"
+    src.mkdir(parents=True)
+    (src / "train.sh").write_text("#!/bin/bash\n", encoding="utf-8")
+    (src / LOCK_FILE).write_text(
+        json.dumps({
+            "apiVersion": "lab/recipe-lock/v2",
+            "sdk_version": "2.1.0",
+            "recipe": {
+                "name": "custom/custom",
+                "version": "1.0.0",
+                "digest": "sha256:" + "a" * 64,
+                "framework": "custom",
+                "framework_version": "user-managed",
+            },
+        }),
+        encoding="utf-8",
+    )
+    (repo / "experiments").mkdir(exist_ok=True)
+    create_experiment(repo, "experiments", "new_exp", src="src_exp")
+    dest_lock = json.loads((repo / "experiments" / "new_exp" / LOCK_FILE).read_text(encoding="utf-8"))
+    assert dest_lock["apiVersion"] == "lab/recipe-lock/v3"
+    src_lock = json.loads((src / LOCK_FILE).read_text(encoding="utf-8"))
+    assert src_lock["apiVersion"] == "lab/recipe-lock/v2"
 
 
 def test_fork_rejects_source_without_recipe_metadata(tmp_path):
@@ -123,8 +152,8 @@ def test_create_trl_recipe_copies_framework_template_and_pins_version(tmp_path):
     assert "num_generations:" in (dest / "config.yaml").read_text(encoding="utf-8")
     assert (dest / "train.py").is_file()
     lock = json.loads((dest / LOCK_FILE).read_text(encoding="utf-8"))
-    assert lock["recipe"]["framework"] == "trl"
-    assert lock["recipe"]["framework_version"] == "1.10.0"
+    assert lock["framework"]["kind"] == "trl"
+    assert lock["framework"]["version"] == "1.10.0"
 
 
 def test_recipe_template_failure_is_atomic(tmp_path, monkeypatch):

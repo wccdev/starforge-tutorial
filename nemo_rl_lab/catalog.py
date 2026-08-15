@@ -1,31 +1,38 @@
-"""与 Console recipe catalog 的精确契约校验（纯函数，不联网）。"""
+"""与 Console recipe catalog 的契约校验（纯函数，不联网）。
+
+v2 握手：SDK 用兼容范围，recipe bundle / framework / runtime_id 仍精确匹配。
+v1 握手保留给尚未升级的 Console，仍要求 SDK 字符串全等。
+"""
 from __future__ import annotations
 
 import hashlib
 import json
+
+from packaging.specifiers import InvalidSpecifier, SpecifierSet
+from packaging.version import InvalidVersion, Version
 
 
 class CatalogCompatibilityError(ValueError):
     """CLI、Console 与 recipe catalog 不是同一份精确契约。"""
 
 
+_CATALOG_VERSIONS = ("lab/recipe-catalog/v1", "lab/recipe-catalog/v2")
+
+
 def verify_catalog_compatibility(spec, payload: dict) -> None:
-    """在上传前验证 Console 公布的精确 SDK/recipe/adapter 契约。"""
+    """在上传前验证 Console 公布的 SDK/recipe/adapter 契约。"""
     from nemo_lab_sdk import __version__ as sdk_version
     from nemo_lab_sdk.contract import API_VERSION
 
-    if payload.get("apiVersion") != "lab/recipe-catalog/v1":
+    api_version = payload.get("apiVersion")
+    if api_version not in _CATALOG_VERSIONS:
         raise CatalogCompatibilityError("Console recipe catalog apiVersion 不兼容")
     versions = (payload.get("contract") or {}).get("versions")
     if versions != [API_VERSION]:
         raise CatalogCompatibilityError(
             f"Console JobSpec contract 不兼容：server={versions!r}, cli={[API_VERSION]!r}"
         )
-    server_sdk = payload.get("sdk") or {}
-    if server_sdk.get("version") != sdk_version or server_sdk.get("requirement") != f"=={sdk_version}":
-        raise CatalogCompatibilityError(
-            f"SDK 版本不兼容：server={server_sdk!r}, cli=={sdk_version}"
-        )
+    _verify_sdk_handshake(payload.get("sdk") or {}, sdk_version, api_version=api_version)
     recipes = payload.get("recipes")
     if not isinstance(recipes, list):
         raise CatalogCompatibilityError("Console recipe catalog 缺少 recipes 数组")
@@ -76,4 +83,36 @@ def verify_catalog_compatibility(spec, payload: dict) -> None:
         raise CatalogCompatibilityError(
             f"Console runtime_id 不兼容：server={server_runtime_id!r}, "
             f"cli={spec.spec.framework.runtime_id!r}"
+        )
+    recipe_requires = str(selected.get("sdk_requires") or "").strip()
+    if recipe_requires:
+        _require_sdk_in_range(sdk_version, recipe_requires, where="recipe.sdk_requires")
+
+
+def _verify_sdk_handshake(server_sdk: dict, cli_version: str, *, api_version: str) -> None:
+    server_version = str(server_sdk.get("version") or "").strip()
+    requirement = str(server_sdk.get("requirement") or "").strip()
+    if api_version == "lab/recipe-catalog/v1":
+        if server_version != cli_version or requirement != f"=={cli_version}":
+            raise CatalogCompatibilityError(
+                f"SDK 版本不兼容：server={server_sdk!r}, cli=={cli_version}"
+            )
+        return
+    if not server_version or not requirement:
+        raise CatalogCompatibilityError(f"SDK 握手缺少 version/requirement：{server_sdk!r}")
+    _require_sdk_in_range(cli_version, requirement, where="catalog.sdk.requirement")
+    _require_sdk_in_range(server_version, requirement, where="catalog.sdk.requirement")
+
+
+def _require_sdk_in_range(version: str, requirement: str, *, where: str) -> None:
+    try:
+        parsed = Version(version)
+        spec = SpecifierSet(requirement, prereleases=True)
+    except (InvalidVersion, InvalidSpecifier) as exc:
+        raise CatalogCompatibilityError(
+            f"非法 SDK 兼容声明 {where}={requirement!r} version={version!r}"
+        ) from exc
+    if parsed not in spec:
+        raise CatalogCompatibilityError(
+            f"SDK 版本不兼容：{where}={requirement}，实际 {version}"
         )

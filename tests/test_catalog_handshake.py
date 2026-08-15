@@ -28,9 +28,9 @@ def _payload(spec, **recipe_overrides):
         json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     return {
-        "apiVersion": "lab/recipe-catalog/v1",
+        "apiVersion": "lab/recipe-catalog/v2",
         "contract": {"versions": ["lab/v2"]},
-        "sdk": {"version": "2.1.0", "requirement": "==2.1.0"},
+        "sdk": {"version": "2.1.0", "requirement": ">=2.1,<3"},
         "catalog_digest": f"sha256:{digest}",
         "recipes": [item],
     }
@@ -57,9 +57,24 @@ def test_catalog_handshake_rejects_recipe_drift(field, value):
 def test_catalog_handshake_rejects_sdk_drift():
     spec = _spec()
     payload = _payload(spec)
-    payload["sdk"] = {"version": "9.0.0", "requirement": "==9.0.0"}
+    payload["sdk"] = {"version": "9.0.0", "requirement": ">=9,<10"}
     with pytest.raises(CatalogCompatibilityError, match="SDK"):
         verify_catalog_compatibility(spec, payload)
+
+
+def test_catalog_handshake_accepts_compatible_sdk_range():
+    spec = _spec()
+    payload = _payload(spec)
+    payload["sdk"] = {"version": "2.2.0", "requirement": ">=2.1,<3"}
+    verify_catalog_compatibility(spec, payload)
+
+
+def test_catalog_handshake_still_accepts_legacy_v1_exact_match():
+    spec = _spec()
+    payload = _payload(spec)
+    payload["apiVersion"] = "lab/recipe-catalog/v1"
+    payload["sdk"] = {"version": "2.1.0", "requirement": "==2.1.0"}
+    verify_catalog_compatibility(spec, payload)
 
 
 def test_catalog_handshake_rejects_tampered_catalog_digest():

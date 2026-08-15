@@ -1,11 +1,21 @@
 {
-  "apiVersion": "lab/recipe-lock/v2",
-  "recipe": {
-    "digest": "sha256:91f4c07b4ec7c3abe7f34b19d59111f931b5c1bd9f3a9e40a9e3ec7058a979a8",
-    "framework": "verl",
-    "framework_version": "0.8.0",
-    "name": "verl/sft",
+  "apiVersion": "lab/recipe-lock/v3",
+  "created_by": {
+    "sdk_version": "2.1.0"
+  },
+  "framework": {
+    "kind": "verl",
+    "runtime_id": "verl-0.8.0",
     "version": "0.8.0"
   },
-  "sdk_version": "2.1.0"
+  "recipe": {
+    "digest": "sha256:057f2a353b0bda4dbce93f9b8f5c587a293b01b7140301767bcd280094fb0568",
+    "manifest_digest": "sha256:ca0c04d2f37143be340e06c8d6a06b5e1de5620e5079a0890fa19d27eaf81a35",
+    "name": "verl/sft",
+    "template_digest": "sha256:774e18a5391bb5e22c21b78e7316c5a6239562677a6278dbaf41d09b6cfbbbe8",
+    "version": "0.8.0"
+  },
+  "requires": {
+    "sdk": ">=2.1,<3"
+  }
 }

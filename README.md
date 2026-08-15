@@ -108,9 +108,10 @@ spec:
 `lab submit` 生成它，服务端据此装配作业。两边各有一份 golden test 钉住这份映射，
 契约漂移会在 CI 当场失败，而不是在某次训练跑到一半时。
 
-recipe identity 与 framework runtime identity 分开记录；`recipe.lock.json` v2 固定
-recipe digest 和精确 framework version。`--framework-version` 只能选择 catalog 已发布版本，
-不接受 `latest`、范围或分支，也不会在失败时换版本/换 adapter。
+recipe identity 与 framework runtime identity 分开记录；`recipe.lock.json` v3 固定
+recipe bundle digest 和精确 framework version。SDK 只要求满足兼容范围。
+锁过期时用 `lab recipe upgrade`，提交过程不会静默改写。`--framework-version`
+只能选择 catalog 已发布版本，不接受 `latest`、范围或分支。
 
 **加一种后训练方法不需要改本仓代码** —— 方法定义在 SDK 的
 `recipes/catalog/<framework>/<recipe>/` 两级目录里，

@@ -8,12 +8,13 @@ _PATCHED = False
 # agent 轨迹含检索 env，单条可达数十 KB；默认小片 + 字段截断，避免整轮 POST 超时被静默丢掉。
 _DEFAULT_CHUNK = 8
 _DEFAULT_FIELD_CHARS = 12_000
+_DEFAULT_SFT_SAMPLES = 8
 
 
 def _val_upload_config() -> tuple[int | None, int, int]:
     """验证样本上报配置（环境变量）。
 
-    - NEMOLAB_VAL_UPLOAD_SAMPLES：整轮上报条数上限；0/未设/非法 → None（全量）。
+    - NEMOLAB_VAL_UPLOAD_SAMPLES：整轮上报条数上限；0 → 关闭，未设/非法 → None（全量）。
     - NEMOLAB_VAL_CHUNK：分片大小（默认 8），避免大 payload 触发代理体积限制 / 超时。
     - NEMOLAB_VAL_FIELD_CHARS：单字段（user/assistant/env）字符上限（默认 12000）。
     """
@@ -22,7 +23,7 @@ def _val_upload_config() -> tuple[int | None, int, int]:
     if raw:
         try:
             v = int(raw)
-            upload_n = v if v > 0 else None
+            upload_n = max(0, v)
         except ValueError:
             upload_n = None
     try:
@@ -75,6 +76,8 @@ def _upload_validation_samples(ingest, step: int, message_logs, rewards) -> None
     from common.observability.validation_extract import extract_message_log_samples
 
     upload_n, chunk_size, field_chars = _val_upload_config()
+    if upload_n == 0:
+        return
     samples, dist, avg_reward = extract_message_log_samples(
         message_logs,
         rewards,
@@ -91,7 +94,8 @@ def _dpo_message_log_parts(message_log, tokenizer) -> list[str]:
     for m in message_log:
         text = ""
         ids = m.get("token_ids")
-        if ids:
+        # torch.Tensor 不支持隐式 bool（多元素时会抛 ambiguous truth value）。
+        if ids is not None:
             try:
                 text = tokenizer.decode(ids, skip_special_tokens=True)
             except Exception:
@@ -118,6 +122,8 @@ def _upload_dpo_samples(ingest, step: int, val_dataloader, tokenizer) -> None:
     if dataset is None:
         return
     upload_n, chunk_size, field_chars = _val_upload_config()
+    if upload_n == 0:
+        return
     total = len(dataset)
     limit = total if upload_n is None else min(upload_n, total)
     samples = []
@@ -138,7 +144,7 @@ def _upload_dpo_samples(ingest, step: int, val_dataloader, tokenizer) -> None:
                 "user": prompt[:field_chars],
                 "assistant": chosen[:field_chars],
                 "reward": None,
-                "env_info": "",
+                "env": "",
                 "extra": {
                     "chosen": chosen[:field_chars],
                     "rejected": rejected[:field_chars],
@@ -180,6 +186,166 @@ def _patch_dpo_validate() -> None:
 
     _wrapped_validate.__nemolab_dpo_patched__ = True
     dpo_mod.validate = _wrapped_validate
+
+
+def _sft_sample_skeletons(val_dataloader, tokenizer, limit: int, field_chars: int):
+    """Read fixed SFT validation examples without advancing the stateful loader."""
+    dataset = getattr(val_dataloader, "dataset", None)
+    if dataset is None:
+        return []
+    samples = []
+    for idx in range(min(limit, len(dataset))):
+        datum = dataset[idx]
+        message_log = datum.get("message_log") or []
+        if not message_log:
+            continue
+        reference_idx = next(
+            (
+                pos
+                for pos in range(len(message_log) - 1, -1, -1)
+                if message_log[pos].get("role") == "assistant"
+            ),
+            None,
+        )
+        if reference_idx is None:
+            continue
+        context = message_log[:reference_idx]
+        prompt_parts = []
+        prompt_ids = []
+        for message in context:
+            content = str(message.get("content") or "").strip()
+            if content:
+                role = str(message.get("role") or "").strip()
+                prompt_parts.append(f"{role}: {content}" if role else content)
+            ids = message.get("token_ids")
+            if ids is not None:
+                values = ids.tolist() if hasattr(ids, "tolist") else list(ids)
+                prompt_ids.extend(int(value) for value in values)
+        if not prompt_ids and hasattr(tokenizer, "apply_chat_template"):
+            prompt_ids = list(
+                tokenizer.apply_chat_template(
+                    context, tokenize=True, add_generation_prompt=True
+                )
+            )
+        reference = str(message_log[reference_idx].get("content") or "").strip()
+        samples.append(
+            {
+                "idx": len(samples),
+                "user": "\n".join(prompt_parts)[:field_chars],
+                "assistant": "",
+                "reward": None,
+                "env": "",
+                "extra": {"reference": reference[:field_chars]},
+                "_prompt_token_ids": prompt_ids,
+            }
+        )
+    return samples
+
+
+def _materialize_sft_completions(policy, tokenizer, samples, max_new_tokens: int = 128):
+    """Generate from the current LMPolicy while always restoring training state."""
+    usable = [sample for sample in samples if sample["_prompt_token_ids"]]
+    if not usable:
+        return samples
+    prepared = False
+    try:
+        import torch
+        from nemo_rl.distributed.batched_data_dict import BatchedDataDict
+
+        max_total = int(getattr(policy, "cfg", {}).get("max_total_sequence_length", 0) or 0)
+        max_prompt = max_total - max_new_tokens if max_total > max_new_tokens else None
+        prompt_rows = [
+            sample["_prompt_token_ids"][-max_prompt:] if max_prompt else sample["_prompt_token_ids"]
+            for sample in usable
+        ]
+        lengths = torch.tensor([len(row) for row in prompt_rows], dtype=torch.long)
+        width = max(int(lengths.max().item()), 1)
+        input_ids = torch.full(
+            (len(prompt_rows), width),
+            int(getattr(tokenizer, "pad_token_id", 0) or 0),
+            dtype=torch.long,
+        )
+        for row, token_ids in enumerate(prompt_rows):
+            input_ids[row, : len(token_ids)] = torch.tensor(token_ids, dtype=torch.long)
+        generation_input = BatchedDataDict(
+            {"input_ids": input_ids, "input_lengths": lengths}
+        )
+        policy.prepare_for_generation()
+        prepared = True
+        generated = policy.generate(generation_input, greedy=True)
+        output_ids = generated["output_ids"]
+        generation_lengths = generated["generation_lengths"]
+        for row, sample in enumerate(usable):
+            start = int(lengths[row].item())
+            count = min(int(generation_lengths[row].item()), max_new_tokens)
+            token_ids = output_ids[row, start : start + count].tolist()
+            sample["assistant"] = tokenizer.decode(
+                token_ids, skip_special_tokens=True
+            ).strip()
+    finally:
+        try:
+            if prepared:
+                policy.finish_generation()
+        finally:
+            policy.prepare_for_training()
+    return samples
+
+
+def _upload_sft_samples(ingest, step: int, policy, val_dataloader, tokenizer) -> None:
+    upload_n, chunk_size, field_chars = _val_upload_config()
+    if upload_n == 0 or val_dataloader is None:
+        return
+    limit = _DEFAULT_SFT_SAMPLES if upload_n is None else upload_n
+    samples = _sft_sample_skeletons(val_dataloader, tokenizer, limit, field_chars)
+    if not samples:
+        return
+    try:
+        _materialize_sft_completions(policy, tokenizer, samples)
+    except Exception as exc:
+        # Reference-only remains useful and must not affect the completed validation.
+        print(f"NeMoLab SFT generation failed; uploading references only: {exc}", flush=True)
+    for sample in samples:
+        sample.pop("_prompt_token_ids", None)
+    _enqueue_samples(ingest, step, samples, chunk_size)
+
+
+def _patch_sft_validate() -> None:
+    """Wrap NeMo-RL 0.7 SFT validation with bounded current-policy generation."""
+    try:
+        import nemo_rl.algorithms.sft as sft_mod
+    except ImportError:
+        return
+    if getattr(sft_mod.validate, "__nemolab_sft_patched__", False):
+        return
+    original = sft_mod.validate
+
+    def wrapped(*args, **kwargs):
+        result = original(*args, **kwargs)
+        try:
+            from common.observability.session import get_ingest
+
+            ingest = get_ingest()
+            if ingest is not None:
+                policy = kwargs.get("policy") or (args[0] if args else None)
+                val_dataloader = kwargs.get("val_dataloader") or (
+                    args[1] if len(args) > 1 else None
+                )
+                tokenizer = kwargs.get("tokenizer") or (
+                    args[2] if len(args) > 2 else None
+                )
+                step = kwargs.get("step") if "step" in kwargs else (
+                    args[4] if len(args) > 4 else 0
+                )
+                if policy is not None and tokenizer is not None:
+                    _upload_sft_samples(
+                        ingest, int(step), policy, val_dataloader, tokenizer
+                    )
+        except Exception as exc:
+            print(f"NeMoLab SFT validation upload failed (training continues): {exc}", flush=True)
+        return result
+
+    wrapped.__nemolab_sft_patched__ = True
+    sft_mod.validate = wrapped
 
 
 def apply_patch() -> None:
@@ -253,5 +419,6 @@ def apply_patch() -> None:
     logger_mod.Logger.__del__ = _patched_del
     logger_mod.print_message_log_samples = _patched_print_message_log_samples
     _patch_dpo_validate()
+    _patch_sft_validate()
     _PATCHED = True
     print("NeMoLab logger patch applied")

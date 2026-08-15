@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import typer
 
-from nemo_rl_lab.commands import admin, dataset, exp, jobs, login, plugin, submit
+from nemo_rl_lab.commands import admin, dataset, exp, jobs, login, plugin, recipe, submit
 
 app = typer.Typer(
     add_completion=True,
@@ -46,6 +46,7 @@ app.command(help="账号、配额、用量与活跃作业")(jobs.status)
 app.add_typer(jobs.job_app, name="job")
 
 # ----------------------------- 数据集 / 插件 / 管理员 -----------------------------
+app.add_typer(recipe.recipe_app, name="recipe")
 app.add_typer(dataset.dataset_app, name="dataset")
 app.add_typer(plugin.plugin_app, name="plugin")
 app.add_typer(admin.admin_app, name="admin")
