@@ -187,8 +187,9 @@ class IngestClient:
             time.sleep(self.flush_interval)
 
     def _headers(self) -> dict[str, str]:
+        # 与 SDK Reporter 共用同一鉴权头（服务端同时兼容 Bearer，平滑过渡）。
         return {
-            "Authorization": f"Bearer {self.token}",
+            "X-NeMoLab-Token": self.token,
             "Content-Type": "application/json",
         }
 

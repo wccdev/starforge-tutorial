@@ -170,3 +170,78 @@ def test_patch_is_noop_without_token(monkeypatch):
     # 无 token、无 nemo_rl 也不应抛错（直接返回）
     patch_mod.apply_patch()
     assert patch_mod._PATCHED is False
+
+
+class _FakeTokenizer:
+    def decode(self, ids, skip_special_tokens=True):
+        return "".join(chr(i) for i in ids)
+
+
+class _FakeIngest:
+    def __init__(self):
+        self.run_id = "r1"
+        self.payloads = []
+
+    def enqueue_validation(self, payload):
+        self.payloads.append(payload)
+        return True
+
+
+def _dpo_datum(user_ids, chosen_ids, rejected_ids):
+    return {
+        "message_log_chosen": [
+            {"role": "user", "token_ids": user_ids},
+            {"role": "assistant", "token_ids": chosen_ids},
+        ],
+        "message_log_rejected": [
+            {"role": "user", "token_ids": user_ids},
+            {"role": "assistant", "token_ids": rejected_ids},
+        ],
+    }
+
+
+def test_dpo_samples_extracted_from_dataset(monkeypatch):
+    from common.observability.patch import _upload_dpo_samples
+
+    data = [
+        _dpo_datum([ord("q"), ord("?")], [ord("4")], [ord("5")]),
+        _dpo_datum([ord("p")], [ord("y")], [ord("n")]),
+    ]
+
+    class _Loader:
+        dataset = data
+
+    ingest = _FakeIngest()
+    _upload_dpo_samples(ingest, 12, {"val": _Loader()}, _FakeTokenizer())
+
+    assert len(ingest.payloads) == 1
+    payload = ingest.payloads[0]
+    assert payload["step"] == 12
+    assert payload["total_samples"] == 2
+    s = payload["samples"][0]
+    assert s["user"] == "q?"
+    assert s["assistant"] == "4"
+    assert s["reward"] is None
+    assert s["extra"] == {"chosen": "4", "rejected": "5"}
+
+
+def test_dpo_samples_respect_upload_limit(monkeypatch):
+    from common.observability.patch import _upload_dpo_samples
+
+    monkeypatch.setenv("NEMOLAB_VAL_UPLOAD_SAMPLES", "1")
+    data = [_dpo_datum([97], [98], [99])] * 5
+
+    class _Loader:
+        dataset = data
+
+    ingest = _FakeIngest()
+    _upload_dpo_samples(ingest, 1, {"val": _Loader()}, _FakeTokenizer())
+    assert ingest.payloads[0]["total_samples"] == 1
+
+
+def test_dpo_samples_no_dataloader_is_noop():
+    from common.observability.patch import _upload_dpo_samples
+
+    ingest = _FakeIngest()
+    _upload_dpo_samples(ingest, 1, {}, _FakeTokenizer())
+    assert ingest.payloads == []
