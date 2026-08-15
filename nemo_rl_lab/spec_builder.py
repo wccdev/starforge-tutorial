@@ -71,22 +71,110 @@ def _literal(v: str) -> Any:
 
 
 def parse_pool(raw: str) -> ResourcePool:
-    """解析 `--pool name:series:nodes:gpus_per_node`。
+    """解析内部资源池字符串 `name:series:nodes:gpus_per_node`。
 
-    例：--pool train:h200:1:4 --pool rollout:h100:1:2
-    这正是 grpo_noncolocated（1 卡生成 / 1 卡训练）第一次能被显式表达出来。
+    用户不再手写这个格式——CLI 把 `--profile 名称[:总卡数]` 经注册表物化成
+    这种字符串后传进来（见 materialize_pools）；保留字符串形态是为了
+    build_spec 的入参与测试稳定。
     """
     parts = [p.strip() for p in raw.split(":")]
     if len(parts) != 4:
         raise SpecError(
-            f"--pool 需要 name:series:nodes:gpus_per_node 四段，收到 {raw!r}"
+            f"资源池需要 name:series:nodes:gpus_per_node 四段，收到 {raw!r}"
             "（例：train:h200:1:4）"
         )
     name, series, nodes, per_node = parts
     for label, v in (("nodes", nodes), ("gpus_per_node", per_node)):
         if not v.isdigit() or int(v) <= 0:
-            raise SpecError(f"--pool 的 {label} 应为正整数，收到 {v!r}")
+            raise SpecError(f"资源池的 {label} 应为正整数，收到 {v!r}")
     return ResourcePool(name=name, series=series, nodes=int(nodes), gpus_per_node=int(per_node))
+
+
+def parse_profile_expr(raw: str) -> tuple[str, str, Optional[int]]:
+    """解析统一资源参数 `[role=]名称[:总卡数]` → (role, profile_name, gpus)。
+
+    例：h200 → ("", "h200", None)；h200:4 → ("", "h200", 4)；
+        rollout=h100:2 → ("rollout", "h100", 2)。
+    role 前缀是异构多池的扩展位：不同角色落在不同卡型/池上。
+    """
+    s = (raw or "").strip()
+    role, _, rest = s.partition("=") if "=" in s else ("", "", s)
+    role = role.strip()
+    name, sep, gpus_s = rest.partition(":")
+    name, gpus_s = name.strip(), gpus_s.strip()
+    if not name:
+        raise SpecError(f"--profile 需要 [role=]名称[:总卡数] 形式，收到 {raw!r}")
+    if not sep:
+        return role, name, None
+    if not gpus_s.isdigit() or int(gpus_s) <= 0:
+        raise SpecError(f"--profile 的总卡数应为正整数，收到 {raw!r}（例：h200:4）")
+    return role, name, int(gpus_s)
+
+
+def _shape_for(name: str, gpus: Optional[int], entry: dict) -> tuple[int, int]:
+    """由 profile 默认形状与可选的总卡数覆盖推导 (nodes, gpus_per_node)。
+
+    不超过单节点容量 → 单节点 N 卡；超过则必须是整节点的倍数——部分占用
+    多个节点的形状没有对应的调度语义，宁可报错也不猜。
+    """
+    per_node = int(entry.get("gpus_per_node") or 1)
+    if gpus is None:
+        return int(entry.get("num_nodes") or 1), per_node
+    if gpus <= per_node:
+        return 1, gpus
+    if gpus % per_node == 0:
+        return gpus // per_node, per_node
+    raise SpecError(
+        f"profile「{name}」每节点 {per_node} 卡：要 {gpus} 卡须不超过 {per_node}"
+        f"（单节点）或为 {per_node} 的整数倍（整节点）"
+    )
+
+
+def materialize_pools(
+    exprs: list[str], registry: dict[str, dict]
+) -> tuple[str, list[str], list[str]]:
+    """把 `--profile [role=]名称[:总卡数]` 物化成 (作业 profile, pools, roles)。
+
+    series 与默认形状一律取服务端注册表，用户没有途径写出「钉在 A 卡、
+    账记 B 卡」的 spec。单条目 → 单池 "all"（角色由 build_spec 自动推断）；
+    多条目是异构多池扩展位：每条必须带 role= 前缀，池名即角色名。
+    """
+    if not exprs:
+        raise SpecError("至少需要一个 --profile（`lab status` 查看可用值）")
+    parsed = [parse_profile_expr(e) for e in exprs]
+
+    known = "、".join(sorted(registry)) or "（注册表为空）"
+    for _, name, _ in parsed:
+        if name not in registry:
+            raise SpecError(f"未知的 profile「{name}」；可用：{known}")
+
+    if len(parsed) == 1:
+        role, name, gpus = parsed[0]
+        entry = registry[name]
+        nodes, per_node = _shape_for(name, gpus, entry)
+        pool_name = role or "all"
+        pools = [f"{pool_name}:{entry.get('series') or name}:{nodes}:{per_node}"]
+        roles = [f"{role}:{pool_name}"] if role else []
+        return name, pools, roles
+
+    missing = [raw for raw, (role, _, _) in zip(exprs, parsed) if not role]
+    if missing:
+        raise SpecError(
+            f"多个 --profile 时每条都要 role= 前缀（角色到池的映射），缺前缀：{missing[0]!r}"
+            "（例：--profile train=h200:8 --profile rollout=h100:2）"
+        )
+    seen: set[str] = set()
+    pools, roles = [], []
+    for role, name, gpus in parsed:
+        if role in seen:
+            raise SpecError(f"角色 {role!r} 重复声明")
+        seen.add(role)
+        entry = registry[name]
+        nodes, per_node = _shape_for(name, gpus, entry)
+        pools.append(f"{role}:{entry.get('series') or name}:{nodes}:{per_node}")
+        roles.append(f"{role}:{role}")
+    # 作业级 env/overrides/pin 目前是单 profile 语义，取第一条的 profile。
+    return parsed[0][1], pools, roles
 
 
 def build_spec(
@@ -172,11 +260,13 @@ def build_spec(
 
     pool_objs = tuple(parse_pool(p) for p in (pools or []))
     if not pool_objs:
-        raise SpecError("lab/v2 要求显式资源池；请至少传一个 --pool name:series:nodes:gpus_per_node")
+        # CLI 总会由 --profile 物化出资源池（materialize_pools），走到这里
+        # 只能是直接调用 build_spec 却漏传 pools。
+        raise SpecError("缺少资源池：请传 pools（CLI 由 --profile 名称[:总卡数] 自动物化）")
     role_map: dict[str, str] = {}
     for raw in roles or []:
         if ":" not in raw:
-            raise SpecError(f"--role 需要 role:pool 形式，收到 {raw!r}")
+            raise SpecError(f"角色映射需要 role:pool 形式，收到 {raw!r}")
         role, _, pool = raw.partition(":")
         role_map[role.strip()] = pool.strip()
 
@@ -186,8 +276,8 @@ def build_spec(
             role_map = {role: pool_objs[0].name for role in r.roles}
         else:
             raise SpecError(
-                f"声明了 {len(pool_objs)} 个资源池但没有 --role 映射。"
-                f"方法 {r.id} 的角色：{', '.join(r.roles)}"
+                f"声明了 {len(pool_objs)} 个资源池但缺少角色映射；"
+                f"多池请用 --profile role=名称[:总卡数] 声明。方法 {r.id} 的角色：{', '.join(r.roles)}"
             )
     if validate:
         known = {p.name for p in pool_objs}

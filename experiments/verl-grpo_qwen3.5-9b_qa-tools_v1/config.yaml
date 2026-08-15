@@ -11,7 +11,11 @@
 #
 # ⚠️ 数据集要求（见 prepare_data.py）：每行必须带 agent_name="tool_agent"，
 #    否则异步模式静默回落 single_turn_agent、工具永远不触发（verl issue #2986）。
-# ⚠️ 模型/数据不写在这里：提交时 --model / --train-data / --validation-data 绑定（平台权威键）。
+# ⚠️ 模型不写在这里：提交时 --model 绑定（平台权威键）。数据两种接法：
+#    a) 平台数据集（推荐）：此处声明 data.train.dataset: <owner>/<name>@v1，
+#       提交时 --train-data/--validation-data 写数据集内的相对文件名（如 train.parquet），
+#       作业侧自动拉到共享缓存并解析为绝对路径；
+#    b) 集群路径：--train-data/--validation-data 直接写共享盘绝对路径。
 #    hermes 工具格式要求模型 chat template 支持工具调用，请用 Instruct 模型（如 Qwen/Qwen3.5-9B）。
 
 data:

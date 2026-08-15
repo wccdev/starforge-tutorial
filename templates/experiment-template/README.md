@@ -13,7 +13,8 @@
   **只写本实验差异**；不断调参就改 `config.yaml` 的「本实验差异」部分。
 - 训练入口、指标与产物契约由 SDK 中的版本化 recipe 声明；实验目录不写 `framework`
   标记，也不按 `run.py`/`train.sh` 是否存在猜测框架。
-- 硬件 profile：`h100 | h200 | h200-2g`（提交时 `lab submit --profile` 指定；env/overrides 由 Console 服务端注册表下发）。
+- 硬件与资源：提交时 `lab submit --profile 名称[:总卡数]` 一个参数说清（如 `h200`、`h200:4`）；
+  卡型、默认形状、env/overrides 均由 Console 服务端注册表下发。
 
 ## 监控
 
@@ -24,7 +25,7 @@
 ## 运行
 
 ```bash
-uv run lab submit <实验名> --pool train:h100:1:1
+uv run lab submit <实验名> --profile h100
 ```
 
 产物（checkpoint / 日志）落到本目录 `outputs/`（已 .gitignore）。

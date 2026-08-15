@@ -189,6 +189,77 @@ def test_dataset_push_exposes_public_flag():
     assert "--public" in res.stdout
 
 
+def test_dataset_push_puts_with_server_signed_headers(monkeypatch, tmp_path):
+    """PUT 的 Content-Type 必须与服务端预签名的一致，一律照抄下发的 headers。
+
+    历史 bug：index.json 用 application/json 而签名是 octet-stream，
+    对象存储回 403 SignatureDoesNotMatch。"""
+    import urllib.request
+
+    from nemo_rl_lab import api_client
+
+    (tmp_path / "train.jsonl").write_text('{"q":1}\n', encoding="utf-8")
+
+    signed = {"Content-Type": "application/octet-stream"}
+    puts: list[dict] = []
+
+    monkeypatch.setattr(api_client, "current_server", lambda *a, **k: "http://srv")
+    monkeypatch.setattr(
+        api_client, "api_post",
+        lambda path, body, server=None: {
+            "dataset": "alice/qa-rl", "upload_url": "http://s3/put",
+            "headers": dict(signed),
+        },
+    )
+    monkeypatch.setattr(
+        urllib.request, "urlopen",
+        lambda req, timeout=0: puts.append(dict(req.headers)) or None,
+    )
+    api_client.dataset_push("qa-rl", "v1", tmp_path, [tmp_path / "train.jsonl"])
+    assert len(puts) == 2  # train.jsonl + index.json
+    for headers in puts:
+        assert headers.get("Content-type") == "application/octet-stream"
+
+
+def test_dataset_refs_read_from_experiment_config(monkeypatch, tmp_path):
+    """数据集引用声明在实验 config（data.{train,validation}.dataset），submit 自动拾取。"""
+    from nemo_rl_lab.commands import submit as submit_cmd
+
+    e = tmp_path / "experiments" / "demo"
+    e.mkdir(parents=True)
+    (e / "config.yaml").write_text(
+        "data:\n"
+        "  train:\n"
+        "    dataset: aiden_lu/gsm8k@v1\n"
+        "    data_path: ${oc.env:GSM8K_DATA_DIR}/train.jsonl\n"
+        "  validation:\n"
+        "    dataset: aiden_lu/gsm8k@v1\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(submit_cmd.common, "ROOT", tmp_path)
+    assert submit_cmd._dataset_refs_from_config("experiments/demo") == (
+        "aiden_lu/gsm8k@v1", "aiden_lu/gsm8k@v1"
+    )
+
+
+def test_dataset_refs_absent_or_broken_config_is_silent(monkeypatch, tmp_path):
+    """没 config、没声明、config 解析失败都返回空——报错归校验环节，这里不重复拦。"""
+    from nemo_rl_lab.commands import submit as submit_cmd
+
+    (tmp_path / "experiments" / "none").mkdir(parents=True)
+    plain = tmp_path / "experiments" / "plain"
+    plain.mkdir()
+    (plain / "config.yaml").write_text("data:\n  train:\n    data_path: /x.jsonl\n", encoding="utf-8")
+    broken = tmp_path / "experiments" / "broken"
+    broken.mkdir()
+    (broken / "config.yaml").write_text(":\n  - [", encoding="utf-8")
+
+    monkeypatch.setattr(submit_cmd.common, "ROOT", tmp_path)
+    assert submit_cmd._dataset_refs_from_config("experiments/none") == ("", "")
+    assert submit_cmd._dataset_refs_from_config("experiments/plain") == ("", "")
+    assert submit_cmd._dataset_refs_from_config("experiments/broken") == ("", "")
+
+
 def test_dataset_push_forwards_namespace_and_visibility(monkeypatch, tmp_path):
     """push 把数据集名与 --public 原样交给服务端（owner 归属由服务端裁决）。"""
     from nemo_rl_lab import api_client

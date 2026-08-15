@@ -77,9 +77,11 @@ data:
   input_key: query
   output_key: expected_answer
   system_prompt: null
-  # 题库在集群共享盘的绝对路径（容器内可达）。私有题库不随包上传（.gitignore），故在此显式指定；
-  # run.py 优先用服务端注入的环境变量 QA_RL_DATA_DIR，没有才用这里。
-  data_dir: /data/datasets/qa_rl
+  # 平台数据集引用：submit 自动拾取，作业启动时拉到共享缓存并注入 QA_RL_DATA_DIR
+  # （run.py 优先读该环境变量；train/val 在同一数据集目录，一个引用即可）。
+  # 换版本改这里，或提交时 --train-dataset 临时覆盖；本地干跑需自行 export QA_RL_DATA_DIR。
+  train:
+    dataset: aiden_lu/qa-rl@v1
 
 # 自定义多轮检索判分环境；_override_ 整段替换基底的 env（math）。
 env:

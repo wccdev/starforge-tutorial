@@ -367,6 +367,12 @@ def dataset_push(
             body["visibility"] = visibility
         return api_post("/api/datasets/upload-url", body, server=srv)
 
+    def _put_headers(up: dict) -> dict:
+        # Content-Type 已纳入预签名，PUT 的头必须与服务端签的逐字一致，
+        # 否则对象存储回 403 SignatureDoesNotMatch —— 照抄下发的 headers，
+        # 仅对旧版服务端（不下发 headers）回退到历史默认值。
+        return dict(up.get("headers") or {"Content-Type": "application/octet-stream"})
+
     ds_id = dataset
     index_files = []
     for f in files:
@@ -375,8 +381,7 @@ def dataset_push(
         up = _upload_url(rel)
         ds_id = up.get("dataset") or ds_id
         req = urllib.request.Request(
-            up["upload_url"], data=blob, method="PUT",
-            headers={"Content-Type": "application/octet-stream"},
+            up["upload_url"], data=blob, method="PUT", headers=_put_headers(up),
         )
         try:
             urllib.request.urlopen(req, timeout=600)
@@ -391,7 +396,7 @@ def dataset_push(
     up = _upload_url("index.json")
     body = json.dumps({"files": index_files}, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(
-        up["upload_url"], data=body, method="PUT", headers={"Content-Type": "application/json"}
+        up["upload_url"], data=body, method="PUT", headers=_put_headers(up),
     )
     try:
         urllib.request.urlopen(req, timeout=60)

@@ -10,7 +10,6 @@ uv run lab submit smoke/verl-sft \
   --model Qwen/Qwen2.5-0.5B-Instruct \
   --train-data /data/nemo-lab/smoke/gsm8k/train.parquet \
   --validation-data /data/nemo-lab/smoke/gsm8k/test.parquet \
-  --pool trainer:h100:1:1 \
   --set max_num_epochs=1 \
   --set train_batch_size=2 \
   --set max_length=512

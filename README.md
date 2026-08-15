@@ -46,10 +46,22 @@ lab job logs                                    # 跟随最近一个作业的实
 | `h100` | 单机 1× NVIDIA H100 80GB |
 
 训练配置与硬件解耦：profile 的进程环境（NCCL/显存分配）、框架覆盖项（并行度/vLLM 调优）
-与权威拓扑全部由 **Console 服务端硬件注册表**管理，提交时经环境变量注入作业
+与默认资源形状全部由 **Console 服务端硬件注册表**管理，提交时经环境变量注入作业
 （`LAB_PROFILE_OVERRIDES` / profile env），本仓库不再有 `cluster/` 目录。
-提交用 `lab submit --profile <名称>` 显式指定目标卡型——batch/seq/LoRA/显存等超参
-都是按某张卡的显存调出来的，每个实验 README 应写明推荐 profile。
+
+`--profile` 是唯一的资源入口，格式 `名称[:总卡数]`：
+
+```bash
+lab submit <实验名> --profile h200        # 注册表默认形状（1×8）
+lab submit <实验名> --profile h200:4      # 同卡型只要 4 张（单节点）
+lab submit <实验名> --profile h200:16     # 16 张 = 2 满节点（须整节点倍数）
+```
+
+卡型（series）与拓扑细节由注册表补齐，不需要也不能手写。batch/seq/LoRA/显存等超参
+都是按某张卡的显存调出来的，每个实验 README 应写明推荐 profile；改形状（如 `h200:2`）时
+服务端会提醒 profile 的调优 overrides 按默认形状调校，注意自查并行度。
+异构分池是预留扩展位：`--profile train=h200:8 --profile rollout=h100:2`（当前 launcher
+仅支持单池同构 world，多池提交会被服务端明确拒绝）。
 
 ## 它和控制平面是什么关系
 
@@ -187,7 +199,11 @@ uv run lab dataset visibility alice/qa-rl --public   # 改可见性（owner 或 
 uv run lab status                            # 账号 / 配额 / 用量 / 活跃作业（submit 前预检，别撞满卡）
 uv run lab validate grpo_qwen3.5-4b_gsm8k_v1 # 提交前静态校验 config（本地秒级，省得跑到集群才报错）
 uv run lab submit agent-grpo_qwen3.5-9b_multitool_v1   # 经服务端提交作业到集群（提交前自动校验）
-uv run lab submit <实验> --train-dataset alice/qa-rl@v1  # 训练引用平台数据集：作业启动时自动拉到共享缓存并注入 QA_RL_DATA_DIR
+# 训练引用平台数据集：config 里声明 data.train.dataset: alice/qa-rl@v1（submit 自动拾取，
+# 作业启动时拉到共享缓存并注入 QA_RL_DATA_DIR）；--train-dataset 仅作临时覆盖：
+uv run lab submit <实验> --train-dataset alice/qa-rl@v2
+# verl/TRL 同样支持：声明数据集后 --train-data 写数据集内的相对文件名，作业侧自动解析到缓存：
+uv run lab submit verl-grpo_xxx --train-data train.parquet --validation-data val.parquet
 uv run lab job ls                            # 我的作业列表 + 提交历史（--all 看全部，--exp 过滤）
 uv run lab job logs                          # 跟随最近一个作业日志（可指定作业 ID）
 uv run lab export grpo_qwen3.5-9b_gsm8k_v1   # 训练后：把 checkpoint 转 HF（自适应 dcp/megatron），可 --push-repo 推 Hub

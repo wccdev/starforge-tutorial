@@ -11,9 +11,23 @@ from __future__ import annotations
 import pytest
 from nemo_lab_sdk.contract import SpecError
 
-from nemo_rl_lab.spec_builder import build_spec, infer_recipe, parse_pool, parse_set
+from nemo_rl_lab.spec_builder import (
+    build_spec,
+    infer_recipe,
+    materialize_pools,
+    parse_pool,
+    parse_profile_expr,
+    parse_set,
+)
 
 _POOL = ["all:h100:1:1"]
+
+# 模拟服务端注册表（/api/cluster/status 下发的 profiles 摘要）。
+_REGISTRY = {
+    "h200": {"name": "h200", "series": "h200", "num_nodes": 1, "gpus_per_node": 8},
+    "h200-2g": {"name": "h200-2g", "series": "h200", "num_nodes": 1, "gpus_per_node": 2},
+    "h100": {"name": "h100", "series": "h100", "num_nodes": 1, "gpus_per_node": 1},
+}
 
 # ── --set 解析 ───────────────────────────────────────────────────────────────
 
@@ -37,7 +51,7 @@ def test_malformed_set_rejected(bad):
         parse_set([bad])
 
 
-# ── --pool 解析 ──────────────────────────────────────────────────────────────
+# ── 内部资源池字符串解析 ─────────────────────────────────────────────────────
 
 
 def test_pool_parsing():
@@ -50,6 +64,78 @@ def test_pool_parsing():
 def test_malformed_pool_rejected(bad):
     with pytest.raises(SpecError):
         parse_pool(bad)
+
+
+# ── 统一 --profile 解析与物化 ────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("h200", ("", "h200", None)),
+    ("h200:4", ("", "h200", 4)),
+    ("rollout=h100:2", ("rollout", "h100", 2)),
+    ("train=h200", ("train", "h200", None)),
+])
+def test_profile_expr_parsing(raw, expected):
+    assert parse_profile_expr(raw) == expected
+
+
+@pytest.mark.parametrize("bad", ["", ":4", "h200:", "h200:0", "h200:x", "h200:-2"])
+def test_malformed_profile_expr_rejected(bad):
+    with pytest.raises(SpecError):
+        parse_profile_expr(bad)
+
+
+def test_materialize_default_shape_from_registry():
+    """不带形状修饰 → 注册表默认形状；series 一律取注册表，用户无从写错。"""
+    prof, pools, roles = materialize_pools(["h200"], _REGISTRY)
+    assert (prof, pools, roles) == ("h200", ["all:h200:1:8"], [])
+
+
+def test_materialize_gpu_count_single_node():
+    prof, pools, _ = materialize_pools(["h200:4"], _REGISTRY)
+    assert pools == ["all:h200:1:4"]
+
+
+def test_materialize_gpu_count_full_nodes():
+    prof, pools, _ = materialize_pools(["h200:16"], _REGISTRY)
+    assert pools == ["all:h200:2:8"]
+
+
+def test_materialize_rejects_partial_multi_node():
+    """跨节点的零碎形状没有调度语义：12 卡（1.5 节点）应报错而不是猜。"""
+    with pytest.raises(SpecError, match="整数倍"):
+        materialize_pools(["h200:12"], _REGISTRY)
+
+
+def test_materialize_profile_name_not_series():
+    """h200-2g 的池 series 是 h200（注册表映射），不是 profile 名。"""
+    prof, pools, _ = materialize_pools(["h200-2g"], _REGISTRY)
+    assert (prof, pools) == ("h200-2g", ["all:h200:1:2"])
+
+
+def test_materialize_unknown_profile_lists_known():
+    with pytest.raises(SpecError, match="h100"):
+        materialize_pools(["nope"], _REGISTRY)
+
+
+def test_materialize_multi_requires_role_prefix():
+    with pytest.raises(SpecError, match="role="):
+        materialize_pools(["h200:8", "rollout=h100:2"], _REGISTRY)
+
+
+def test_materialize_multi_role_pools():
+    """异构多池扩展位：role= 前缀分池，作业级 profile 取第一条。"""
+    prof, pools, roles = materialize_pools(
+        ["train=h200:8", "rollout=h100:1"], _REGISTRY
+    )
+    assert prof == "h200"
+    assert pools == ["train:h200:1:8", "rollout:h100:1:1"]
+    assert roles == ["train:train", "rollout:rollout"]
+
+
+def test_materialize_duplicate_role_rejected():
+    with pytest.raises(SpecError, match="重复"):
+        materialize_pools(["train=h200:8", "train=h100:1"], _REGISTRY)
 
 
 # ── 本地预校验 ───────────────────────────────────────────────────────────────
@@ -94,7 +180,7 @@ def test_role_pointing_at_undefined_pool_rejected():
 
 
 def test_multiple_pools_require_explicit_roles():
-    with pytest.raises(SpecError, match="--role"):
+    with pytest.raises(SpecError, match="角色映射"):
         build_spec("experiments/demo", recipe="nemo-rl/grpo", pools=["a:h200:1:2", "b:h100:1:1"])
 
 
@@ -157,7 +243,7 @@ def test_validation_can_be_skipped():
 
 
 def test_missing_resource_pool_is_rejected():
-    with pytest.raises(SpecError, match="--pool"):
+    with pytest.raises(SpecError, match="资源池"):
         build_spec("experiments/demo", recipe="nemo-rl/grpo")
 
 

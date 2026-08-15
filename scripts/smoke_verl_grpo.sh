@@ -10,7 +10,6 @@ uv run lab submit smoke/verl-grpo \
   --model Qwen/Qwen2.5-0.5B-Instruct \
   --train-data /data/nemo-lab/smoke/gsm8k/train.parquet \
   --validation-data /data/nemo-lab/smoke/gsm8k/test.parquet \
-  --pool all:h200:1:2 \
   --set max_num_steps=1 \
   --set train_batch_size=2 \
   --set rollouts_per_prompt=2

@@ -153,7 +153,7 @@ def _create_from_template(
     print("下一步:")
     print(f"  1. 编辑 {dest}/README.md（目标 / 模型 / 数据 / 监控）")
     print(f"  2. 按 {recipe.id} recipe 编辑模板文件")
-    print(f"  3. 用 lab submit {name} --profile <目标集群> --pool all:<series>:1:<gpus> 提交")
+    print(f"  3. 用 lab submit {name} --profile <目标集群>[:总卡数] 提交（如 h200 / h200:4）")
 
 
 def create_experiment(

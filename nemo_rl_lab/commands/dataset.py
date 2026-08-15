@@ -120,10 +120,13 @@ def dataset_push(
         dataset, version, root, files, visibility="public" if public else None,
     )
     short = ds_id.rpartition("/")[2]
+    env_var = f"{short.upper().replace('-', '_').replace('.', '_')}_DATA_DIR"
     typer.echo(f"已上传 {ds_id}@{version}（{len(files)} 个文件）")
+    # 数据集是实验的属性：推荐声明在 config（submit 自动拾取），CLI 参数仅作临时覆盖。
     typer.echo(
-        f"训练里引用它：实验 config 里 data.train.dataset: {ds_id}@{version}"
-        f"，数据目录环境变量 ${{oc.env:{short.upper().replace('-', '_')}_DATA_DIR}}"
+        f"训练里引用它：实验 config 里声明 data.train.dataset: {ds_id}@{version}"
+        f"，数据文件用 ${{oc.env:{env_var}}}/train.jsonl 指到"
+        f"（提交时自动拉到共享缓存并注入 {env_var}；--train-dataset 可临时覆盖版本）"
     )
 
 

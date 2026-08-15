@@ -22,7 +22,7 @@ def _require_clean_tree(allow_dirty: bool, prov: dict) -> None:
 
 def submit(
     exp: str = typer.Argument(..., autocompletion=common.complete_exp, help="实验名或路径"),
-    profile: Optional[str] = common.PROF_OPT,
+    profile: list[str] = common.PROFILE_EXPR_OPT,
     project: Optional[str] = typer.Option(
         None, "--project", "-p", help="实验名称（用于分组展示），不传则默认使用目录名"
     ),
@@ -35,13 +35,6 @@ def submit(
         [], "--set", "-s", metavar="KEY=VALUE",
         help="覆盖超参，可重复。本地按方法声明校验类型与区间，拼错立刻报错",
     ),
-    pool: list[str] = typer.Option(
-        [], "--pool", metavar="NAME:SERIES:NODES:GPUS",
-        help="资源池，可重复。例：--pool train:h200:1:4 --pool rollout:h100:1:2",
-    ),
-    role: list[str] = typer.Option(
-        [], "--role", metavar="ROLE:POOL", help="角色到资源池的映射，可重复。例：--role rollout:rollout",
-    ),
     init_from: Optional[str] = typer.Option(
         None, "--init-from", metavar="run/<RUN_ID>/checkpoint[@step=N]",
         help="从上一阶段的产物起训（SFT → DPO → GRPO 流水线）",
@@ -50,18 +43,21 @@ def submit(
         None, "--model", help="基座模型路径或 Hub id；verl/TRL 必填"
     ),
     train_data: Optional[str] = typer.Option(
-        None, "--train-data", help="训练数据路径；verl/TRL 必填"
+        None, "--train-data",
+        help="训练数据路径；verl/TRL 必填。声明了平台数据集（config 或 --train-dataset）时，"
+             "写数据集内的相对文件名（如 train.parquet），作业侧自动落到缓存目录",
     ),
     validation_data: Optional[str] = typer.Option(
-        None, "--validation-data", help="验证数据路径；verl/TRL 必填"
+        None, "--validation-data", help="验证数据路径；verl/TRL 必填，用法同 --train-data"
     ),
     train_dataset: Optional[str] = typer.Option(
         None, "--train-dataset", metavar="<owner>/<name>[@version]",
-        help="平台数据集引用：作业启动时自动拉到共享缓存并注入 <NAME>_DATA_DIR",
+        help="平台数据集引用：作业启动时自动拉到共享缓存并注入 <NAME>_DATA_DIR。"
+             "推荐写在实验 config 的 data.train.dataset，此参数仅作临时覆盖",
     ),
     validation_dataset: Optional[str] = typer.Option(
         None, "--validation-dataset", metavar="<owner>/<name>[@version]",
-        help="验证集的平台数据集引用；用法同 --train-dataset",
+        help="验证集的平台数据集引用；对应 config 的 data.validation.dataset",
     ),
     image: Optional[str] = typer.Option(
         None,
@@ -89,7 +85,11 @@ def submit(
     """提交训练作业（提交前自动校验 config 与超参）。"""
     gate()
     exp_path = common.resolve_exp(exp)
-    resolved_profile = common.resolve_profile(exp_path, profile)
+    # --profile 是唯一的资源入口：没传则回退实验目录遗留的 cluster 标注。
+    exprs = [e for e in (profile or []) if e.strip()]
+    if not exprs:
+        exprs = [common.resolve_profile(exp_path, None)]
+    resolved_profile, pools, roles = _materialize_profile_or_exit(exprs)
     prov = packing.git_provenance(common.ROOT, exp_path)
     _require_clean_tree(allow_dirty, prov)
     if not no_validate:
@@ -102,11 +102,14 @@ def submit(
             )
             raise typer.Exit(1)
 
+    # 平台数据集引用：config 声明（data.{train,validation}.dataset）为默认，CLI 覆盖。
+    cfg_train_ds, cfg_val_ds = _dataset_refs_from_config(exp_path)
     spec = _build_spec_or_exit(
-        exp_path, method=method, project=project, sets=set_, pools=pool, roles=role,
+        exp_path, method=method, project=project, sets=set_, pools=pools, roles=roles,
         init_from=init_from, then=then, observability_url=observability_url,
         model=model, train_data=train_data, validation_data=validation_data,
-        train_dataset=train_dataset, validation_dataset=validation_dataset,
+        train_dataset=train_dataset or cfg_train_ds,
+        validation_dataset=validation_dataset or cfg_val_ds,
         framework_version=framework_version,
         image=image,
         provenance=prov,
@@ -119,6 +122,50 @@ def submit(
             project=project, reporter=reporter, spec=spec,
         )
     _echo_submit_result(res)
+
+
+def _dataset_refs_from_config(exp_path: str) -> tuple[str, str]:
+    """实验 config 里声明的平台数据集引用：data.{train,validation}.dataset。
+
+    数据集是实验的属性，声明跟着 config 走（含 defaults 继承与 _override_ 语义），
+    提交时 --train-dataset / --validation-dataset 仅作临时覆盖。
+    config 缺失、解析失败或未声明时返回空串——坏 config 由校验环节负责报错，
+    这里不重复拦。
+    """
+    from nemo_lab_sdk.config_resolve import resolve
+
+    cfg_path = common.ROOT / exp_path / "config.yaml"
+    if not cfg_path.is_file():
+        return "", ""
+    try:
+        data = resolve(cfg_path).get("data") or {}
+    except Exception:  # noqa: BLE001
+        return "", ""
+
+    def _ref(section: str) -> str:
+        node = data.get(section)
+        v = node.get("dataset") if isinstance(node, dict) else None
+        return v.strip() if isinstance(v, str) else ""
+
+    return _ref("train"), _ref("validation")
+
+
+def _materialize_profile_or_exit(exprs: list[str]) -> tuple[str, list[str], list[str]]:
+    """把 --profile 表达式物化成 (作业 profile, pools, roles)；失败打印可读错误退出。
+
+    series 与默认形状查服务端注册表——用户只说「哪种卡、几张」，
+    拓扑细节由注册表补齐，两边不可能写出互相矛盾的资源声明。
+    """
+    from nemo_lab_sdk.contract import SpecError
+
+    from nemo_rl_lab import spec_builder
+
+    try:
+        return spec_builder.materialize_pools(exprs, common.profile_registry())
+    except SpecError as e:
+        cli_ui.emit_error("--profile 解析未通过", items=[str(e)],
+                          hint="格式：[role=]名称[:总卡数]，如 h200、h200:4；`lab status` 查看可用 profile")
+        raise typer.Exit(1) from e
 
 
 def _build_spec_or_exit(exp_path: str, *, method, project, sets, pools, roles,
@@ -252,7 +299,13 @@ def _submit_post(action: str, exp_path: str, profile: Optional[str], flags: list
             hint=f"支持：{', '.join(recipe.lifecycle) or '（无）'}",
         )
         return 1
-    series = common.resolve_profile(exp_path, profile)
+    prof_name = common.resolve_profile(exp_path, profile)
+    # 池的 series 查注册表（h200-2g/b300 这类 profile 名 ≠ series id）；
+    # dry-run 允许离线，此时退化为 profile 名（不上集群，无一致性风险）。
+    series = prof_name
+    if not dry_run:
+        entry = common.profile_registry().get(prof_name)
+        series = str((entry or {}).get("series") or prof_name)
     prov = packing.git_provenance(common.ROOT, exp_path)
     if not dry_run:
         _require_clean_tree(allow_dirty, prov)
@@ -281,7 +334,7 @@ def _submit_post(action: str, exp_path: str, profile: Optional[str], flags: list
     gate()
     with cli_ui.submit_progress() as reporter:
         res = api_client.submit_post_via_server(
-            action, exp_path, series, flags, common.ROOT, reporter=reporter, spec=spec
+            action, exp_path, prof_name, flags, common.ROOT, reporter=reporter, spec=spec
         )
     _echo_submit_result(res, label="导出" if action == "export" else "评测")
     return 0

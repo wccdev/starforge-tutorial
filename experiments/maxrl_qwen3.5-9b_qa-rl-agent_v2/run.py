@@ -50,7 +50,8 @@ def main():
 
     train_dataset, val_dataset, env_cfg = build_qa_docs_datasets(
         config, tokenizer, preamble=DOCS_PREAMBLE,
-        data_dir_hint="请先把题库放到集群并 `export QA_RL_DATA_DIR=<cluster>/datasets/qa_rl`。",
+        data_dir_hint="config 需声明 data.train.dataset（平台引用，提交时注入 QA_RL_DATA_DIR）；"
+                      "本地跑请 `export QA_RL_DATA_DIR=<repo>/datasets/qa_rl`。",
     )
 
     # 训练/验证用两个实例：检索与判分完全相同，只有 reward shaping 不同（训练带、验证归零）。

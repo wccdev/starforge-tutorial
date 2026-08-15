@@ -52,6 +52,28 @@ def list_profiles() -> list[str]:
         return []
 
 
+def profile_registry() -> dict[str, dict]:
+    """服务端 profile 注册表：{名称: {series, num_nodes, gpus_per_node, ...}}。
+
+    提交时把 `--profile 名称[:总卡数]` 物化成 JobSpec 资源池要用（series 与
+    默认形状的唯一来源）。拿不到就显式失败——提交本来就离不开服务端。
+    """
+    from nemo_rl_lab import api_client
+
+    try:
+        data = api_client.cluster_status_via_server()
+    except Exception as e:  # noqa: BLE001
+        cli_ui.fail(
+            "无法从服务端获取 profile 注册表",
+            hint=f"提交需要在线解析 --profile 的卡型与默认形状；请先 lab login 或检查服务可达性（{e}）",
+        )
+    return {
+        str(p.get("name")): p
+        for p in (data.get("profiles") or [])
+        if p.get("name")
+    }
+
+
 def resolve_profile(exp_path: str, profile: Optional[str]) -> str:
     """确定作业的硬件 profile：--profile 优先，否则读实验目录遗留的 cluster 标注（兼容旧实验）。
 
@@ -91,8 +113,15 @@ def complete_method(incomplete: str) -> list[str]:
     ]
 
 
-# 共享的 profile 选项（submit/export/eval 提交时把硬件 profile 转发给服务端，决定集群 env/overrides）。
+# 共享的 profile 选项（export/eval 用：资源形状由 recipe 固定，只选卡型/环境）。
 PROF_OPT = typer.Option(
     None, "--profile", autocompletion=complete_profile,
     help="硬件 profile（服务端注册表管理；`lab status` 可查看可用值）",
+)
+
+# submit 用的统一资源参数：profile 即资源入口，形状用 :总卡数 修饰。
+PROFILE_EXPR_OPT = typer.Option(
+    [], "--profile", metavar="[ROLE=]名称[:总卡数]", autocompletion=complete_profile,
+    help="目标硬件与资源，一个参数说清：h200（注册表默认形状）、h200:4（4 张卡）、"
+         "h200:16（2 满节点）。可重复以按角色分池（异构扩展位）：--profile train=h200:8 --profile rollout=h100:2",
 )
