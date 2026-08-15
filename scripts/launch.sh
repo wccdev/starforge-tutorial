@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# JobSpec 作业的集群侧入口（阶段 1）。
+# JobSpec 作业的集群侧入口。
 #
 # 本脚本只做 shell 真正擅长的事——把密钥与 profile 环境变量 source 进进程环境。
 # launcher.py 经 FrameworkAdapter 做全部决策：选入口、叠 override、算产物目录。

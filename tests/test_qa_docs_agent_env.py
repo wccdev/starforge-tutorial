@@ -23,7 +23,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # 用 QADocsAgentEnv 的实验：它们的 grpo_train 必须收到两个不同的环境映射
 AGENT_RUNS = [
     "experiments/grpo_qwen3.5-9b_qa-rl-agent_v3/run.py",
-    "experiments/grpo_qwen3.5-9b_qa-rl-agent_gb10_v1/run.py",
     "experiments/maxrl_qwen3.5-9b_qa-rl-agent_v2/run.py",
 ]
 
@@ -407,7 +406,7 @@ def test_bad_tool_format_penalty_is_train_only(env_mod):
 
 @pytest.mark.parametrize("rel_path", AGENT_RUNS)
 def test_run_script_passes_a_separate_val_env(rel_path):
-    """守住接线：grpo_train 的第 7/8 个参数是 task_to_env / val_task_to_env，不能是同一个。
+    """守住接线：bootstrap.run_grpo 的第 5/6 个位置参数是 task_to_env / val_task_to_env，不能是同一个。
 
     环境侧再对，只要 run.py 把训练环境传两遍（历史写法），验证分照样带 shaping。
     """
@@ -416,13 +415,15 @@ def test_run_script_passes_a_separate_val_env(rel_path):
         node
         for node in ast.walk(ast.parse(source))
         if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "grpo_train"
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "run_grpo"
     ]
-    assert len(calls) == 1, f"{rel_path} 里应恰好有一处 grpo_train 调用"
+    assert len(calls) == 1, f"{rel_path} 里应恰好有一处 bootstrap.run_grpo 调用"
     args = calls[0].args
-    assert len(args) >= 8, f"{rel_path} 的 grpo_train 位置参数不足 8 个"
-    train_env, val_env = ast.unparse(args[6]), ast.unparse(args[7])
+    assert len(args) >= 6, (
+        f"{rel_path} 的 run_grpo 必须显式给出第 6 个位置参数 val_task_to_env"
+    )
+    train_env, val_env = ast.unparse(args[4]), ast.unparse(args[5])
     assert train_env != val_env, (
         f"{rel_path} 把 {train_env} 同时当训练与验证环境；"
         "验证要用 make_eval_cfg() 另建实例，否则检索加分会算进 validation/accuracy"
@@ -430,28 +431,47 @@ def test_run_script_passes_a_separate_val_env(rel_path):
     assert "make_eval_cfg" in source, f"{rel_path} 的验证环境应由 make_eval_cfg() 派生 cfg"
 
 
-@pytest.mark.parametrize(
-    "rel_path",
-    [
-        "experiments/grpo_qwen3.5-9b_qa-rl-agent_v3/run.py",
-        "experiments/grpo_qwen3.5-9b_qa-rl-agent_gb10_v1/run.py",
-    ],
-)
-def test_v07_setup_result_is_fully_unpacked(rel_path):
-    """v0.7 setup() 返回 13 项；漏掉 MOPD teacher 字段会在昂贵的 worker 初始化后才失败。"""
-    source = (REPO_ROOT / rel_path).read_text(encoding="utf-8")
+def test_v07_setup_result_is_fully_unpacked_in_bootstrap():
+    """v0.7 setup() 返回 13 项；漏掉 MOPD teacher 字段会在昂贵的 worker 初始化后才失败。
+
+    解包已收敛到 common/bootstrap.py 的 run_grpo（各实验 run.py 不再自行解包），
+    所以只需要守住这一处：显式长度守卫 + 13 元组解包。
+    """
+    source = (REPO_ROOT / "common" / "bootstrap.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
-    setup_assignments = [
+    tuple_assignments = [
         node
         for node in ast.walk(tree)
         if isinstance(node, ast.Assign)
-        and isinstance(node.value, ast.Call)
-        and isinstance(node.value.func, ast.Name)
-        and node.value.func.id == "setup"
+        and isinstance(node.targets[0], ast.Tuple)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "values"
     ]
-    assert len(setup_assignments) == 1
-    target = setup_assignments[0].targets[0]
-    assert isinstance(target, ast.Tuple)
-    assert len(target.elts) == 13, (
-        f"{rel_path} 必须完整解包 NeMo-RL v0.7 setup() 的 13 项返回值"
+    assert len(tuple_assignments) == 1, "run_grpo 应恰好有一处对 setup() 结果的元组解包"
+    assert len(tuple_assignments[0].targets[0].elts) == 13, (
+        "common/bootstrap.py 必须完整解包 NeMo-RL v0.7 setup() 的 13 项返回值"
     )
+    assert "len(values) != 13" in source, "run_grpo 缺少 13 元组的显式长度守卫"
+
+
+@pytest.mark.parametrize(
+    "rel_path",
+    AGENT_RUNS + [
+        "experiments/grpo_qwen3.5-9b_qa-rl_v1/run.py",
+        "experiments/agent-grpo_qwen3.5-9b_multitool_v1/run.py",
+    ],
+)
+def test_grpo_run_scripts_delegate_to_bootstrap(rel_path):
+    """所有 GRPO 实验入口不得自行调用 setup()/grpo_train()——样板只允许存在于 bootstrap。"""
+    source = (REPO_ROOT / rel_path).read_text(encoding="utf-8")
+    assert "bootstrap.run_grpo(" in source, f"{rel_path} 应通过 bootstrap.run_grpo 进入训练"
+    direct_calls = {
+        node.func.id if isinstance(node.func, ast.Name) else node.func.attr
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, (ast.Name, ast.Attribute))
+    }
+    for banned in ("grpo_train", "setup", "register_omegaconf_resolvers"):
+        assert banned not in direct_calls, (
+            f"{rel_path} 不应直接调用 {banned}——样板已收敛到 common/bootstrap.py"
+        )

@@ -15,8 +15,10 @@
 ## 更新基底（升级 NeMo-RL 版本时）
 
 ```bash
-NEMO_RL_DIR=/path/to/NeMo-RL bash scripts/sync_base_configs.sh
+# 从本地 NeMo-RL 源码把 example 配置原样拷入（升级是低频运维操作，直接 cp，不做 CLI 包装）
+cp /path/to/NeMo-RL/examples/configs/grpo_math_1B.yaml configs/base/
+cp /path/to/NeMo-RL/examples/configs/sft.yaml configs/base/
+cp /path/to/NeMo-RL/examples/configs/grpo_sliding_puzzle.yaml configs/base/
 ```
 
-会从你本地的 NeMo-RL 源码把 example 配置同步过来。**不要手改这些文件**——要调参请在
-实验的 `config.yaml` 里覆盖。
+**不要手改这些文件**——要调参请在实验的 `config.yaml` 里覆盖。

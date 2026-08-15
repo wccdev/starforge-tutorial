@@ -1,6 +1,6 @@
 # grpo_qwen3.5-4b_gsm8k_v1
 
-单轮 GRPO：`qwen3.5-4b` 在 GSM8K 上做数学推理。来自 2× DGX Spark GB10 实测的
+单轮 GRPO：`qwen3.5-4b` 在 GSM8K 上做数学推理。来自低显存机型实测的
 `grpo_math_4B_megatron` 配方（LoRA dim16 / lr 2e-4），并改为**非 colocated 生成**。
 
 ## 调什么（调参面）
@@ -29,8 +29,8 @@
 | 序列 | 1024 | 1250 |
 | 生成 | **非 colocated**（1 卡生成 / 1 卡训练） | 非 colocated |
 
-> **非 colocated + 2×GB10 ⇒ PP=1**：2 张卡里 1 张专跑生成、1 张训练，训练侧只剩 1 卡，
-> 无法 PP=2（PP=2 需要 2 张训练卡，那要回 colocated）。并行度在 `cluster/gb10-spark/overrides.conf`。
+> **非 colocated + 2 卡 ⇒ PP=1**：2 张卡里 1 张专跑生成、1 张训练，训练侧只剩 1 卡，
+> 无法 PP=2（PP=2 需要 2 张训练卡，那要回 colocated）。并行度在 `cluster/<profile>/overrides.conf`。
 
 ## 数据准备（与 9B 共用）
 
@@ -42,7 +42,7 @@ lab prepare gsm8k                              # 写到 datasets/gsm8k/{train,va
 
 ## 组成
 
-- `config.yaml` — 继承 `grpo_math_1B` + `qwen3.5-4b` + `grpo_megatron`(Megatron+GB10) + `grpo_lora`(覆盖成 4B 配方) + `grpo_noncolocated`。
+- `config.yaml` — 继承 `grpo_math_1B` + `qwen3.5-4b` + `grpo_megatron`(Megatron+低显存调优) + `grpo_lora`(覆盖成 4B 配方) + `grpo_noncolocated`。
 - `method` / `recipe.lock.json` — 固定 grpo recipe、官方入口与 digest。
 
 ## 运行

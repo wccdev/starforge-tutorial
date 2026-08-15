@@ -4,7 +4,7 @@
 defaults:
   - ../../configs/base/grpo_math_1B.yaml
   - ../../configs/models/qwen3.5-9b.yaml
-  - ../../configs/base/grpo_megatron.yaml # Megatron-Core 后端 + GB10 调优（删此行即切回 DTensor）
+  - ../../configs/base/grpo_megatron.yaml # Megatron-Core 后端 + 低显存调优（删此行即切回 DTensor）
   - ../../configs/base/grpo_lora.yaml # LoRA（删此行即全参数，并把 lr 写回 megatron_cfg.optimizer）
   - ../../configs/base/grpo_noncolocated.yaml # 非 colocated 生成（1 卡生成 / 1 卡训练；删此行即回 colocated）
 
@@ -28,7 +28,7 @@ policy:
   generation_batch_size: 16
 
 grpo:
-  num_prompts_per_step: 4 # GB10 实测小 batch
+  num_prompts_per_step: 4 # 低显存实测小 batch
   num_generations_per_prompt: 8
   max_rollout_turns: 1 # 单轮：答一道题（与多轮 Agent 对照）
   max_num_steps: 500

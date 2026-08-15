@@ -3,18 +3,13 @@
 作业提交统一走中心化服务：`lab login` 接入后 `lab submit <exp>`，由服务端打包上传并在集群代理执行。
 本目录下的脚本只负责「在集群侧执行」或「本地工具」，不再有从本机直连 Ray 的提交脚本。
 
-- `new_experiment.sh` — 从模板快速新建实验（薄封装 → `python -m nemo_rl_lab.new_experiment`，跨平台）
-  ```bash
-  bash scripts/new_experiment.sh experiments grpo_qwen3.5-4b_gsm8k_v1
-  # 等价：uv run lab new grpo_qwen3.5-4b_gsm8k_v1 --method grpo --cluster h100
-  ```
 - `launch.sh` — 集群侧薄入口：只加载受信密钥/profile 环境，然后进入 SDK launcher。
   训练命令由版本化 recipe 选择 `nemo-rl`、`verl` 或显式 `custom` adapter 编译；
   不读取 `FRAMEWORK` 环境变量或实验目录 `framework` 文件，也不存在 adapter 回退。
+  **它是唯一会随作业上传到集群的脚本**（`lab submit` 清单式打包）。
 
-> 下面三个模型下载脚本已固化成一等公民命令，日常用 `lab model` 即可，不必直接调：
-> `lab model pull <repo> --via direct|relay|nexus` · `lab model install <平铺目录>` · `lab model ls`。
-> 脚本本身保留，供需要冷门开关时直接调用。
+> 新建实验用 `lab new`；模型权重入内网属于运维操作，直接调下面的下载脚本
+> （不再提供 `lab model` 包装——CLI 只保留作业契约相关的命令面）。
 - `prefetch_hf_model.sh` — **在集群容器内**预下载 HF 模型到 `HF_HOME`（避免训练时连不上 hf-mirror.com）
   ```bash
   # 在容器里先导出所需环境变量
@@ -75,7 +70,6 @@
   export HF_HOME=/data/hf_cache
   uv run python scripts/install_to_hf_cache.py --src hf_models --dry-run
   ```
-- `sync_base_configs.sh` — 升级 NeMo-RL 版本时同步官方基底配置到 `configs/base/`（薄封装 → `python -m nemo_rl_lab.sync_base`）
 - `smoke_verl_sft.sh` — 可选真实 GPU smoke：固定 verl SFT recipe、Qwen2.5 0.5B、
   最小数据路径与 1×H100，失败直接退出。
 - `smoke_verl_grpo.sh` — 可选真实 GPU smoke：固定 verl GRPO recipe、Qwen2.5 0.5B、

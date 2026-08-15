@@ -49,7 +49,7 @@ lab submit grpo_qwen3.5-9b_qa-rl_v1
 
 ## 关键超参 / 调参入口（`config.yaml`）
 
-- 后端：Megatron-Core + **LoRA**（继承 `grpo_megatron` + `grpo_lora`；GB10 实测起点 lr 1e-4/dim8）。回全参数：删 `defaults` 里 `grpo_lora.yaml`。
+- 后端：Megatron-Core + **LoRA**（继承 `grpo_megatron` + `grpo_lora`；低显存实测起点 lr 1e-4/dim8）。回全参数：删 `defaults` 里 `grpo_lora.yaml`。
 - batch：`num_prompts_per_step=4` / `num_generations_per_prompt=8` / `train_global_batch_size=32`（须整除 prompts×gen）/ `micro=1` / `seq=1536`。
 - `loss_fn.reference_policy_kl_penalty`：KL 约束强度。
 - `policy.max_total_sequence_length`：多选题带选项较长，按显存调；OOM 就降。

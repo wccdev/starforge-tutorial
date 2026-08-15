@@ -5,7 +5,7 @@
 defaults:
   - ../../configs/base/grpo_sliding_puzzle.yaml
   - ../../configs/models/qwen3.5-9b.yaml
-  - ../../configs/base/grpo_megatron.yaml # Megatron-Core 后端 + GB10 调优（删此行即切回 DTensor）
+  - ../../configs/base/grpo_megatron.yaml # Megatron-Core 后端 + 低显存调优（删此行即切回 DTensor）
   - ../../configs/base/grpo_lora.yaml # LoRA（删此行即全参数，并把 lr 写回 megatron_cfg.optimizer）
   - ../../configs/base/grpo_noncolocated.yaml # 非 colocated 生成（1 卡生成 / 1 卡训练；删此行即回 colocated）
 
@@ -40,12 +40,12 @@ policy:
     # 模型学会用 </tool>/</answer> 停下后，实际会更短。
     max_new_tokens: 512
 
-  # ⚠️ 不要在本机型上开 dynamic_batching：2×GB10 统一内存(CPU+GPU 共 ~122GB)对 9B 几乎无余量，
+  # ⚠️ 显存紧张时不要开 dynamic_batching：对 9B 几乎无余量，
   #    打包更大的 microbatch 会把统一内存顶爆 → 训练步 host RAM OOM。
   #    保持 mbs=1 + seq=1280（实测稳定）。g=8/global=32 在你数学 9B 跑通的显存范围内。
 
 grpo:
-  num_prompts_per_step: 4 # GB10 实测小 batch
+  num_prompts_per_step: 4 # 低显存实测小 batch
   num_generations_per_prompt: 8 # 每题 8 条生成：组内有对有错→leave-one-out 优势非零，GRPO 才有梯度去练残留难例（冲高准确率的关键）
   max_rollout_turns: 6 # 多轮：工具调用 + 答题，最多 6 轮
   max_num_steps: 100 # 任务 ~50 步收敛；100 步留足余量，~10h

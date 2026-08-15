@@ -1,4 +1,4 @@
-"""终端代理：拦截 stdout/stderr，批量经 IngestClient 上报（参照 SwanLab TerminalProxy）。"""
+"""终端代理：拦截 stdout/stderr，批量经 IngestClient 上报。"""
 from __future__ import annotations
 
 import os

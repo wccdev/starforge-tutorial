@@ -1,8 +1,7 @@
-"""从 CLI 参数构建 JobSpec（阶段 10）。
+"""从 CLI 参数构建 JobSpec。
 
-改造前 `lab submit` 只发一个 exp 名 + profile，服务端对「跑的是什么方法、超参是
-什么」一无所知。现在客户端构建完整 JobSpec，并在**本地**按 recipe 声明预校验 ——
-超参拼错、取值越界在敲回车那一刻就能看到，不必等上传完、排完队、跑起来才发现。
+客户端构建完整 JobSpec，并在**本地**按 recipe 声明预校验 —— 超参拼错、
+取值越界在敲回车那一刻就能看到，不必等上传完、排完队、跑起来才发现。
 
 本地校验用的是与服务端**同一份** recipe 目录（都来自 nemo-lab-sdk），所以不会
 出现「本地说没问题、服务端说不行」。
@@ -31,7 +30,7 @@ from nemo_lab_sdk.contract import (
     SpecError,
     exp_basename,
 )
-from nemo_lab_sdk.recipes import get_recipe, recipe_names
+from nemo_lab_sdk.recipes import get_recipe
 
 
 def parse_set(items: list[str]) -> dict[str, Any]:
@@ -106,6 +105,8 @@ def build_spec(
     base_model: str = "",
     train_data: str = "",
     validation_data: str = "",
+    train_dataset: str = "",
+    validation_dataset: str = "",
     operation: str = "train",
     provenance: Optional[dict] = None,
     validate: bool = True,
@@ -114,12 +115,8 @@ def build_spec(
 
     校验失败抛 SpecError —— CLI 捕获后打印可读错误，不发起任何网络请求。
     """
-    try:
-        r = get_recipe(recipe)
-    except SpecError:
-        raise SpecError(
-            f"未知的后训练方法 {recipe!r}。可用: {', '.join(recipe_names())}"
-        ) from None
+    # get_recipe 的报错已列出可用值，并对无前缀裸名给出两段式提示，直接透传。
+    r = get_recipe(recipe)
     selected_framework_version = framework_version.strip() or r.runtime.default_version
     selected_runtime = r.runtime.resolve(selected_framework_version)
     requested_image = image.strip()
@@ -136,10 +133,10 @@ def build_spec(
     observability = r.adapter_options.get("observability")
     if observability == "external" and not observability_url.strip():
         raise SpecError(
-            f"方法 {r.name} 使用 external observability，必须显式提供 --observability-url"
+            f"方法 {r.id} 使用 external observability，必须显式提供 --observability-url"
         )
     if observability == "platform" and observability_url.strip():
-        raise SpecError(f"方法 {r.name} 使用 platform observability，不允许 --observability-url")
+        raise SpecError(f"方法 {r.id} 使用 platform observability，不允许 --observability-url")
     if r.framework == "custom" and not selected_image:
         raise SpecError("custom recipe 要求显式提供 --image")
     if r.framework in {"verl", "trl"} and operation == "train":
@@ -154,6 +151,16 @@ def build_spec(
         ]
         if missing:
             raise SpecError(f"{r.framework} recipe 要求显式提供：{' '.join(missing)}")
+
+    # 平台数据集引用（<owner>/<name>[@version]）：格式在本地就校验，
+    # 存在性与可见性由服务端在提交准入时裁决。
+    for flag, ref in (("--train-dataset", train_dataset), ("--validation-dataset", validation_dataset)):
+        ds_id = ref.strip().partition("@")[0]
+        if ref.strip() and ("/" not in ds_id or len([s for s in ds_id.split("/") if s]) != 2):
+            raise SpecError(
+                f"{flag} 必须是 <owner>/<name>[@version]（如 alice/gsm8k@v1），收到 {ref!r}；"
+                "用 `lab dataset ls` 查看完整 ID"
+            )
 
     hyperparams = parse_set(sets or [])
     if validate:
@@ -177,13 +184,13 @@ def build_spec(
         else:
             raise SpecError(
                 f"声明了 {len(pool_objs)} 个资源池但没有 --role 映射。"
-                f"方法 {r.name} 的角色：{', '.join(r.roles)}"
+                f"方法 {r.id} 的角色：{', '.join(r.roles)}"
             )
     if validate:
         known = {p.name for p in pool_objs}
         for role, pool in role_map.items():
             if role not in r.roles:
-                raise SpecError(f"方法 {r.name} 没有角色 {role!r}；可用：{', '.join(r.roles)}")
+                raise SpecError(f"方法 {r.id} 没有角色 {role!r}；可用：{', '.join(r.roles)}")
             if pool not in known:
                 raise SpecError(f"角色 {role!r} 指向未定义的资源池 {pool!r}")
 
@@ -192,7 +199,7 @@ def build_spec(
         for a in actions:
             if not r.supports(a):
                 raise SpecError(
-                    f"方法 {r.name} 不支持训练后动作 {a!r}；支持：{', '.join(r.lifecycle) or '（无）'}"
+                    f"方法 {r.id} 不支持训练后动作 {a!r}；支持：{', '.join(r.lifecycle) or '（无）'}"
                 )
 
     prov = provenance or {}
@@ -204,7 +211,7 @@ def build_spec(
             display_name=display_name or "",
         ),
         spec=JobSpecBody(
-            recipe=RecipeRef(name=r.name, version=r.version, digest=r.digest, plugins=r.plugins),
+            recipe=RecipeRef(name=r.id, version=r.version, digest=r.digest, plugins=r.plugins),
             source=SourceSpec(exp=exp_rel),
             framework=FrameworkRef(
                 kind=r.framework,
@@ -217,9 +224,18 @@ def build_spec(
                 base=base_model.strip(),
                 init_from=ArtifactRef.parse(init_from) if init_from else None,
             ),
+            # dataset 与 path 是两个正交维度：dataset 触发分发（拉到共享缓存、
+            # 注入 <NAME>_DATA_DIR 环境变量），path 是训练框架实际读的位置
+            # （nemo-rl 通常在 config 里用 ${oc.env:<NAME>_DATA_DIR} 引用，不需要 path）。
             data=DataSpec(
-                train=DataRef(path=train_data.strip()) if train_data.strip() else None,
-                validation=DataRef(path=validation_data.strip()) if validation_data.strip() else None,
+                train=(
+                    DataRef(dataset=train_dataset.strip(), path=train_data.strip())
+                    if (train_data.strip() or train_dataset.strip()) else None
+                ),
+                validation=(
+                    DataRef(dataset=validation_dataset.strip(), path=validation_data.strip())
+                    if (validation_data.strip() or validation_dataset.strip()) else None
+                ),
             ),
             resources=ResourceSpec(pools=pool_objs, roles=role_map),
             hyperparams=hyperparams,

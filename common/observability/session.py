@@ -1,4 +1,4 @@
-"""NeMoLab 采集会话：终端日志 + 指标/硬件共用一个 IngestClient（参照 SwanLab Run 生命周期）。"""
+"""NeMoLab 采集会话：终端日志 + 指标/硬件共用一个 IngestClient。"""
 from __future__ import annotations
 
 import atexit

@@ -1,4 +1,4 @@
-"""运行环境快照采集（对齐 SwanLab ProbePython 的 metadata / requirements 思路）。"""
+"""运行环境快照采集：Python / 依赖 / Git / 系统 metadata。"""
 from __future__ import annotations
 
 import multiprocessing
@@ -250,10 +250,7 @@ def _collect_nvidia_gpu(
 
 
 def _describe_gpu(pynvml: Any, index: int) -> dict[str, Any] | None:
-    """单张卡的静态描述。任何一项查不到都不应拖垮整份快照。
-
-    尤其是显存：GB10 / DGX Spark 用统一内存，没有独立显存，NVML 会直接返回 NotSupported。
-    """
+    """单张卡的静态描述。"""
     try:
         handle = pynvml.nvmlDeviceGetHandleByIndex(index)
     except Exception:
@@ -266,19 +263,11 @@ def _describe_gpu(pynvml: Any, index: int) -> dict[str, Any] | None:
     }
 
 
-def _gpu_memory_gb(handle: Any) -> float | None:
-    """单卡显存容量（GB）。
-
-    统一内存架构下 NVML 查不到显存，此时用系统内存顶上：那本来就是这块 GPU 能用的
-    全部容量（DGX Spark 标称的 128 GB 即由此而来），比留空更贴近事实。
-    """
+def _gpu_memory_gb(handle: Any) -> float:
+    """单卡显存容量（GB）；查询失败直接抛错。"""
     from common.observability.hw_probe import nvml_memory
 
-    mem = nvml_memory(handle)
-    total = getattr(mem, "total", None) if mem is not None else None
-    if total:
-        return round(int(total) / (1024**3))
-    return _system_memory_gb()
+    return round(int(nvml_memory(handle).total) / (1024**3))
 
 
 def _system_memory_gb() -> float | None:

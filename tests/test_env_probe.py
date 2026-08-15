@@ -1,9 +1,4 @@
-"""env_probe：静态硬件快照的容错。
-
-回归背景：GB10 / DGX Spark 用统一内存，没有独立显存，NVML 的 nvmlDeviceGetMemoryInfo
-直接抛 NVMLError_NotSupported。异常从 `_collect_nvidia_gpu` 冒到 Ray remote task 外面，
-整份节点快照采不回来，训练日志里每一拍刷一条 traceback。
-"""
+"""env_probe：静态硬件快照的采集与作业级 GPU 过滤。"""
 from __future__ import annotations
 
 import sys
@@ -51,7 +46,7 @@ class _BasePynvml:
 
     @classmethod
     def nvmlDeviceGetName(cls, h):
-        return b"NVIDIA GB10"
+        return b"NVIDIA H200"
 
     @classmethod
     def nvmlDeviceGetMemoryInfo(cls, h, version=None):
@@ -68,30 +63,13 @@ def _install(monkeypatch, cls):
     monkeypatch.setitem(sys.modules, "pynvml", cls)
 
 
-def test_unified_memory_falls_back_to_system_ram(monkeypatch):
-    """GB10 查不到显存时用系统内存顶上——那本来就是这块 GPU 能用的全部容量。"""
-
-    class _GB10(_BasePynvml):
-        @classmethod
-        def nvmlDeviceGetMemoryInfo(cls, h, version=None):
-            raise _NotSupported("Not Supported")
-
-    _install(monkeypatch, _GB10)
-    monkeypatch.setattr(env_probe, "_system_memory_gb", lambda: 119)
+def test_gpu_memory_comes_from_nvml(monkeypatch):
+    _install(monkeypatch, _BasePynvml)
 
     gpu = env_probe._collect_nvidia_gpu()
 
     assert gpu["count"] == 1
     assert gpu["driver_version"] == "595.71.05"
-    assert gpu["devices"] == [{"index": 0, "name": "NVIDIA GB10", "memory_gb": 119}]
-
-
-def test_discrete_gpu_still_uses_nvml_memory(monkeypatch):
-    _install(monkeypatch, _BasePynvml)
-    monkeypatch.setattr(env_probe, "_system_memory_gb", lambda: 2015)
-
-    gpu = env_probe._collect_nvidia_gpu()
-
     assert gpu["devices"][0]["memory_gb"] == 140
 
 
@@ -121,22 +99,6 @@ def test_unreadable_name_does_not_raise(monkeypatch):
     _install(monkeypatch, _NoName)
 
     assert env_probe._collect_nvidia_gpu()["devices"][0]["name"] == "GPU 0"
-
-
-def test_collect_node_hardware_survives_unsupported_nvml(monkeypatch):
-    """远端探针的最终契约：GB10 上照样返回快照，绝不抛异常。"""
-
-    class _GB10(_BasePynvml):
-        @classmethod
-        def nvmlDeviceGetMemoryInfo(cls, h, version=None):
-            raise _NotSupported("Not Supported")
-
-    _install(monkeypatch, _GB10)
-
-    snap = env_probe.collect_node_hardware()
-
-    assert snap["hostname"]
-    assert snap["gpu"]["devices"][0]["name"] == "NVIDIA GB10"
 
 
 def test_no_nvidia_gpu_returns_none(monkeypatch):

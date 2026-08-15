@@ -17,7 +17,7 @@ runner = CliRunner()
 
 
 def _invoke(*args, reply: dict):
-    with patch("nemo_rl_lab.cli_login._admin_call", return_value=reply) as call:
+    with patch("nemo_rl_lab.api_client._admin_call", return_value=reply) as call:
         res = runner.invoke(cli.app, ["admin", "maintenance", *args])
     return res, call
 

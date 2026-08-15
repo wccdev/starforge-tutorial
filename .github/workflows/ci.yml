@@ -26,7 +26,7 @@ jobs:
         run: uv sync --extra dev
 
       - name: Ruff (lint)
-        run: uv run --extra dev ruff check nemo_rl_lab tests common/rewards
+        run: uv run --extra dev ruff check nemo_rl_lab tests common
 
       - name: Pytest
         run: uv run --extra dev pytest -q
@@ -41,3 +41,31 @@ jobs:
         if: runner.os == 'Windows'
         shell: cmd
         run: lab.cmd --help
+
+  # 干净安装：忽略 tool.uv.sources 的本地 editable SDK，从 Nexus 解析 nemo-lab-sdk==<锁定版本>，
+  # 跑契约相关测试。目的：消灭「本机 editable SDK 与发布版漂移」——CLI 实际用户装到的
+  # 永远是 Nexus 上的发布版，CI 必须验证这条真实路径。
+  clean-install-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        run: uv python install 3.10
+
+      - name: Sync without local sources (published SDK only)
+        run: uv sync --extra dev --no-sources
+
+      - name: Contract tests against published SDK
+        run: >
+          uv run --no-sources --extra dev pytest -q
+          tests/test_catalog_handshake.py tests/test_spec_builder.py
+          tests/test_cli.py tests/test_submit_pack.py
+
+      - name: lab CLI smoke (published SDK)
+        run: |
+          uv run --no-sources lab --help
+          uv run --no-sources lab methods

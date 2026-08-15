@@ -4,7 +4,7 @@
     "digest": "sha256:681ca19f1927a303241b05aa29176c25bfc9df5582e62d52daa947d4cbece3ba",
     "framework": "nemo-rl",
     "framework_version": "0.7.0",
-    "name": "grpo",
+    "name": "nemo-rl/grpo",
     "version": "0.7.0"
   },
   "sdk_version": "2.1.0"

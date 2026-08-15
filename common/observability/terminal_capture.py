@@ -1,4 +1,4 @@
-"""stdout/stderr write 拦截（参照 SwanLab StreamCapture，精简版）。
+"""stdout/stderr write 拦截。
 
 Passthrough-first：先写原始流，再入队上报；重入保护 + fork 安全。
 """

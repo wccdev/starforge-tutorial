@@ -25,11 +25,9 @@ from typing import Any, Optional, TypedDict
 
 import ray
 import torch
-
 from nemo_rl.data.interfaces import LLMMessageLogType
 from nemo_rl.distributed.batched_data_dict import BatchedDataDict
 from nemo_rl.environments.interfaces import EnvironmentInterface, EnvironmentReturn
-
 
 # ============================ 工具实现 ============================
 _BIN_OPS = {
@@ -247,7 +245,7 @@ class ToolAgentEnv(EnvironmentInterface[ToolAgentMetadata]):
     ) -> EnvironmentReturn[ToolAgentMetadata]:
         results = [
             self.runner.process_turn(log, meta)
-            for log, meta in zip(message_log_batch, metadata)
+            for log, meta in zip(message_log_batch, metadata, strict=True)
         ]
 
         observations, rewards, terminateds = [], [], []

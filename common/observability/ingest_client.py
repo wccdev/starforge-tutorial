@@ -1,4 +1,4 @@
-"""仿 SwanLab Transport：批量 HTTP 上报到 console ingest API。"""
+"""批量 HTTP 上报到 console ingest API（后台线程 + 缓冲队列）。"""
 from __future__ import annotations
 
 import json
@@ -86,7 +86,7 @@ class IngestClient:
             return False
 
     def send_lifecycle(self, event: str) -> bool:
-        """上报生命周期事件（started / succeeded / failed）。阶段 4。
+        """上报生命周期事件（started / succeeded / failed）。
 
         不走队列：一个作业只发两三次，且要求尽快到达 —— 排队会让 started 事件
         滞后于第一批指标，反而失去「真实训练起点」的意义。
@@ -115,10 +115,9 @@ class IngestClient:
         self, kind: str, path: str, *, step: int | None = None,
         size_bytes: int | None = None, metrics: dict | None = None,
     ) -> bool:
-        """登记一个训练产物（checkpoint / hf_export / eval_report / merged_model）。阶段 5。
+        """登记一个训练产物（checkpoint / hf_export / eval_report / merged_model）。
 
-        改造前 checkpoint 只是一个约定式路径，没有任何记录 —— 下一阶段要从它
-        继续训练，只能靠用户手抄路径，平台无从校验也无从展示血缘。
+        产物登记后平台才能校验跨作业引用、展示血缘，续训不必手抄路径。
 
         不走队列（频次低、每次都要落库），失败只告警：产物登记不了不该让训练失败，
         checkpoint 本身已经写在盘上了。

@@ -5,8 +5,7 @@ NeMo-RL 0.6.0 的集群设置（`cluster.num_nodes`、`cluster.gpus_per_node`）
 每个 profile 一个子目录，核心是 `overrides.conf`（每行一个 `key=value`，`#` 为注释）：
 
 - `h100/` — 单机 1× H100 80GB（单节点单卡，远程微调平台主力）
-- `gb10-spark/` — 2× DGX Spark GB10（Ray 2 节点）
-- `h200/` — 单机 8× H200 141GB（异构集群新增卡型）
+- `h200/` — 单机 8× H200 141GB
 - `h200-2g/` — 单机切 2× H200（console 注册 `gpus_per_node=2`；TP=1×CP=1，DP=2）
 
 ## 用法
@@ -48,8 +47,7 @@ uv run python examples/run_grpo.py --config <base.yaml> \
 ## 集群与 Ray
 
 集群的搭建与 Ray 起停由**集群管理员 / 中心化服务**负责，提交者无需关心：`lab submit` 把作业交给服务端，
-服务端连到已就绪的 Ray 集群代理执行。多节点的网卡 / HCA / IB 等网络参数维护在各 profile 的 `env.sh`
-（当前 `gb10-spark/env.sh` 是两台 Spark 的实测值）。
+服务端连到已就绪的 Ray 集群代理执行。多节点的网卡 / HCA / IB 等网络参数维护在各 profile 的 `env.sh`。
 
 ## 依赖与环境
 
@@ -57,7 +55,6 @@ uv run python examples/run_grpo.py --config <base.yaml> \
 
 | 硬件 profile | 架构 | 安装方式 |
 | --- | --- | --- |
-| `gb10-spark` | aarch64 + Blackwell | aarch64 容器 / wheel |
 | `h100` / `h200` | x86_64 + Hopper | x86_64 容器 / wheel |
 
 ### 集群容器内：NeMo-RL 0.7.0
@@ -134,17 +131,16 @@ EXTRA_PIP="trl==0.2x.x" bash deploy/ray-cluster/build.sh  # 叠加额外依赖
 docker compose --profile head up -d                     # 节点起停
 ```
 
-**架构必须对上**：`h100` / `h200` 是 x86_64，`gb10-spark` 是 aarch64 + Blackwell，两套镜像分开构建。
-`flash-attn` 这类要编译的包在 aarch64 上基本是坑，规划 L3 实验时优先放 H100/H200。
+**架构必须对上**：`h100` / `h200` 均为 x86_64，镜像与 wheel 按此架构构建。
 
 **⚠️ 装额外依赖前先想版本冲突**：TRL 和 NeMo-RL 都吃 transformers，装错版本会让**所有**
 NeMo-RL 训练一起挂。这是「单胖镜像」路线的天花板，撞到了就该上多 Ray 集群方案。
 
 #### 跑 verl 或 custom
 
-verl 是一等 adapter：用 `lab new <名字> --method verl-sft|verl-grpo` 创建固定模板，并在提交时
+verl 是一等 adapter：用 `lab new <名字> --method verl/sft|verl/grpo` 创建固定模板，并在提交时
 显式传 `--model`、`--train-data`、`--validation-data`。自定义框架必须选择 `custom` recipe：
-`lab new <名字> --method custom`。平台不读取 `FRAMEWORK` 或 `framework` 文件，也不会在其他
+`lab new <名字> --method custom/custom`。平台不读取 `FRAMEWORK` 或 `framework` 文件，也不会在其他
 adapter 失败后执行 `train.sh`。
 
 > 配额不靠自觉：服务端按 profile 注册表记账，watchdog 还会做集群级 Ray 用卡对账。

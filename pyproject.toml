@@ -30,7 +30,8 @@ packages = ["nemo_rl_lab"]
 
 [[tool.uv.index]]
 name = "gcore-pypi"
-url = "http://nexus.gcoreinc.com/repository/pypi-group/simple/"
+# 必须 HTTPS：HTTP 索引会被中间人替换/缓存投毒，供应链上没有「内网所以安全」。
+url = "https://nexus.gcoreinc.com/repository/pypi-group/simple/"
 default = true
 
 # 本地开发精确指向同版本 SDK；构建出的 CLI wheel 只保留 ==2.1.0 元数据，

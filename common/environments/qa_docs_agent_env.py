@@ -35,7 +35,6 @@ from typing import Any, Iterator, Optional, TypedDict
 
 import ray
 import torch
-
 from nemo_rl.data.interfaces import LLMMessageLogType
 from nemo_rl.distributed.batched_data_dict import BatchedDataDict
 from nemo_rl.environments.interfaces import EnvironmentInterface, EnvironmentReturn
@@ -54,7 +53,7 @@ if _REPO_ROOT not in sys.path:
 #   DOCS_GLOB            只搜哪些文件，默认 *.md（只搜 markdown）。
 #   DOCS_TOP_K           最多回灌几个命中片段（grep 按文件聚合 / bm25 按 chunk），默认 3。
 #   DOCS_CONTEXT_LINES   [grep] 每个命中额外带几行上下文（grep -C），默认 2。
-#   DOCS_MAX_CHARS       单次检索回灌进上下文的总字符上限，默认 500（GB10 seq=1536 多轮防 host RAM OOM）。
+#   DOCS_MAX_CHARS       单次检索回灌进上下文的总字符上限，默认 500（短 seq 多轮防 host RAM OOM）。
 #   DOCS_MAX_PER_FILE    [grep] 单个文件最多取几处命中（grep -m），默认 3，避免一个文件刷屏。
 #   DOCS_TIMEOUT         [grep] 单次 grep 子进程超时（秒），默认 15。
 #   DOCS_OR_FALLBACK     [grep] 整句精确匹配查不到时，是否再做「关键词分词 OR 召回」（默认 1 开；0 关）。
@@ -567,7 +566,7 @@ def _extract_tag(text: str, tag: str) -> Optional[str]:
 
     闭标签缺失时仍取开标签后全文：NeMo-RL / vLLM 用 stop_strings=["</search>"] 截断时，
     默认常不把 </search> 写进生成文本，若这里要求成对标签会误判「格式不对」，
-    白白烧掉一轮（GB10 max_turns=2 时几乎等于检索失败）。
+    白白烧掉一轮（max_turns=2 时几乎等于检索失败）。
     """
     open_t, close_t = f"<{tag}>", f"</{tag}>"
     s = text.rfind(open_t)
@@ -666,7 +665,7 @@ class QADocsAgentEnv(EnvironmentInterface[QADocsMetadata]):
         self.search_bonus_scaled = bool(self.cfg.get("search_bonus_scaled", True))
         self.no_answer_penalty = float(self.cfg.get("no_answer_penalty", 0.2))
         # 闭卷直接 \boxed 作答的惩罚：防止「检索 0 回报 + 选择题可蒙对」把策略推向不用工具。
-        # 默认 0 保持旧行为；GB10 等 agent 实验可显式设 >0。验证由 make_eval_cfg 归零。
+        # 默认 0 保持旧行为；agent 实验可显式设 >0。验证由 make_eval_cfg 归零。
         self.no_search_answer_penalty = float(self.cfg.get("no_search_answer_penalty", 0.0))
         # NeMo-RL v0.7 的 invalid_tool_call_advantage 只支持 NeMo-Gym。
         # 本实验走原生 EnvironmentInterface，因此在环境奖励层处理无标签输出和空 <search>，
@@ -765,7 +764,7 @@ class QADocsAgentEnv(EnvironmentInterface[QADocsMetadata]):
         final_exp: list[str] = []
         final_searched: list[bool] = []  # 该样本轨迹中是否真正取回过资料（用于答对加成）
 
-        for i, (log, meta) in enumerate(zip(message_log_batch, metadata)):
+        for i, (log, meta) in enumerate(zip(message_log_batch, metadata, strict=True)):
             content = _last_assistant_text(log)
             num_turns = int(meta.get("num_turns", 0))
             max_turns = int(meta.get("max_turns", 4))
@@ -839,7 +838,7 @@ class QADocsAgentEnv(EnvironmentInterface[QADocsMetadata]):
         # 批量判分给出最终答案的样本；「检索后答对」额外加成，「未检索就作答」训练期扣分。
         if final_idx:
             scores = self._reward_fn(final_q, final_comp, final_exp)
-            for i, s, searched in zip(final_idx, scores, final_searched):
+            for i, s, searched in zip(final_idx, scores, final_searched, strict=True):
                 r = float(s)
                 self._stats["answers"] += 1
                 if searched:

@@ -1,10 +1,10 @@
 # 单轮 GRPO：qwen3.5-4b 在 GSM8K 上做数学推理（4B 版，非 colocated 生成）。
-# 来自 2× GB10 实测的 grpo_math_4B_megatron 配方（LoRA dim16 / lr 2e-4），改为非 colocated。
-# 继承：方法基底 + 4B 模型 + Megatron/GB10 + LoRA + 非 colocated。
+# 来自低显存实测的 grpo_math_4B_megatron 配方（LoRA dim16 / lr 2e-4），改为非 colocated。
+# 继承：方法基底 + 4B 模型 + Megatron/低显存调优 + LoRA + 非 colocated。
 defaults:
   - ../../configs/base/grpo_math_1B.yaml
   - ../../configs/models/qwen3.5-4b.yaml
-  - ../../configs/base/grpo_megatron.yaml # Megatron-Core 后端 + GB10 调优
+  - ../../configs/base/grpo_megatron.yaml # Megatron-Core 后端 + 低显存调优
   - ../../configs/base/grpo_lora.yaml # LoRA（下面覆盖成 4B 配方）
   - ../../configs/base/grpo_noncolocated.yaml # 非 colocated：1 卡生成 / 1 卡训练 → PP=1
 

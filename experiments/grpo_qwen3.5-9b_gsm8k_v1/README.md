@@ -21,11 +21,11 @@ lab prepare gsm8k                              # 写到 datasets/gsm8k/{train,va
 
 ## 组成
 
-- `config.yaml` — 继承 `grpo_math_1B` + `qwen3.5-9b` + `grpo_megatron`(Megatron+GB10 调优) + `grpo_lora`(LoRA)，
+- `config.yaml` — 继承 `grpo_math_1B` + `qwen3.5-9b` + `grpo_megatron`(Megatron+低显存调优) + `grpo_lora`(LoRA)，
   `_override_` 替换 `data` 为 `ResponseDataset` 指向上面的 jsonl，处理器 `math_hf_data_processor`、环境 `math`。
 - `method` / `recipe.lock.json` — 固定 grpo recipe、官方入口与 digest。
 
-## 关键超参（GB10 实测起点）
+## 关键超参（低显存实测起点）
 
 - 后端：Megatron-Core + **LoRA**（dim8/alpha16，lr 1e-4，wd 0，cosine）。回全参数：删 `defaults` 里 `grpo_lora.yaml`。
 - batch：`num_prompts_per_step=4`、`num_generations_per_prompt=8`、`train_global_batch_size=32`、`micro=1`、`seq=1250`。

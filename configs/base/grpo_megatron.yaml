@@ -1,14 +1,14 @@
-# Megatron-Core 后端 + GB10 实测 GRPO 调优（partial 片段，本身不含 defaults）。
+# Megatron-Core 后端 + 低显存实测 GRPO 调优（partial 片段，本身不含 defaults）。
 # 用法：在实验 config 的 defaults 列表里，把它加在 base / 模型片段「之后」，让它覆盖默认的 DTensor：
 #   defaults:
 #     - ../../configs/base/grpo_math_1B.yaml
 #     - ../../configs/models/qwen3.5-9b.yaml
-#     - ../../configs/base/grpo_megatron.yaml   # ← 切 Megatron 后端 + GB10 调优
+#     - ../../configs/base/grpo_megatron.yaml   # ← 切 Megatron 后端 + 低显存调优
 # 想切回 DTensor/FSDP：删掉这一行，并把 lr 写回 policy.optimizer.kwargs.lr。
 #
 # 下面分两块：
 #   (A) 切后端必需项——对照官方 examples/configs/grpo_math_*_megatron.yaml。
-#   (B) GB10（2× DGX Spark）实测显存/性能调优——来自跑通的 grpo_math_{4B,9B}_megatron。
+#   (B) 低显存实测显存/性能调优——来自跑通的 grpo_math_{4B,9B}_megatron。
 #       换硬件（如 H200）时，在该硬件的 cluster/<profile>/overrides.conf 里覆盖这些键即可
 #       （这些键此处已存在，CLI override 的 struct 模式不会报错）。
 policy:
@@ -20,7 +20,7 @@ policy:
   # 训练序列长度对齐到 Megatron 的 TP（基底默认对齐 DTensor 的 TP）
   make_sequence_length_divisible_by: ${policy.megatron_cfg.tensor_model_parallel_size}
 
-  # (B) GB10 显存：小 micro batch；关 sequence packing（实测两份配置都关）
+  # (B) 低显存：小 micro batch；关 sequence packing（实测两份配置都关）
   train_micro_batch_size: 1
   sequence_packing:
     enabled: false
@@ -28,16 +28,16 @@ policy:
   megatron_cfg:
     enabled: true              # 开 Megatron-Core
     # converter_type 由 AutoBridge 按 HF 架构自动识别，无需按模型改（保留基底默认即可）
-    # (B) GB10 实测显存/性能：
+    # (B) 低显存实测显存/性能：
     activation_checkpointing: true    # 重算换显存
     apply_rope_fusion: false          # 官方对该路径明确关闭
     defer_fp32_logits: true           # 延迟 fp32 logits，省显存
-    empty_unused_memory_level: 2      # 官方默认 1，GB10 显存紧张升到 2
+    empty_unused_memory_level: 2      # 官方默认 1，显存紧张时升到 2
     distributed_data_parallel_config:
       overlap_grad_reduce: false      # 跨节点关 overlap 更稳
       overlap_param_gather: false
 
   generation:
     vllm_cfg:
-      enforce_eager: true             # GB10 关 CUDA graph：省显存、避免编译问题
+      enforce_eager: true             # 关 CUDA graph：省显存、避免编译问题
       gpu_memory_utilization: 0.4     # 与训练 colocated，按显存在 0.3~0.5 间调

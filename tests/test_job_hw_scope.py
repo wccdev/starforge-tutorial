@@ -1,6 +1,6 @@
 """scope=job 的采集范围：哪台机器该出现在硬件面板上，哪些指标该归给谁。
 
-回归背景：异构集群里 driver 常驻 head、训练在 GB10。把 head 也采进来，单机单卡作业的
+回归背景：driver 常驻 head、训练在别的节点。把 head 也采进来，单机单卡作业的
 每张图都会多出一条与训练无关的线；而远端探针采到的「进程内存」量的是探针任务自己
 （实测 113 MiB，vLLM worker 是几十个 GB），挂在那个标签下纯属误导。
 """
@@ -15,7 +15,7 @@ from common.observability import hardware_monitor as hm
 from common.observability.hardware_monitor import HardwareMonitor
 
 HEAD = "node-head"
-GB10 = "node-gb10"
+TRAIN = "node-train"
 
 
 class _Ingest:
@@ -83,7 +83,7 @@ def test_head_machine_metrics_stay_out_when_training_is_elsewhere(monkeypatch, m
     """head 只跑 driver 时，它的整机 CPU/内存不该出现在面板上。"""
     _fake_local(monkeypatch)
     _fake_remote(monkeypatch)
-    monkeypatch.setattr(hm, "discover_gpu_node_ids", lambda: {GB10})
+    monkeypatch.setattr(hm, "discover_gpu_node_ids", lambda: {TRAIN})
     monkeypatch.setattr(hm, "discover_job_node_ids", lambda **kw: {HEAD})
 
     points = monitor._collect()
@@ -103,7 +103,7 @@ def test_remote_probe_does_not_report_its_own_process(monkeypatch, monitor):
         return {"hostname": "spark-2", "pid": 9, "metrics": {"cpu.pct": 11.2}, "gpu_uuids": {}}
 
     monkeypatch.setattr(hm, "collect_hw_snapshot", _collect)
-    monkeypatch.setattr(hm, "discover_gpu_node_ids", lambda: {GB10})
+    monkeypatch.setattr(hm, "discover_gpu_node_ids", lambda: {TRAIN})
     monkeypatch.setattr(hm, "discover_job_node_ids", lambda **kw: set())
 
     class _Remote:
@@ -196,11 +196,11 @@ def test_gpu_placement_decides_which_machines_are_charted(monkeypatch, monitor):
     seen: list[dict] = []
     _fake_local(monkeypatch)
     _fake_remote(monkeypatch, seen)
-    monkeypatch.setattr(hm, "discover_gpu_node_ids", lambda: {GB10})
+    monkeypatch.setattr(hm, "discover_gpu_node_ids", lambda: {TRAIN})
     monkeypatch.setattr(hm, "discover_job_node_ids", lambda **kw: {HEAD, "node-other"})
 
     monitor._collect()
 
-    assert seen[0]["node_ids"] == [GB10]
+    assert seen[0]["node_ids"] == [TRAIN]
     # PG 认定的训练节点，允许在 PID 归属查空时退回显存启发式认卡
     assert seen[0]["gpu_fallback"] is True

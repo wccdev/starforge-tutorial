@@ -1,6 +1,6 @@
 # 单机 8× H200 (141GB) 环境。由统一集群 launcher 加载。
 # 单节点 8 卡走 NVLink/NVSwitch，节点内通信无需 RoCE/IB；不要设 NCCL_IB_* / 网卡名，
-# 否则会误绑不存在的接口（那是 gb10-spark 多节点才需要的）。
+# 否则会误绑不存在的接口（那是多节点 profile 才需要的）。
 
 # --- PyTorch 显存分配（缓解碎片；须与 vLLM 内存池兼容，勿用 expandable_segments）---
 export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128,garbage_collection_threshold:0.8

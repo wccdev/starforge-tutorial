@@ -1,11 +1,8 @@
-"""跨平台新建 / fork 实验（替代 scripts/new_experiment.sh，macOS / Linux / Windows 共用）。"""
+"""跨平台新建 / fork 实验（唯一入口：lab new，macOS / Linux / Windows 共用）。"""
 from __future__ import annotations
 
-import json
-import os
 import re
 import shutil
-import sys
 import tempfile
 from pathlib import Path
 
@@ -87,22 +84,22 @@ def _patch_fork_metadata(dest: Path, name: str) -> None:
 def _validate_recipe_template(dest: Path, recipe) -> None:
     """只校验 recipe 声明的结构，不跨框架执行别的 validator。"""
     if recipe.framework in {"nemo-rl", "verl"} and not (dest / "config.yaml").is_file():
-        raise NewExperimentError(f"recipe {recipe.name} 模板缺少 config.yaml")
+        raise NewExperimentError(f"recipe {recipe.id} 模板缺少 config.yaml")
     if recipe.entrypoint.kind == "experiment":
         entry = (dest / recipe.entrypoint.value).resolve()
         root = dest.resolve()
         if not entry.is_relative_to(root) or not entry.is_file():
             raise NewExperimentError(
-                f"recipe {recipe.name} 模板缺少实验入口 {recipe.entrypoint.value}"
+                f"recipe {recipe.id} 模板缺少实验入口 {recipe.entrypoint.value}"
             )
 
 
 def _copy_recipe_template(dest: Path, recipe) -> None:
     from nemo_lab_sdk.recipes import recipe_directory
 
-    template = recipe_directory(recipe.name) / recipe.template
+    template = recipe_directory(recipe.id) / recipe.template
     if not template.is_dir():
-        raise NewExperimentError(f"recipe {recipe.name} 缺少模板目录: {template}")
+        raise NewExperimentError(f"recipe {recipe.id} 缺少模板目录: {template}")
     shutil.copytree(template, dest, dirs_exist_ok=True)
 
 
@@ -117,7 +114,7 @@ def _fork_experiment(
     method_file = src_dir / "method"
     if not method_file.is_file() or not method_file.read_text(encoding="utf-8").strip():
         raise NewExperimentError(f"来源实验缺少 method recipe 声明: {src_dir}")
-    from nemo_rl_lab.migrate_v2 import validate_recipe_lock
+    from nemo_rl_lab.recipe_lock import validate_recipe_lock
 
     try:
         validate_recipe_lock(src_dir, method_file.read_text(encoding="utf-8").strip())
@@ -149,18 +146,22 @@ def _create_from_template(
     dest = repo_root / kind / name
     if dest.exists():
         raise NewExperimentError(f"已存在: {dest}")
+    if not cluster:
+        opts = " ".join(_list_profiles(repo_root))
+        raise NewExperimentError(
+            f"新建实验必须显式指定集群 profile（--cluster）。可选: {opts or '(无)'}"
+        )
 
     from nemo_lab_sdk.contract import SpecError
-    from nemo_lab_sdk.recipes import get_recipe, recipe_names
+    from nemo_lab_sdk.recipes import get_recipe
 
     try:
         recipe = get_recipe(method)
         selected_framework_version = framework_version.strip() or recipe.runtime.default_version
         recipe.runtime.resolve(selected_framework_version)
     except SpecError as exc:
-        raise NewExperimentError(
-            f"未知 --method: {method}（可选 {' | '.join(recipe_names())}）"
-        ) from exc
+        # get_recipe 的报错已列出可用值，并对无前缀裸名给出两段式提示。
+        raise NewExperimentError(f"--method 非法: {exc}") from exc
     template = repo_root / "templates" / "experiment-template"
     if not template.is_dir():
         raise NewExperimentError(f"缺少模板目录: {template}")
@@ -175,18 +176,10 @@ def _create_from_template(
             gitkeep.unlink()
         if cluster:
             _write_cluster_file(staging, cluster)
-        (staging / "method").write_text(f"{recipe.name}\n", encoding="utf-8")
-        from nemo_rl_lab.migrate_v2 import LOCK_FILE, recipe_lock
+        (staging / "method").write_text(f"{recipe.id}\n", encoding="utf-8")
+        from nemo_rl_lab.recipe_lock import write_recipe_lock
 
-        (staging / LOCK_FILE).write_text(
-            json.dumps(
-                recipe_lock(recipe.name, selected_framework_version),
-                ensure_ascii=False,
-                indent=2,
-                sort_keys=True,
-            ) + "\n",
-            encoding="utf-8",
-        )
+        write_recipe_lock(staging, recipe.id, selected_framework_version)
         _validate_recipe_template(staging, recipe)
         staging.replace(dest)
     except Exception:
@@ -194,13 +187,13 @@ def _create_from_template(
         raise
 
     print(
-        f"已创建实验: {dest}（method={recipe.name}, "
+        f"已创建实验: {dest}（method={recipe.id}, "
         f"framework={recipe.framework}@{selected_framework_version}）"
     )
     print(f"  · 目标集群(cluster): {_read_cluster_file(dest)}（按需改：echo h100 > {dest}/cluster）")
     print("下一步:")
-    print(f"  1. 编辑 {dest}/README.md（目标 / 模型 / 数据 / SwanLab）")
-    print(f"  2. 按 {recipe.name} recipe 编辑模板文件")
+    print(f"  1. 编辑 {dest}/README.md（目标 / 模型 / 数据 / 监控）")
+    print(f"  2. 按 {recipe.id} recipe 编辑模板文件")
     print(f"  3. 用 lab submit {name} --pool all:<series>:1:<gpus> 提交")
 
 
@@ -211,7 +204,7 @@ def create_experiment(
     *,
     src: str = "",
     cluster: str = "",
-    method: str = "grpo",
+    method: str = "nemo-rl/grpo",
     framework_version: str = "",
 ) -> None:
     """新建或 fork 实验；失败时抛 NewExperimentError。"""
@@ -230,32 +223,3 @@ def create_experiment(
             method,
             framework_version=framework_version,
         )
-
-
-def main(argv: list[str] | None = None) -> int:
-    """CLI 入口：new_experiment.sh <kind> <name> [src] [cluster]（LAB_METHOD 环境变量）。"""
-    args = argv if argv is not None else sys.argv[1:]
-    if len(args) < 2:
-        print(
-            "用法: python -m nemo_rl_lab.new_experiment "
-            "<experiments|projects> <实验名> [来源实验] [集群profile]",
-            file=sys.stderr,
-        )
-        return 1
-
-    kind, name = args[0], args[1]
-    src = args[2] if len(args) > 2 else ""
-    cluster = args[3] if len(args) > 3 else ""
-    method = os.environ.get("LAB_METHOD", "grpo")
-
-    repo_root = Path(__file__).resolve().parent.parent
-    try:
-        create_experiment(repo_root, kind, name, src=src, cluster=cluster, method=method)
-    except NewExperimentError as e:
-        print(str(e), file=sys.stderr)
-        return 1
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

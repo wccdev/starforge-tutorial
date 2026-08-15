@@ -102,11 +102,11 @@ def _bundle(node_id: str, **resources):
 def test_gpu_nodes_from_placement_groups():
     def _list(**kwargs):
         return [
-            _pg("j1", "CREATED", [_bundle("node-gb10", GPU=1.0, CPU=2.0)], "grpo_policy_cluster-node0")
+            _pg("j1", "CREATED", [_bundle("node-train", GPU=1.0, CPU=2.0)], "grpo_policy_cluster-node0")
         ]
 
     nodes = job_nodes.discover_gpu_node_ids(list_placement_groups=_list, job_id="j1")
-    assert nodes == {"node-gb10"}
+    assert nodes == {"node-train"}
 
 
 def test_gpu_nodes_ignore_cpu_only_bundles():
@@ -117,16 +117,16 @@ def test_gpu_nodes_ignore_cpu_only_bundles():
 
     def _list(**kwargs):
         return [
-            _pg("j1", "CREATED", [_bundle("node-gb10", GPU=1.0, CPU=2.0)]),
+            _pg("j1", "CREATED", [_bundle("node-train", GPU=1.0, CPU=2.0)]),
             _pg(
                 "j1",
                 "CREATED",
-                [_bundle("node-head", CPU=1.0), _bundle("node-gb10", CPU=1.0), _bundle("node-b", CPU=1.0)],
+                [_bundle("node-head", CPU=1.0), _bundle("node-train", CPU=1.0), _bundle("node-b", CPU=1.0)],
             ),
         ]
 
     nodes = job_nodes.discover_gpu_node_ids(list_placement_groups=_list, job_id="j1")
-    assert nodes == {"node-gb10"}
+    assert nodes == {"node-train"}
 
 
 def test_gpu_nodes_ignore_other_jobs_and_removed_groups():
@@ -134,11 +134,11 @@ def test_gpu_nodes_ignore_other_jobs_and_removed_groups():
         return [
             _pg("other", "CREATED", [_bundle("node-head", GPU=8.0)]),
             _pg("j1", "REMOVED", [_bundle("node-stale", GPU=1.0)]),
-            _pg("j1", "CREATED", [_bundle("node-gb10", GPU=1.0)]),
+            _pg("j1", "CREATED", [_bundle("node-train", GPU=1.0)]),
         ]
 
     nodes = job_nodes.discover_gpu_node_ids(list_placement_groups=_list, job_id="j1")
-    assert nodes == {"node-gb10"}
+    assert nodes == {"node-train"}
 
 
 def test_gpu_nodes_accept_dict_shaped_state_api():
@@ -149,12 +149,12 @@ def test_gpu_nodes_accept_dict_shaped_state_api():
             {
                 "creator_job_id": "j1",
                 "state": "CREATED",
-                "bundles": [{"unit_resources": {"GPU": 1.0}, "node_id": "node-gb10"}],
+                "bundles": [{"unit_resources": {"GPU": 1.0}, "node_id": "node-train"}],
             }
         ]
 
     nodes = job_nodes.discover_gpu_node_ids(list_placement_groups=_list, job_id="j1")
-    assert nodes == {"node-gb10"}
+    assert nodes == {"node-train"}
 
 
 def test_gpu_nodes_empty_when_pending_placement_has_no_node_yet():

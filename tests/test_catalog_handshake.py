@@ -6,14 +6,14 @@ import json
 import pytest
 from nemo_lab_sdk.recipes import get_recipe
 
-from nemo_rl_lab.cli_login import CatalogCompatibilityError, verify_catalog_compatibility
+from nemo_rl_lab.catalog import CatalogCompatibilityError, verify_catalog_compatibility
 from nemo_rl_lab.spec_builder import build_spec
 
 
 def _payload(spec, **recipe_overrides):
     recipe = get_recipe(spec.recipe_name)
     item = {
-        "name": recipe.name,
+        "name": recipe.id,
         "version": recipe.version,
         "digest": recipe.digest,
         "framework": recipe.framework,
@@ -37,7 +37,7 @@ def _payload(spec, **recipe_overrides):
 
 
 def _spec():
-    return build_spec("experiments/demo", recipe="grpo", pools=["all:h100:1:1"])
+    return build_spec("experiments/demo", recipe="nemo-rl/grpo", pools=["all:h100:1:1"])
 
 
 def test_exact_catalog_handshake_accepts_matching_recipe():
@@ -83,25 +83,32 @@ def test_catalog_handshake_rejects_framework_version_or_runtime_id_drift():
 
 
 def test_submit_does_not_package_when_handshake_fails(tmp_path, monkeypatch):
-    from nemo_rl_lab import cli_login
+    from nemo_rl_lab import api_client
 
     spec = _spec()
     packed = []
 
-    monkeypatch.setattr(cli_login, "current_server", lambda _server=None: "https://lab.example")
+    monkeypatch.setattr(api_client, "current_server", lambda _server=None: "https://lab.example")
     monkeypatch.setattr(
-        cli_login,
+        api_client,
         "verify_server_compatibility",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(CatalogCompatibilityError("drift")),
     )
     monkeypatch.setattr(
-        cli_login,
+        api_client,
         "pack_working_dir",
         lambda *_args, **_kwargs: packed.append(True),
     )
 
     with pytest.raises(CatalogCompatibilityError, match="drift"):
-        cli_login.submit_via_server(
-            "experiments/demo", None, tmp_path, spec=spec
+        api_client.submit_via_server(
+            "experiments/demo", "h100", tmp_path, spec=spec
         )
     assert packed == []
+
+
+def test_submit_requires_explicit_profile(tmp_path):
+    from nemo_rl_lab import api_client
+
+    with pytest.raises(ValueError, match="profile"):
+        api_client.submit_via_server("experiments/demo", "", tmp_path, spec=_spec())

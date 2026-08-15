@@ -4,7 +4,7 @@
     "digest": "sha256:89cb3dde7cf8ff02faac79f496f03998192d1584c380450d3fbf206c37c51c6c",
     "framework": "nemo-rl",
     "framework_version": "0.7.0",
-    "name": "maxrl",
+    "name": "nemo-rl/maxrl",
     "version": "0.1.0"
   },
   "sdk_version": "2.1.0"

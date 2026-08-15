@@ -22,7 +22,6 @@ from typing import Any, Optional, TypedDict
 
 import ray
 import torch
-
 from nemo_rl.data.interfaces import LLMMessageLogType
 from nemo_rl.distributed.batched_data_dict import BatchedDataDict
 from nemo_rl.environments.interfaces import EnvironmentInterface, EnvironmentReturn

@@ -69,7 +69,7 @@ def test_send_environment_nodes_reports_delivery():
         return _resp_ok()
 
     client = IngestClient("http://host/api/ingest", "run-1", "tok", flush_interval=999)
-    nodes = [{"node_id": "n1", "hostname": "spark-gb10-1", "cpu": {"cores": 20}}]
+    nodes = [{"node_id": "n1", "hostname": "train-node-1", "cpu": {"cores": 20}}]
     with patch("requests.post", _post):
         assert client.send_environment_nodes(nodes) is True
 

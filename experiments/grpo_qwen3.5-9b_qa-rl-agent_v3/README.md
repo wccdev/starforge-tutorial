@@ -125,7 +125,7 @@ NaN 产生在 DP 通信之前即梯度裁剪之前，裁剪救不了）。真正
 
 修复（见 config.yaml 对应注释）：`advantage_clip_low/high=∓5.0` 防崩 + `reward_shaping` 的
 soft overlong punishment 治本（在**还没被截断**的缓冲区内按超长程度扣分，这些样本仍在梯度里）
-+ `val_period` 50→25 让劣化能早一半发现。姊妹实验 `gb10_v1` 曾踩过同一个坑，取同一组 clip 值。
++ `val_period` 50→25 让劣化能早一半发现。历史实验曾踩过同一个坑，取同一组 clip 值。
 
 > 运行镜像必须为 `nvcr.io/nvidia/nemo-rl:v0.7.0`（CUDA 13 / vLLM 0.20）；不要在 v0.6 容器内单独升级 Python 包。
 

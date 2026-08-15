@@ -5,7 +5,7 @@ import pytest
 from nemo_lab_sdk.frameworks import CompileRequest, compile_launch_plan
 from nemo_lab_sdk.recipes import get_recipe
 
-from nemo_rl_lab.migrate_v2 import validate_recipe_lock
+from nemo_rl_lab.recipe_lock import validate_recipe_lock
 from nemo_rl_lab.spec_builder import build_spec
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,14 +15,14 @@ VALIDATION = "/data/nemo-lab/smoke/gsm8k/test.parquet"
 
 
 @pytest.mark.parametrize(
-    ("name", "pool", "gpus", "script"),
+    ("name", "exp_dir", "pool", "gpus", "script"),
     [
-        ("verl-sft", "trainer:h100:1:1", 1, "smoke_verl_sft.sh"),
-        ("verl-grpo", "all:h200:1:2", 2, "smoke_verl_grpo.sh"),
+        ("verl/sft", "verl-sft", "trainer:h100:1:1", 1, "smoke_verl_sft.sh"),
+        ("verl/grpo", "verl-grpo", "all:h200:1:2", 2, "smoke_verl_grpo.sh"),
     ],
 )
-def test_verl_smoke_contract_is_exact_and_compiles(name, pool, gpus, script):
-    exp_rel = f"smoke/{name}"
+def test_verl_smoke_contract_is_exact_and_compiles(name, exp_dir, pool, gpus, script):
+    exp_rel = f"smoke/{exp_dir}"
     validate_recipe_lock(ROOT / exp_rel, name)
     spec = build_spec(
         exp_rel,

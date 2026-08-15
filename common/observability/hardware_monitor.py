@@ -3,7 +3,7 @@
 默认 scope=job：本 job alive actors 所在节点；GPU 按 actor PID 归属到物理卡（非整机枚举）。
 多节点作业自动 fan-out 到这些节点；不扫整个 Ray 集群无关机器。
 
-scope=local  — 仅本进程所在机器（纯 SwanLab 行为，按显存阈值过滤空闲卡）
+scope=local  — 仅本进程所在机器（按显存阈值过滤空闲卡）
 scope=cluster — 全集群 alive 节点（调试用，NEMOLAB_MONITOR_CLUSTER=1 等价）
 """
 from __future__ import annotations
@@ -24,7 +24,7 @@ from common.observability.job_nodes import (
     discover_job_node_ids,
     discover_job_pids,
 )
-from common.observability.sampling import swanlab_monitor_interval
+from common.observability.sampling import monitor_interval
 from common.observability.util import scalarize_metric
 
 MonitorScope = Literal["local", "job", "cluster"]
@@ -90,7 +90,7 @@ class HardwareMonitor:
             self._thread.join(timeout=120)
 
     def _sleep_interval(self) -> float:
-        return swanlab_monitor_interval(
+        return monitor_interval(
             self._samples_collected,
             base_interval=self.base_interval,
             dynamic=self.dynamic_interval,
@@ -120,7 +120,7 @@ class HardwareMonitor:
         """把作业运行节点的静态硬件采回来上报；节点集合或卡数不对就重报。
 
         启动时 session 采的那份环境快照来自 driver 进程，异构集群里 driver 常驻 head，
-        于是「系统硬件」永远显示 head 那台机器——作业 pin 到 GB10 却显示 8 卡 H200 就是
+        于是「系统硬件」永远显示 head 那台机器——作业跑在 H100 却显示 8 卡 H200 就是
         这么来的。这里把快照重新采到真正跑训练的机器上（actor / GPU PG 节点），
         绝不把 driver 所在机当成运行节点。
 
@@ -306,7 +306,7 @@ class HardwareMonitor:
                 )
             )
         else:
-            # driver 不在训练节点上（异构集群常态：driver 在 head，训练在 GB10）。
+            # driver 不在训练节点上（多系列集群常态：driver 在 head，训练在别的节点）。
             # 这台机器的 CPU/内存跟训练无关，不该画进面板——单机单卡作业却出现两条线
             # 就是这么来的。但 driver 自己的进程指标是真实且唯一的：远端探针量到的
             # 「进程内存」其实是探针任务自己，只能在这里采。

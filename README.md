@@ -27,12 +27,12 @@ lab login                                       # 登录官方 Lab 服务（默�
 lab ls                                          # 看现成实验
 lab new my_run --from grpo_qwen3.5-4b_gsm8k_v1  # 或 fork 一个来调参（自动改 SwanLab 名、继承目标集群）
 # 新建 TRL 论文实验（版本写入 recipe.lock.json，不在提交端再猜）
-lab new trl_paper_run --method trl-grpo --framework-version 1.10.0
+lab new trl_paper_run --method trl/grpo --framework-version 1.10.0
 
 # 3) 准备数据 → 提交 → 看结果
-lab prepare gsm8k
+lab dataset prepare gsm8k
 lab submit grpo_qwen3.5-4b_gsm8k_v1             # 用实验自带的目标集群；--profile 可临时换
-lab logs                                        # 跟随最近一个作业的实时日志
+lab job logs                                    # 跟随最近一个作业的实时日志
 ```
 
 每个实验「调什么 / 数据 / 奖励 / 怎么跑」见其目录下 `README.md`。
@@ -44,7 +44,6 @@ lab logs                                        # 跟随最近一个作业的实
 | `h200` | 单机 8× NVIDIA H200 141GB（**当前主力**） | `cluster/h200/` |
 | `h200-2g` | 同机器，只要 2 张卡（小实验 / 调试，别占满集群） | `cluster/h200-2g/` |
 | `h100` | 单机 1× NVIDIA H100 80GB | `cluster/h100/` |
-| `gb10-spark` | 2× NVIDIA DGX Spark（GB10 Grace-Blackwell），Ray 组成 2 节点集群 | `cluster/gb10-spark/` |
 
 训练配置与硬件解耦：NeMo-RL 通过 CLI override 调集群（`cluster.num_nodes` / `cluster.gpus_per_node`）；硬件相关 override 抽到 `cluster/<profile>/overrides.conf`。每个实验**自带目标集群**（实验目录下 `cluster` 文件，`lab new --cluster` 写入）——因为 batch/seq/LoRA/显存等超参都是按某张卡的显存调出来的；`lab submit --profile` 可临时换卡跑。
 
@@ -73,16 +72,16 @@ flowchart LR
   Output --> Console
 ```
 
-**这个方向很重要**：以前是 console `pip install nemo-rl-lab`，控制平面依赖客户端 ——
-本仓发个版就可能让服务端跑不起来。现在三方都只依赖契约包，彼此不再互相依赖。
+**这个方向很重要**：CLI、Console、训练镜像三方都只依赖契约包，彼此不互相依赖 ——
+本仓发版不会影响服务端。
 
-「一个作业长什么样」也从 32 个环境变量的隐式约定，变成了一份带版本的 `JobSpec`：
+「一个作业长什么样」是一份带版本的 `JobSpec`，而不是一堆环境变量的隐式约定：
 
 ```yaml
 apiVersion: lab/v2
 kind: TrainingJob
 spec:
-  recipe:    {name: grpo, version: 0.7.0, digest: "sha256:…"}
+  recipe:    {name: nemo-rl/grpo, version: 0.7.0, digest: "sha256:…"}
   framework:
     kind: nemo-rl
     version: 0.7.0
@@ -119,15 +118,17 @@ nemo-rl-lab/
 │   ├── naming-convention.md  # 命名规范（务必先读）
 │   └── swanlab.md            # SwanLab 接入说明
 ├── cluster/                  # 硬件 / 分布式 profile + 依赖与环境说明（见 cluster/README.md）
-│   ├── h100/                 # 单机 1× H100（远程微调平台主力）
-│   ├── gb10-spark/           # 2× DGX Spark GB10
-│   └── h200/                 # 单机 8× H200（异构集群新增卡型）
+│   ├── h200/                 # 单机 8× H200（当前主力）
+│   ├── h200-2g/              # 同机器只用 2 张卡（小实验 / 调试）
+│   └── h100/                 # 单机 1× H100
 ├── configs/                  # 配置继承体系（NeMo-RL 原生 defaults）
-│   ├── base/                 # 祖父：官方 v0.6.0 example 原样副本（勿手改）
+│   ├── base/                 # 祖父：NeMo-RL v0.7.0 官方 example 原样副本（勿手改）
 │   └── models/               # 父：各基础模型公共片段（qwen3.5-4b / 9b ...）
 ├── common/                   # 跨实验复用代码
+│   ├── bootstrap.py          # 实验 run.py 公共装配（配置加载 / setup / 训练循环）
 │   ├── data/                 # 数据处理 / data processor
 │   ├── environments/         # 自定义 Environment（GRPO 奖励来源 / 多轮 Agent）
+│   ├── rewards/              # 判分逻辑（规则 / LLM 裁判）
 │   └── utils/
 ├── datasets/                 # 数据集「元数据」（不放大文件，见下方约定）
 ├── templates/                # 新实验脚手架模板
@@ -175,30 +176,32 @@ agent-grpo_qwen3.5-9b_toolbench_v1
 所有操作都通过 `lab` 入口（[Typer](https://typer.tiangolo.com) 实现，纯 Python，**macOS / Linux / Windows 完全兼容**）：
 
 ```bash
-uv run lab login                               # 接入官方 Lab 服务（默认 https://nemolab.gcoreinc.com）
+uv run lab login                             # 接入官方 Lab 服务（默认 https://nemolab.gcoreinc.com）
 uv run lab ls                                # 列出实验 / 项目
 uv run lab methods                           # 有哪些后训练方法、各自能调什么超参（--method 的取值来源）
-uv run lab new grpo_qwen3.5-4b_gsm8k_v1 --method grpo --cluster h200   # 从骨架新建实验
-uv run lab diff grpo_qwen3.5-4b_gsm8k_v1 grpo_qwen3.5-9b_gsm8k_v1      # 对比两实验有效 config 差异（fork 调参常用）
-uv run lab prepare gsm8k                     # 预处理数据集（gsm8k / alpaca / qa_rl）
-uv run lab doctor                            # 体检：是否已登录 / 服务可达 / 当前配额
-uv run lab status                            # 我的配额 / 用量 / 活跃作业（submit 前预检，别撞满卡）
+uv run lab new grpo_qwen3.5-4b_gsm8k_v1 --method nemo-rl/grpo --cluster h200   # 从骨架新建实验
+uv run lab dataset prepare gsm8k             # 本地预处理数据集（gsm8k / alpaca / qa_rl / opsd_math）
+uv run lab dataset push qa-rl v1 ./out       # 上传数据集版本（默认私有；--public 公开给所有人）
+uv run lab dataset ls                        # 可见的数据集（公开的 + 自己的），ID 为 <owner>/<name>
+uv run lab dataset visibility alice/qa-rl --public   # 改可见性（owner 或 admin）
+uv run lab status                            # 账号 / 配额 / 用量 / 活跃作业（submit 前预检，别撞满卡）
 uv run lab validate grpo_qwen3.5-4b_gsm8k_v1 # 提交前静态校验 config（本地秒级，省得跑到集群才报错）
 uv run lab submit agent-grpo_qwen3.5-9b_multitool_v1   # 经服务端提交作业到集群（提交前自动校验）
-uv run lab logs                              # 跟随最近一个作业日志（= lab job logs 便捷版）
+uv run lab submit <实验> --train-dataset alice/qa-rl@v1  # 训练引用平台数据集：作业启动时自动拉到共享缓存并注入 QA_RL_DATA_DIR
+uv run lab job ls                            # 我的作业列表 + 提交历史（--all 看全部，--exp 过滤）
+uv run lab job logs                          # 跟随最近一个作业日志（可指定作业 ID）
 uv run lab export grpo_qwen3.5-9b_gsm8k_v1   # 训练后：把 checkpoint 转 HF（自适应 dcp/megatron），可 --push-repo 推 Hub
 uv run lab eval grpo_qwen3.5-9b_gsm8k_v1     # 训练后：对 checkpoint 跑独立评测（未给 --model 时先自动导出）
-uv run lab runs                              # 我的提交历史（服务端台账：run_id / 状态 / GPU）
 uv run lab job stop <job_id>                 # 停止运行中的作业
-uv run lab sync-base --nemo-rl /opt/NeMo-RL  # 升级版本时同步官方基底配置
 ```
 
-> 首次使用：`uv run lab login` 接入官方 Lab 服务，再 `uv run lab doctor` 确认已登录、服务可达，然后 `lab submit`。
+> 首次使用：`uv run lab login` 接入官方 Lab 服务，再 `uv run lab status` 确认身份与配额，然后 `lab submit`。
 > 提交一律经服务端代理：Ray 地址 / 密钥 / 数据目录都在服务端，本机不直连 Ray、无需任何 `submit.env`。
 > 每次 `lab submit` 会自动：① 校验 config（batch 三者相等等，不过不放行，可 `--no-validate` 跳过）；
-> ② 由服务端记录 git commit / dirty / config 指纹与 `run_id`。
-> 事后 `lab runs` 看「我的提交历史」对上作业状态（RUNNING/SUCCEEDED/FAILED…）；
-> `lab status` 则在提交前看自己的配额、用量与活跃作业，避免撞满卡。
+> ② 只打包运行时清单（实验目录 + common/ + configs/ + 所选 cluster profile + launch.sh），
+> 工作区有未提交改动时拒绝提交（`--allow-dirty` 显式确认）；
+> ③ 由服务端记录 git commit / dirty / config 指纹与 `run_id`。
+> 事后 `lab job ls` 对上作业状态（RUNNING/SUCCEEDED/FAILED…）。
 
 三种等价调用方式：
 
@@ -208,60 +211,25 @@ uv run lab sync-base --nemo-rl /opt/NeMo-RL  # 升级版本时同步官方基底
 | `./lab ...`（macOS / Linux）或 `lab.cmd ...`（Windows） | 仓库根的薄 shim，内部就是 `uv run lab` |
 | `lab ...` | `uv sync` 后 `.venv/bin/lab`（Unix）或 `.venv\Scripts\lab.exe`（Windows）已生成；激活 venv 即可直接用 |
 
-`uv run lab <子命令> --help` 看每个命令的参数。CLI 封装 `nemo_rl_lab/` 下的 Python 实现（`lab new` / `lab sync-base` 等不再依赖 bash）。
-实现见 `nemo_rl_lab/cli.py`。
+`uv run lab <子命令> --help` 看每个命令的参数。app 组装见 `nemo_rl_lab/cli.py`，命令实现按领域拆在 `nemo_rl_lab/commands/`。
 
 ### 终端补全（Tab）
 
-子命令、实验名、数据集、profile 都支持 Tab 补全。**推荐**显式指定 shell（不依赖自动检测，CI / IDE 终端也能用）：
+子命令、实验名、数据集、profile 都支持 Tab 补全，用 Typer 内建安装：
 
 ```bash
-# 已激活 venv 或 PATH 里有 lab 时
-lab completion install zsh          # macOS 默认 shell
-lab completion install bash
-lab completion install fish
-lab completion install powershell   # Windows PowerShell 5.x
-lab completion install pwsh         # PowerShell Core
-
-# 只打印脚本、手动粘贴到配置里
-lab completion show zsh
+lab --install-completion    # 安装到当前 shell（zsh / bash / fish / powershell）
+lab --show-completion       # 只打印脚本，手动粘贴到 shell 配置
 ```
 
-仓库根用 **`./lab` shim**（未把 `.venv/bin` 加入 PATH）时，安装 bash 包装：
-
-```bash
-./lab completion install bash --wrapper
-# 或：lab completion show bash --wrapper >> ~/.bashrc
-```
-
-之后在**仓库根目录** `./lab sub<Tab>`、`./lab submit <Tab>` 即可补全。
-
-Typer 自带的（需当前终端能自动识别 shell，非 TTY 时常失败）：
-
-```bash
-lab --install-completion
-lab --show-completion
-```
-
-| 场景 | 建议 |
-|------|------|
-| macOS / Linux，venv 里 `lab` | `lab completion install zsh`（或 bash/fish） |
-| 仓库根 `./lab` | `lab completion install bash --wrapper` |
-| Windows PowerShell | `lab completion install powershell` |
-| Windows cmd.exe | 不支持；请用 PowerShell、Git Bash 或 WSL |
-| 自动检测失败 `Shell not supported` | 改用 `lab completion install <shell>` |
-
-说明：
-
-- 补全注册在命令名 **`lab`** 或 **`./lab`（wrapper）** 上；`./lab` 的 wrapper 补全仅在仓库根生效。
-- 实验名列表来自安装包旁的 `experiments/` 目录；editable 安装（`uv sync`）下与仓库同步。
-- 安装后需**重开终端**或 `source ~/.zshrc` / `source ~/.bashrc`。
+实验名列表来自安装包旁的 `experiments/` 目录；editable 安装（`uv sync`）下与仓库同步。
+安装后需**重开终端**或 `source ~/.zshrc` / `source ~/.bashrc`。
 
 ## 新建一个实验（细节）
 
 ```bash
 # 方式一：从空白模板新建，并绑定目标集群（写入实验自带 cluster 文件）
-uv run lab new grpo_qwen3.5-4b_gsm8k_v1 --cluster h100   # 或 bash scripts/new_experiment.sh experiments <name> "" h100
+uv run lab new grpo_qwen3.5-4b_gsm8k_v1 --cluster h100
 
 # 方式二（推荐调参）：fork 一个现成实验，只改超参试不同配置
 uv run lab new grpo_qwen3.5-4b_gsm8k_lr1e4 --from grpo_qwen3.5-4b_gsm8k_v1
@@ -270,7 +238,7 @@ uv run lab new grpo_qwen3.5-4b_gsm8k_lr1e4 --from grpo_qwen3.5-4b_gsm8k_v1
 
 cd experiments/<新实验名>
 # 1. 改 config.yaml 顶部「调参区」：lr / kl / 采样数 / 数据集 / seq（这些数值按目标集群的卡调）
-# 2. 目标集群写在同目录 cluster 文件（lab new 已写好；想改：echo gb10-spark > cluster）
+# 2. 目标集群写在同目录 cluster 文件（lab new 已写好；想改：echo h100 > cluster）
 # 3. 改 README.md 与 recipe 模板允许的 config；入口由 recipe 固定，不能在实验内覆盖
 # 4. 提交（用实验自带集群；--profile 可临时换）：
 uv run lab submit <新实验名>
@@ -301,7 +269,7 @@ uv run lab login
 # B. 每次：提交、看/停作业（全程经服务端，本机不直连 Ray）
 uv run lab submit grpo_qwen3.5-4b_gsm8k_v1
 uv run lab job ls                   # 我的作业列表
-uv run lab logs <job_id>            # 实时日志（不给 job_id 跟随最近一个）
+uv run lab job logs <job_id>        # 实时日志（不给 job_id 跟随最近一个）
 uv run lab job stop <job_id>        # 停止作业
 ```
 
@@ -325,7 +293,7 @@ uv run lab eval smoke/verl-sft --data /data/nemo-lab/smoke/gsm8k/test.parquet --
 ```
 
 - **格式不推断**：调用者必须提供 `--checkpoint-format`；adapter 对不支持的组合立即报错。
-- **导出/评测也记台账**：与 `submit` 一样由服务端记录 action / run_id / commit，可追溯（`lab runs` 查看）。
+- **导出/评测也记台账**：与 `submit` 一样由服务端记录 action / run_id / commit，可追溯（`lab job ls` 查看）。
 - **GPU smoke（可选）**：准备固定路径的最小 GSM8K parquet 后，运行
   `scripts/smoke_verl_sft.sh`（1×H100）或 `scripts/smoke_verl_grpo.sh`（2×H200）。
 

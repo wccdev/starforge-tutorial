@@ -53,7 +53,7 @@ DOCS_RETRIEVER=bm25          # 检索后端：bm25（默认）| grep
 DOCS_DIR=/data/docs          # 资料根目录（含子目录），只搜其中 markdown。须是【容器内】真实存在的路径
 DOCS_GLOB=*.md               # 只搜哪些文件，默认只搜 markdown
 DOCS_TOP_K=3                 # 最多回灌几个命中片段（grep 按文件聚合 / bm25 按 chunk）
-DOCS_MAX_CHARS=500           # 单次检索回灌进上下文的总字符上限（GB10 seq=1536 多轮防 OOM）
+DOCS_MAX_CHARS=500           # 单次检索回灌进上下文的总字符上限（短 seq 多轮防 OOM）
 # —— BM25 专用 ——
 DOCS_CHUNK_LINES=12          # 检索单元(chunk)大小：超长段落按多少行切窗
 BM25_K1=1.5                  # 词频饱和系数

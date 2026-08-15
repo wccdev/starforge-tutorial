@@ -44,102 +44,19 @@ class _NotSupported(Exception):
     """替身：对应 pynvml.NVMLError_NotSupported。"""
 
 
-def test_nvml_memory_prefers_v2(monkeypatch):
-    """GB10 上 v1 不可用，v2 有时能返回统一内存池的数字。"""
-    calls: list[object] = []
+def test_nvml_memory_raises_when_unsupported(monkeypatch):
+    """平台只支持独立显存 GPU：显存查询失败就该抛错，不做任何兜底。"""
 
     class _FakePynvml:
-        nvmlMemory_v2 = 0x02000028
-
         @staticmethod
-        def nvmlDeviceGetMemoryInfo(_h, version=None):
-            calls.append(version)
-            if version is None:
-                raise _NotSupported("Not Supported")
-            return _Mem(used=1, total=119 << 30)
-
-    monkeypatch.setitem(__import__("sys").modules, "pynvml", _FakePynvml())
-    assert hw_probe.nvml_memory(object()).total == 119 << 30
-    assert calls == [0x02000028]
-
-
-def test_nvml_memory_none_when_unsupported(monkeypatch):
-    class _FakePynvml:
-        nvmlMemory_v2 = 0x02000028
-
-        @staticmethod
-        def nvmlDeviceGetMemoryInfo(_h, version=None):
+        def nvmlDeviceGetMemoryInfo(_h):
             raise _NotSupported("Not Supported")
 
     monkeypatch.setitem(__import__("sys").modules, "pynvml", _FakePynvml())
-    assert hw_probe.nvml_memory(object()) is None
+    import pytest
 
-
-def test_unified_memory_gpu_still_reports_util_and_power(monkeypatch):
-    """统一内存设备查不到显存，但利用率/温度/功耗都正常，不能因此整机丢指标。
-
-    回归：GB10 上 nvmlDeviceGetMemoryInfo 抛 NotSupported，异常一路冒到最外层的
-    `except Exception: pass`，整台机器的 GPU 曲线全部消失。
-    """
-
-    class _FakePynvml:
-        NVML_TEMPERATURE_GPU = 0
-        nvmlMemory_v2 = 0x02000028
-
-        @staticmethod
-        def nvmlInit():
-            return None
-
-        @staticmethod
-        def nvmlShutdown():
-            return None
-
-        @staticmethod
-        def nvmlDeviceGetCount():
-            return 1
-
-        @staticmethod
-        def nvmlDeviceGetHandleByIndex(i):
-            return i
-
-        @staticmethod
-        def nvmlDeviceGetUtilizationRates(_h):
-            return SimpleNamespace(gpu=42, memory=7)
-
-        @staticmethod
-        def nvmlDeviceGetMemoryInfo(_h, version=None):
-            raise _NotSupported("Not Supported")
-
-        @staticmethod
-        def nvmlDeviceGetTemperature(_h, _kind):
-            return 30
-
-        @staticmethod
-        def nvmlDeviceGetPowerUsage(_h):
-            return 4000
-
-        @staticmethod
-        def nvmlDeviceGetUUID(_h):
-            return "GPU-151b37b4"
-
-    monkeypatch.setitem(__import__("sys").modules, "pynvml", _FakePynvml())
-    monkeypatch.setattr(hw_probe, "_gpu_belongs_to_job", lambda *_a: True)
-
-    metrics = hw_probe.collect_local_hw(job_pids=frozenset({42}))["metrics"]
-
-    assert metrics["gpu.0.pct"] == 42.0
-    assert metrics["gpu.0.temp"] == 30.0
-    assert metrics["gpu.0.power"] == 4.0
-    assert metrics["gpu.0.mem.time"] == 7.0
-    # 显存查不到就别编：统一内存池的占用不等于这张卡的显存占用。
-    assert "gpu.0.mem.pct" not in metrics
-    assert "gpu.0.mem.value" not in metrics
-
-
-def test_gpu_kept_when_memory_unqueryable_and_no_pids(monkeypatch):
-    """无 PID 集合时靠显存阈值筛闲卡；查不到显存就无从判断，宁可多报也别整机消失。"""
-    monkeypatch.setattr(hw_probe, "nvml_memory", lambda _h: None)
-    assert hw_probe._gpu_belongs_to_job(object(), None, 2048.0) is True
+    with pytest.raises(_NotSupported):
+        hw_probe.nvml_memory(object())
 
 
 def test_collect_local_hw_empty_when_job_pids_empty(monkeypatch):
@@ -270,7 +187,7 @@ def test_no_gpu_metrics_when_pid_attribution_empty_and_no_fallback(monkeypatch):
 def test_gpu_fallback_recovers_metrics_when_pids_unavailable(monkeypatch):
     """节点归属已由 placement group 证明时，PID 查空应退回显存启发式，而不是整机不报。
 
-    GB10 节点的 dashboard agent 挂了，list_actors 查不到那边的 actor，job_pids 恒为空。
+    训练节点的 dashboard agent 挂掉时，list_actors 查不到那边的 actor，job_pids 恒为空。
     """
     monkeypatch.setitem(__import__("sys").modules, "pynvml", _TwoGpus())
     monkeypatch.setattr(hw_probe, "_gpu_compute_pids", lambda _h: set())

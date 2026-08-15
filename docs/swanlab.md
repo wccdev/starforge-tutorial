@@ -46,9 +46,9 @@ uv run python examples/run_grpo.py --config <base.yaml> \
 | SwanLab 概念 | NeMo-RL key | 取值 |
 | --- | --- | --- |
 | project | `logger.swanlab.project` | 实验目录名（或按模型聚合，如 `qwen3.5-9b`） |
-| run | `logger.swanlab.name` | 关键超参组合，如 `lr1e6-g16-kl0.01-gb10` |
+| run | `logger.swanlab.name` | 关键超参组合，如 `lr1e6-g16-kl0.01-h200` |
 
-不同硬件跑同一实验时，在 `name` 后缀 `-gb10` / `-h200`，便于对比吞吐与收敛。
+不同硬件跑同一实验时，在 `name` 后缀 `-h100` / `-h200`，便于对比吞吐与收敛。
 
 ## 4. 回填链接
 

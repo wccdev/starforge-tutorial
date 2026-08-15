@@ -97,7 +97,7 @@ lab login --server https://nemolab.gcoreinc.com
 SSH / 无浏览器：`lab login --device-flow`
 
 ```bash
-lab doctor    # 确认已登录、服务可达
+lab status    # 确认已登录、服务可达、配额
 lab status    # 查看 GPU 配额与活跃作业
 ```
 
@@ -167,7 +167,7 @@ lab submit <你的实验名>
 成功后会打印 **作业 ID**（如 `raysubmit_xxx`）。
 
 ```bash
-lab logs [job_id]       # 查看日志
+lab job logs [job_id]   # 查看日志
 lab job ls              # 作业列表
 lab job stop <job_id>   # 停止作业、释放 GPU
 ```
@@ -211,7 +211,7 @@ lab job stop <job_id>   # 停止作业、释放 GPU
 | 打不开 nemolab | 确认 VPN；切换张江双链路 |
 | `lab login` 无浏览器 | `lab login --device-flow` |
 | 配额不足 | `lab status`；`lab job stop` 释放卡 |
-| 作业 FAILED | 控制台看日志 / 诊断；`lab logs <id> -n 0` |
+| 作业 FAILED | 控制台看日志 / 诊断；`lab job logs <id> -n 0` |
 | validate 失败 | 按终端报错改 config |
 
 ---
@@ -221,7 +221,7 @@ lab job stop <job_id>   # 停止作业、释放 GPU
 - [ ] GitHub Fork `wccdev/nemo-rl-lab`
 - [ ] 克隆自己的 Fork，`uv sync`
 - [ ] 连 VPN，登录 [nemolab.gcoreinc.com](https://nemolab.gcoreinc.com/)
-- [ ] `lab login` + `lab doctor`
+- [ ] `lab login` + `lab status`
 - [ ] 研究两个示例实验，创建并实现自己的 QA 多轮检索实验
 - [ ] 代码 push 到 GitHub Fork
 - [ ] `lab validate` → `lab submit`
@@ -235,12 +235,12 @@ lab job stop <job_id>   # 停止作业、释放 GPU
 ```bash
 uv sync
 lab login --server https://nemolab.gcoreinc.com
-lab doctor && lab status
+lab status
 lab ls
 lab new <实验名> --from agent-grpo_qwen3.5-9b_sliding-puzzle_v1
 lab validate <实验名>
 lab submit <实验名>
-lab logs [job_id]
+lab job logs [job_id]
 lab job stop <job_id>
 ```
 

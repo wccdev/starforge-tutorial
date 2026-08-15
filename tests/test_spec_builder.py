@@ -1,8 +1,7 @@
-"""CLI 侧的 JobSpec 构建与本地预校验（阶段 10）。
+"""CLI 侧的 JobSpec 构建与本地预校验。
 
-改造前 `lab submit` 只发 exp 名 + profile，服务端对「跑的是什么方法、超参是什么」
-一无所知。现在客户端构建完整 spec 并在**本地**按 recipe 声明预校验 —— 超参拼错、
-取值越界在敲回车那一刻就报，不必等上传完、排完队、跑起来才发现。
+客户端构建完整 spec 并在**本地**按 recipe 声明预校验 —— 超参拼错、取值越界
+在敲回车那一刻就报，不必等上传完、排完队、跑起来才发现。
 
 本地用的是与服务端同一份 recipe 目录（都来自 nemo-lab-sdk），不会出现
 「本地说没问题、服务端说不行」。
@@ -58,13 +57,13 @@ def test_malformed_pool_rejected(bad):
 
 def test_typo_in_hyperparam_caught_before_any_network_call():
     with pytest.raises(SpecError) as e:
-        build_spec("experiments/demo", recipe="grpo", sets=["max_num_step=100"])
+        build_spec("experiments/demo", recipe="nemo-rl/grpo", sets=["max_num_step=100"])
     assert "max_num_steps" in str(e.value)
 
 
 def test_out_of_range_caught_locally():
     with pytest.raises(SpecError):
-        build_spec("experiments/demo", recipe="grpo", sets=["reference_policy_kl_penalty=99"])
+        build_spec("experiments/demo", recipe="nemo-rl/grpo", sets=["reference_policy_kl_penalty=99"])
 
 
 def test_unknown_method_lists_available():
@@ -75,13 +74,13 @@ def test_unknown_method_lists_available():
 
 def test_unsupported_lifecycle_action_rejected():
     with pytest.raises(SpecError, match="serve"):
-        build_spec("experiments/demo", recipe="grpo", pools=_POOL, on_success=["serve"])
+        build_spec("experiments/demo", recipe="nemo-rl/grpo", pools=_POOL, on_success=["serve"])
 
 
 def test_unknown_role_rejected():
     with pytest.raises(SpecError, match="critic"):
         build_spec(
-            "experiments/demo", recipe="grpo",
+            "experiments/demo", recipe="nemo-rl/grpo",
             pools=["a:h200:1:2", "b:h100:1:1"], roles=["critic:a"],
         )
 
@@ -89,22 +88,22 @@ def test_unknown_role_rejected():
 def test_role_pointing_at_undefined_pool_rejected():
     with pytest.raises(SpecError, match="未定义的资源池"):
         build_spec(
-            "experiments/demo", recipe="grpo",
+            "experiments/demo", recipe="nemo-rl/grpo",
             pools=["train:h200:1:2", "extra:h100:1:1"], roles=["actor:nope", "rollout:extra"],
         )
 
 
 def test_multiple_pools_require_explicit_roles():
     with pytest.raises(SpecError, match="--role"):
-        build_spec("experiments/demo", recipe="grpo", pools=["a:h200:1:2", "b:h100:1:1"])
+        build_spec("experiments/demo", recipe="nemo-rl/grpo", pools=["a:h200:1:2", "b:h100:1:1"])
 
 
 def test_single_pool_infers_roles():
     """只有一个池时不必手写映射：方法声明的角色全落在它上面。"""
     from nemo_lab_sdk.recipes import get_recipe
 
-    spec = build_spec("experiments/demo", recipe="grpo", pools=["all:h200:1:8"])
-    assert set(spec.spec.resources.roles) == set(get_recipe("grpo").roles)
+    spec = build_spec("experiments/demo", recipe="nemo-rl/grpo", pools=["all:h200:1:8"])
+    assert set(spec.spec.resources.roles) == set(get_recipe("nemo-rl/grpo").roles)
     assert all(v == "all" for v in spec.spec.resources.roles.values())
 
 
@@ -112,8 +111,8 @@ def test_single_pool_infers_roles():
 
 
 def test_spec_carries_recipe_identity_and_defaults():
-    spec = build_spec("experiments/demo", recipe="opsd", pools=_POOL)
-    assert spec.recipe_name == "opsd"
+    spec = build_spec("experiments/demo", recipe="nemo-rl/opsd", pools=_POOL)
+    assert spec.recipe_name == "nemo-rl/opsd"
     assert spec.spec.recipe.version
     assert spec.spec.recipe.digest.startswith("sha256:")
     assert spec.provenance.sdk_version == "2.1.0"
@@ -128,7 +127,7 @@ def test_spec_carries_recipe_identity_and_defaults():
 
 def test_init_from_becomes_artifact_ref():
     spec = build_spec(
-        "experiments/dpo_v1", recipe="dpo", init_from="run/sft-1/checkpoint@step=2000",
+        "experiments/dpo_v1", recipe="nemo-rl/dpo", init_from="run/sft-1/checkpoint@step=2000",
         pools=_POOL,
     )
     ref = spec.spec.model.init_from
@@ -137,7 +136,7 @@ def test_init_from_becomes_artifact_ref():
 
 def test_provenance_is_recorded():
     spec = build_spec(
-        "experiments/demo", recipe="grpo",
+        "experiments/demo", recipe="nemo-rl/grpo",
         pools=_POOL,
         provenance={"git_commit": "abc", "git_dirty": True, "config_sha": "sha"},
     )
@@ -146,20 +145,20 @@ def test_provenance_is_recorded():
 
 def test_owner_left_empty_for_server_to_fill():
     """客户端声明 owner 无效 —— 服务端会权威覆写。"""
-    assert build_spec("experiments/demo", recipe="grpo", pools=_POOL).metadata.owner == ""
+    assert build_spec("experiments/demo", recipe="nemo-rl/grpo", pools=_POOL).metadata.owner == ""
 
 
 def test_validation_can_be_skipped():
     """--no-validate 时不校验超参，但仍产出结构合法的 spec。"""
     spec = build_spec(
-        "experiments/demo", recipe="grpo", pools=_POOL, sets=["whatever=1"], validate=False,
+        "experiments/demo", recipe="nemo-rl/grpo", pools=_POOL, sets=["whatever=1"], validate=False,
     )
     assert spec.spec.hyperparams["whatever"] == 1
 
 
 def test_missing_resource_pool_is_rejected():
     with pytest.raises(SpecError, match="--pool"):
-        build_spec("experiments/demo", recipe="grpo")
+        build_spec("experiments/demo", recipe="nemo-rl/grpo")
 
 
 # ── 方法推断 ─────────────────────────────────────────────────────────────────
@@ -178,7 +177,7 @@ def test_no_method_file_returns_empty(tmp_path):
 def test_framework_is_derived_from_recipe():
     assert build_spec(
         "experiments/demo",
-        recipe="verl-grpo",
+        recipe="verl/grpo",
         pools=_POOL,
         base_model="Qwen/Qwen3-0.6B",
         train_data="/data/train.parquet",
@@ -189,7 +188,7 @@ def test_framework_is_derived_from_recipe():
 def test_framework_version_is_selected_from_exact_catalog_matrix():
     spec = build_spec(
         "experiments/demo",
-        recipe="trl-grpo",
+        recipe="trl/grpo",
         framework_version="1.10.0",
         pools=_POOL,
         base_model="Qwen/Qwen3-0.6B",
@@ -202,24 +201,61 @@ def test_framework_version_is_selected_from_exact_catalog_matrix():
     with pytest.raises(SpecError, match="不支持 framework version"):
         build_spec(
             "experiments/demo",
-            recipe="trl-grpo",
+            recipe="trl/grpo",
             framework_version="latest",
             pools=_POOL,
         )
 
 
-@pytest.mark.parametrize("recipe", ["verl-grpo", "trl-grpo"])
+@pytest.mark.parametrize("recipe", ["verl/grpo", "trl/grpo"])
 def test_external_frameworks_require_explicit_model_and_data_bindings(recipe):
     with pytest.raises(SpecError, match="--model.*--train-data.*--validation-data"):
         build_spec("experiments/demo", recipe=recipe, pools=_POOL)
 
 
-def test_external_observability_requires_explicit_url():
-    with pytest.raises(SpecError, match="observability"):
-        build_spec("experiments/demo", recipe="custom", pools=_POOL)
+def test_dataset_reference_populates_dataref():
+    """--train-dataset 落到 spec.data.train.dataset：服务端据此生成分发清单。"""
     spec = build_spec(
         "experiments/demo",
-        recipe="custom",
+        recipe="nemo-rl/grpo",
+        pools=_POOL,
+        train_dataset="alice/qa-rl@v1",
+        validation_dataset="team/qa-rl-val",   # 不带 @version = 最新
+    )
+    assert spec.spec.data.train.dataset == "alice/qa-rl@v1"
+    assert spec.spec.data.train.path == ""
+    assert spec.spec.data.validation.dataset == "team/qa-rl-val"
+
+
+def test_dataset_reference_format_is_validated_locally():
+    """裸名（无 owner）在本地就报错，不发网络请求。"""
+    with pytest.raises(SpecError, match="owner"):
+        build_spec(
+            "experiments/demo", recipe="nemo-rl/grpo", pools=_POOL, train_dataset="gsm8k@v1",
+        )
+
+
+def test_dataset_and_path_coexist():
+    """dataset 触发分发、path 是框架读的位置（verl/TRL 用 $<NAME>_DATA_DIR 指进缓存）。"""
+    spec = build_spec(
+        "experiments/demo",
+        recipe="trl/dpo",
+        pools=_POOL,
+        base_model="Qwen/Qwen3-0.6B",
+        train_dataset="alice/pairs@v2",
+        train_data="$PAIRS_DATA_DIR/train.parquet",
+        validation_data="$PAIRS_DATA_DIR/val.parquet",
+    )
+    assert spec.spec.data.train.dataset == "alice/pairs@v2"
+    assert spec.spec.data.train.path == "$PAIRS_DATA_DIR/train.parquet"
+
+
+def test_external_observability_requires_explicit_url():
+    with pytest.raises(SpecError, match="observability"):
+        build_spec("experiments/demo", recipe="custom/custom", pools=_POOL)
+    spec = build_spec(
+        "experiments/demo",
+        recipe="custom/custom",
         pools=_POOL,
         observability_url="https://metrics.example/runs/1",
         image="docker.io/example/custom@sha256:" + "a" * 64,
@@ -231,7 +267,7 @@ def test_platform_observability_rejects_external_url():
     with pytest.raises(SpecError, match="不允许"):
         build_spec(
             "experiments/demo",
-            recipe="grpo",
+            recipe="nemo-rl/grpo",
             pools=_POOL,
             observability_url="https://metrics.example/runs/1",
         )

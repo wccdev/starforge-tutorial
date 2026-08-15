@@ -1,10 +1,10 @@
 {
   "apiVersion": "lab/recipe-lock/v2",
   "recipe": {
-    "digest": "sha256:66c610838e534b049e72ec530ebeb3a35f104acc416b86fa084ccc238a6578a6",
+    "digest": "sha256:bd07e0d64e343321517b05ea6388c8fc0b14e9d02515015a3bee8c748f8d8a7e",
     "framework": "verl",
     "framework_version": "0.8.0",
-    "name": "verl-grpo",
+    "name": "verl/grpo",
     "version": "0.8.0"
   },
   "sdk_version": "2.1.0"

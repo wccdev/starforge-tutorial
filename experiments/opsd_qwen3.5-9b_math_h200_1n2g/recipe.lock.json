@@ -4,7 +4,7 @@
     "digest": "sha256:23623c21aab8f36bb9669e238fdae24f75a7b5a794162c8c76cabb1f44d97bb2",
     "framework": "nemo-rl",
     "framework_version": "0.7.0",
-    "name": "opsd",
+    "name": "nemo-rl/opsd",
     "version": "0.1.0"
   },
   "sdk_version": "2.1.0"

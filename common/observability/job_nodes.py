@@ -101,7 +101,7 @@ def discover_gpu_node_ids(
 
     语义上，GPU bundle 的落点就是训练节点。而 actor 是不分闲忙的——NeMo-RL 建 venv 时
     会用 STRICT_SPREAD 在每个节点铺一组 CPU-only actor，driver 侧也常驻辅助 actor，
-    这些落在 head 完全正常，却会让 head 被当成训练节点（作业 pin 在 GB10、页面显示
+    这些落在 head 完全正常，却会让 head 被当成训练节点（作业跑在 H100、页面显示
     8 卡 H200 的直接原因）。
 
     可靠性上，PG 的 bundle 落点由 GCS 记账，不依赖各节点的 dashboard agent；agent 挂掉

@@ -1,4 +1,4 @@
-"""日志上报前格式化：去 ANSI / Ray worker 前缀，无时间戳行补全本地时间（SwanLab 风格）。"""
+"""日志上报前格式化：去 ANSI / Ray worker 前缀，无时间戳行补全本地时间。"""
 from __future__ import annotations
 
 import re

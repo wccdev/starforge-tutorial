@@ -1,4 +1,4 @@
-"""客户端登录/门控单测（纯客户端，无 server 依赖）。"""
+"""客户端登录/门控/SSE 单测（纯客户端，无 server 依赖）。"""
 from __future__ import annotations
 
 import base64
@@ -6,8 +6,9 @@ import hashlib
 import json
 
 import pytest
+import typer
 
-from nemo_rl_lab import cli_login
+from nemo_rl_lab import api_client, auth, packing
 from nemo_rl_lab.client_device import collect_cli_device, encode_device_param
 
 
@@ -26,7 +27,7 @@ def test_parse_sse_stream_ignores_protocol_noise():
         'event: end\n'
         'data:\n\n'
     )
-    events = list(cli_login.parse_sse_stream(raw.splitlines(keepends=True)))
+    events = list(api_client.parse_sse_stream(raw.splitlines(keepends=True)))
     logs = [d for e, d in events if e == "log"]
     assert logs == ["(VllmGenerationWorker pid=1) INFO line A\n    缩进的 line B\n"]
     assert events[-1][0] == "end"
@@ -51,13 +52,13 @@ def test_parse_sse_stream_roundtrips_format_sse():
 
     chunk = "Step 1/300\n  reward=0.5\ntrailing\n"  # 含缩进与末尾换行
     frame = format_sse(chunk, event="log", event_id="42")
-    events = list(cli_login.parse_sse_stream(frame.splitlines(keepends=True)))
+    events = list(api_client.parse_sse_stream(frame.splitlines(keepends=True)))
     assert events == [("log", chunk)]  # 精确还原（含 2 空格缩进与末尾换行）
 
 
 def test_pkce_pair_self_consistent():
     """CLI 生成的 verifier/challenge 自洽：challenge == base64url(sha256(verifier))，无填充。"""
-    verifier, challenge = cli_login.pkce_pair()
+    verifier, challenge = auth.pkce_pair()
     expect = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
     assert challenge == expect
     assert "=" not in challenge
@@ -65,40 +66,49 @@ def test_pkce_pair_self_consistent():
 
 @pytest.fixture()
 def isolated_lab(tmp_path, monkeypatch):
-    monkeypatch.setattr(cli_login, "CONFIG_PATH", tmp_path / "config.json")
-    monkeypatch.setattr(cli_login, "CRED_PATH", tmp_path / "credentials.json")
+    monkeypatch.setattr(auth, "CONFIG_PATH", tmp_path / "config.json")
+    monkeypatch.setattr(auth, "CRED_PATH", tmp_path / "credentials.json")
     monkeypatch.delenv("LAB_SERVER", raising=False)
     return tmp_path
 
 
 def test_server_mode_detection(isolated_lab, monkeypatch):
-    assert cli_login.current_server() == cli_login.DEFAULT_LAB_SERVER
-    assert cli_login.is_server_mode() is True
-    cli_login._save_server("https://lab.x.com/")
-    assert cli_login.current_server() == "https://lab.x.com"  # 去尾斜杠
+    assert auth.current_server() == auth.DEFAULT_LAB_SERVER
+    assert auth.is_server_mode() is True
+    auth._save_server("https://lab.x.com/")
+    assert auth.current_server() == "https://lab.x.com"  # 去尾斜杠
     monkeypatch.setenv("LAB_SERVER", "https://env.x.com")
-    assert cli_login.current_server() == "https://env.x.com"  # 环境优先
-    assert cli_login.current_server("https://explicit.com") == "https://explicit.com"
+    assert auth.current_server() == "https://env.x.com"  # 环境优先
+    assert auth.current_server("https://explicit.com") == "https://explicit.com"
 
 
-def test_gate_auto_login_uses_default_server(isolated_lab, monkeypatch):
-    monkeypatch.setattr(cli_login, "get_access_token", lambda *a, **kw: None)
-    calls: list[str] = []
-    monkeypatch.setattr(
-        cli_login,
-        "_interactive_login",
-        lambda srv, **kw: calls.append(srv) or {"access_token": "t", "user": {"username": "u"}},
-    )
-    monkeypatch.setattr(cli_login, "_save_creds", lambda *a, **kw: None)
-    cli_login.gate("submit")
-    assert calls == [cli_login.DEFAULT_LAB_SERVER]
+def test_gate_fails_loud_when_not_logged_in(isolated_lab, monkeypatch):
+    """fail-loud：未登录的门控直接报错退出，绝不隐式发起登录流程。"""
+    monkeypatch.setattr(auth, "get_access_token", lambda *a, **kw: None)
+    login_calls: list = []
+    monkeypatch.setattr(auth, "_interactive_login", lambda *a, **kw: login_calls.append(a))
+    with pytest.raises(typer.Exit):
+        auth.gate()
+    assert login_calls == []  # 没有隐式登录
+
+
+def test_gate_passes_when_logged_in(isolated_lab, monkeypatch):
+    monkeypatch.setattr(auth, "get_access_token", lambda *a, **kw: "token")
+    auth.gate()  # 不抛即通过
+
+
+def test_corrupt_credentials_fail_loud(isolated_lab):
+    """fail-loud：凭据文件损坏直接报错并提示处理办法，不静默当空。"""
+    (isolated_lab / "credentials.json").write_text("{corrupt")
+    with pytest.raises(typer.Exit):
+        auth._load_creds("https://s")
 
 
 def test_creds_roundtrip(isolated_lab):
-    cli_login._save_creds("https://lab.x.com", {"access_token": "t", "expires_at": None})
-    assert cli_login._load_creds("https://lab.x.com")["access_token"] == "t"
-    cli_login._clear_creds("https://lab.x.com")
-    assert cli_login._load_creds("https://lab.x.com") is None
+    auth._save_creds("https://lab.x.com", {"access_token": "t", "expires_at": None})
+    assert auth._load_creds("https://lab.x.com")["access_token"] == "t"
+    auth._clear_creds("https://lab.x.com")
+    assert auth._load_creds("https://lab.x.com") is None
 
 
 def test_prefer_device_flow_ssh(monkeypatch):
@@ -106,11 +116,11 @@ def test_prefer_device_flow_ssh(monkeypatch):
     monkeypatch.delenv("SSH_CONNECTION", raising=False)
     monkeypatch.delenv("SSH_TTY", raising=False)
     monkeypatch.delenv("DISPLAY", raising=False)
-    assert cli_login.prefer_device_flow() is False
+    assert auth.prefer_device_flow() is False
     monkeypatch.setenv("SSH_CONNECTION", "127.0.0.1 12345 54321")
-    assert cli_login.prefer_device_flow() is True
+    assert auth.prefer_device_flow() is True
     monkeypatch.delenv("SSH_CONNECTION", raising=False)
-    assert cli_login.prefer_device_flow(force=True) is True
+    assert auth.prefer_device_flow(force=True) is True
 
 
 def test_device_login_polls_until_token(isolated_lab, monkeypatch):
@@ -136,10 +146,10 @@ def test_device_login_polls_until_token(isolated_lab, monkeypatch):
             "user": {"username": "alice"},
         }
 
-    monkeypatch.setattr(cli_login, "_http_json", fake_http)
-    monkeypatch.setattr(cli_login.time, "sleep", lambda _: None)
-    monkeypatch.setattr(cli_login.webbrowser, "open", lambda *_: None)
-    creds = cli_login._device_login("https://lab.x.com")
+    monkeypatch.setattr(auth, "_http_json", fake_http)
+    monkeypatch.setattr(auth.time, "sleep", lambda _: None)
+    monkeypatch.setattr(auth.webbrowser, "open", lambda *_: None)
+    creds = auth._device_login("https://lab.x.com")
     assert creds["access_token"] == "at"
     assert calls["n"] == 2
 
@@ -147,14 +157,14 @@ def test_device_login_polls_until_token(isolated_lab, monkeypatch):
 def test_get_access_token_valid_and_expired(isolated_lab):
     import time
 
-    cli_login._save_creds("https://s", {"access_token": "valid", "expires_at": time.time() + 100})
-    assert cli_login.get_access_token("https://s") == "valid"
-    cli_login._save_creds("https://s", {"access_token": "old", "expires_at": time.time() - 10,
-                                        "refresh_token": None})
-    assert cli_login.get_access_token("https://s") is None
+    auth._save_creds("https://s", {"access_token": "valid", "expires_at": time.time() + 100})
+    assert auth.get_access_token("https://s") == "valid"
+    auth._save_creds("https://s", {"access_token": "old", "expires_at": time.time() - 10,
+                                   "refresh_token": None})
+    assert auth.get_access_token("https://s") is None
 
 
-# ----------------------------- Phase B：打包 / 可追溯 -----------------------------
+# ----------------------------- 打包 / 可追溯 -----------------------------
 def _git_repo(tmp_path):
     import subprocess
 
@@ -168,44 +178,27 @@ def _git_repo(tmp_path):
     return git
 
 
-def test_pack_working_dir_respects_gitignore(tmp_path):
-    git = _git_repo(tmp_path)
-    (tmp_path / ".gitignore").write_text("ignored.txt\noutputs/\n")
-    (tmp_path / "keep.py").write_text("print(1)\n")
-    (tmp_path / "ignored.txt").write_text("secret\n")
-    (tmp_path / "outputs").mkdir()
-    (tmp_path / "outputs" / "big.bin").write_text("x" * 100)
-    (tmp_path / "untracked_new.txt").write_text("new but not ignored\n")
-    git("add", ".gitignore", "keep.py")
-    git("commit", "-qm", "init")
-
-    blob = cli_login.pack_working_dir(tmp_path)
-    import io
-    import tarfile
-
-    with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as tar:
-        names = set(tar.getnames())
-    assert "keep.py" in names
-    assert "untracked_new.txt" in names  # 未提交但未被忽略 → 应上传（贴近 Ray 语义）
-    assert "ignored.txt" not in names
-    assert "outputs/big.bin" not in names
-
-
 def test_git_provenance(tmp_path):
     git = _git_repo(tmp_path)
-    exp = tmp_path / "experiments" / "demo_v1"
-    exp.mkdir(parents=True)
-    (exp / "config.yaml").write_text("a: 1\n")
+    e = tmp_path / "experiments" / "demo_v1"
+    e.mkdir(parents=True)
+    (e / "config.yaml").write_text("a: 1\n")
     git("add", ".")
     git("commit", "-qm", "init")
 
-    prov = cli_login.git_provenance(tmp_path, "experiments/demo_v1")
-    assert prov["git_commit"] != "unknown"
+    prov = packing.git_provenance(tmp_path, "experiments/demo_v1")
+    assert prov["git_commit"]
     assert prov["git_dirty"] is False
     assert len(prov["config_sha"]) == 12
 
-    (exp / "config.yaml").write_text("a: 2\n")  # 改动 → dirty
-    assert cli_login.git_provenance(tmp_path, "experiments/demo_v1")["git_dirty"] is True
+    (e / "config.yaml").write_text("a: 2\n")  # 改动 → dirty
+    assert packing.git_provenance(tmp_path, "experiments/demo_v1")["git_dirty"] is True
+
+
+def test_git_provenance_outside_repo_fails_loud(tmp_path):
+    """fail-loud：不在 git 仓库内直接报错，不再返回 'unknown'。"""
+    with pytest.raises(typer.Exit):
+        packing.git_provenance(tmp_path, "experiments/x")
 
 
 def test_collect_cli_device():

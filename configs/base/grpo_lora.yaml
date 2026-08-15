@@ -1,9 +1,9 @@
-# LoRA / PEFT overlay（Megatron 后端）——实测在 2× DGX Spark GB10 上让 9B GRPO 能跑起来。
+# LoRA / PEFT overlay（Megatron 后端）——实测在低显存机型上让 9B GRPO 能跑起来。
 # 用法：在实验 defaults 里放在 grpo_megatron.yaml「之后」。删掉这一行即回到全参数微调。
 #   defaults:
 #     - ../../configs/base/grpo_math_1B.yaml
 #     - ../../configs/models/qwen3.5-9b.yaml
-#     - ../../configs/base/grpo_megatron.yaml   # Megatron 后端 + GB10 调优
+#     - ../../configs/base/grpo_megatron.yaml   # Megatron 后端 + 低显存调优
 #     - ../../configs/base/grpo_lora.yaml       # ← LoRA（删此行即全参数）
 #
 # 要点（来自跑通的 grpo_math_9B_megatron）：

@@ -100,7 +100,7 @@ grpo:
   #   grad_norm 0.3~0.75(step1-80)→10.6(step101)，step103 截断率撞到 1.0、有效 token 归零 → NaN：
   #     RuntimeError: iteration 103: found NaN in local grad norm for bucket #0
   #   注意 NaN 产生在 DP 通信之前、也就是【梯度裁剪之前】，所以 clip_grad=1.0 救不了，必须在
-  #   advantage 层面截断。姊妹实验 gb10_v1 已踩过同一个坑（见其 config 第 79-87 行），取同一组值。
+  #   advantage 层面截断。历史实验已踩过同一个坑，取同一组值。
   advantage_clip_low: -5.0
   advantage_clip_high: 5.0
   # ★ 20260810 事故修复②：advantage_clip 只防崩，不治本——真正的病根是 overlong_filtering
