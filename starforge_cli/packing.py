@@ -12,7 +12,7 @@ import io
 import subprocess
 from pathlib import Path
 
-from nemo_rl_lab import cli_ui
+from starforge_cli import cli_ui
 
 
 def _git_out(args: list[str], cwd: Path) -> str:

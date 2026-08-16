@@ -38,7 +38,7 @@ def default_dirs() -> list[Path]:
 
     内置目录在前：同名脚本内置优先，插件不能悄悄替换内置数据集的语义。
     """
-    from nemo_rl_lab.commands.common import ROOT
+    from starforge_cli.commands.common import ROOT
 
     dirs = [ROOT / "common" / "data"]
     plugins_root = ROOT / "lab_plugins"

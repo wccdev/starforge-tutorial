@@ -7,7 +7,7 @@ from typing import Optional
 
 import typer
 
-from nemo_rl_lab import api_client
+from starforge_cli import api_client
 
 admin_app = typer.Typer(
     no_args_is_help=True,
@@ -72,10 +72,10 @@ def admin_set_quota(
 
 # ----------------------------- 维护模式（滚动升级集群镜像）-----------------------------
 # 完整流程见 console 仓库 deploy/ray-cluster/README.md「升级」一节：
-#   lab admin maintenance drain --note "升级镜像至 0.7.0-20260805"
-#   lab admin maintenance status            # 等到「可以重启」
+#   forge admin maintenance drain --note "升级镜像至 0.7.0-20260805"
+#   forge admin maintenance status            # 等到「可以重启」
 #   （各节点 docker compose pull && up -d）
-#   lab admin maintenance resume            # 作业自动从 checkpoint 续训
+#   forge admin maintenance resume            # 作业自动从 checkpoint 续训
 maintenance_app = typer.Typer(
     no_args_is_help=True,
     help="维护模式：排空集群 → 升级 → 恢复（作业从 checkpoint 续训，不丢进度）",
@@ -113,7 +113,7 @@ def _print_maintenance(data: dict) -> None:
         if data["safe_to_restart"]:
             typer.secho("\n✓ 集群已排空，可以重启节点了", fg=typer.colors.GREEN, bold=True)
             typer.echo("  各节点：docker compose --profile <head|worker> pull && up -d")
-            typer.echo("  升级完成后：lab admin maintenance resume")
+            typer.echo("  升级完成后：forge admin maintenance resume")
         else:
             n = data.get("remaining_active", data.get("active_jobs", "?"))
             typer.secho(f"\n✗ 还有 {n} 个作业占着卡，现在重启会打断它们", fg=typer.colors.RED, bold=True)

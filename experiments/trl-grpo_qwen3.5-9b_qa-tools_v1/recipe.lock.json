@@ -9,8 +9,8 @@
     "version": "1.10.0"
   },
   "recipe": {
-    "digest": "sha256:7a058d9a54f4fcfbf705e0b2650b699a7bdcf529d18e5b82b70a02993be128e5",
-    "manifest_digest": "sha256:bc4e0bca4f161d6e61186807a8a831a4b27cc2a5bd29d48d9ac7f7da74d389b0",
+    "digest": "sha256:e501899c27b82a623ab6412675ee0945829f878973075a575c39f27a112c0c0f",
+    "manifest_digest": "sha256:d5be5402b676a2ee3554672135741e8a36d4613b0e46be58ca0007e9619134a3",
     "name": "trl/grpo",
     "template_digest": "sha256:9997deb4e16a41b1d24e0764370a45d10a7ef496eb1f1ce5566d8db3268665fd",
     "version": "1.0.0"

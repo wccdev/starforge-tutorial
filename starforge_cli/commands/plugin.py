@@ -3,9 +3,9 @@
 插件是平台托管、digest 锁定的扩展包（algorithm 算法补丁 / data-prep 数据脚本）。
 代码只在用户自己的作业容器（或本机）执行，控制平面只存储与分发。
 
-    lab plugin publish ./my-plugin          # 发布（名字版本以 plugin.yaml 为准）
-    lab plugin install alice/myalgo --exp x # 下载到本地 + 写实验锁文件
-    lab submit x ...                        # 锁文件里的引用随 JobSpec 提交
+    forge plugin publish ./my-plugin          # 发布（名字版本以 plugin.yaml 为准）
+    forge plugin install alice/myalgo --exp x # 下载到本地 + 写实验锁文件
+    forge submit x ...                        # 锁文件里的引用随 JobSpec 提交
 """
 from __future__ import annotations
 
@@ -18,9 +18,9 @@ from typing import Optional
 
 import typer
 
-from nemo_rl_lab import api_client, cli_ui
-from nemo_rl_lab.auth import gate
-from nemo_rl_lab.commands import common
+from starforge_cli import api_client, cli_ui
+from starforge_cli.auth import gate
+from starforge_cli.commands import common
 
 plugin_app = typer.Typer(
     no_args_is_help=True,
@@ -39,7 +39,7 @@ def _split_ref(ref: str) -> tuple[str, str, str]:
     if not owner or not name or "/" in name:
         cli_ui.fail(
             f"插件 ID 必须是 <owner>/<name>[@version]，收到 {ref!r}",
-            hint="用 `lab plugin ls` 查看完整 ID",
+            hint="用 `forge plugin ls` 查看完整 ID",
         )
     return owner, name, version
 
@@ -49,7 +49,7 @@ def plugin_ls() -> None:
     gate()
     rows = api_client.api_get("/api/plugins")["plugins"]
     if not rows:
-        typer.echo("（还没有插件；`lab plugin publish <目录>` 发布一个）")
+        typer.echo("（还没有插件；`forge plugin publish <目录>` 发布一个）")
         return
     for p in rows:
         state = "" if p["enabled"] else "  [已禁用]"
@@ -90,7 +90,7 @@ def plugin_publish(
     ),
 ) -> None:
     gate()
-    from nemo_lab_sdk.plugins import (
+    from starforge_sdk.plugins import (
         PluginError,
         digest_files,
         directory_digest,
@@ -130,7 +130,7 @@ def plugin_publish(
         fg=typer.colors.GREEN,
     )
     typer.echo(f"  digest: {row['digest']}")
-    typer.echo(f"  实验里使用：lab plugin install {row['id']}@{row['version']} --exp <实验>")
+    typer.echo(f"  实验里使用：forge plugin install {row['id']}@{row['version']} --exp <实验>")
 
 
 @plugin_app.command(
@@ -145,7 +145,7 @@ def plugin_install(
     ),
 ) -> None:
     gate()
-    from nemo_lab_sdk.plugins import directory_digest
+    from starforge_sdk.plugins import directory_digest
 
     owner, name, version = _split_ref(ref)
     q = f"?version={version}" if version else ""
@@ -179,13 +179,13 @@ def plugin_install(
     )
 
     if meta["kind"] == "data-prep":
-        typer.echo("  数据脚本已可用：lab dataset prepare 会自动发现其中的 prepare_*.py")
+        typer.echo("  数据脚本已可用：forge dataset prepare 会自动发现其中的 prepare_*.py")
     if not exp:
         if meta["kind"] == "algorithm":
-            typer.echo(f"  提交训练时使用：lab plugin install {meta['id']}@{meta['version']} --exp <实验>")
+            typer.echo(f"  提交训练时使用：forge plugin install {meta['id']}@{meta['version']} --exp <实验>")
         return
 
-    from nemo_rl_lab.plugins_lock import LOCK_FILE, upsert_plugin_lock
+    from starforge_cli.plugins_lock import LOCK_FILE, upsert_plugin_lock
 
     exp_path = common.resolve_exp(exp)
     try:
@@ -205,7 +205,7 @@ def plugin_remove(
         ..., "--exp", "-e", autocompletion=common.complete_exp, help="实验名或路径"
     ),
 ) -> None:
-    from nemo_rl_lab.plugins_lock import remove_plugin_lock
+    from starforge_cli.plugins_lock import remove_plugin_lock
 
     owner, name, _ = _split_ref(ref)
     exp_path = common.resolve_exp(exp)

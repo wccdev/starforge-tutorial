@@ -1,4 +1,4 @@
-"""NeMoLab 采集会话：终端日志 + 指标/硬件共用一个 IngestClient。"""
+"""StarForge 采集会话：终端日志 + 指标/硬件共用一个 IngestClient。"""
 from __future__ import annotations
 
 import atexit
@@ -14,23 +14,23 @@ class ObservabilitySession:
 
 
 def start_observability() -> ObservabilitySession | None:
-    """有 NEMOLAB_TOKEN 时启动终端捕获 + 传输；本地直跑为 no-op。"""
+    """有 STARFORGE_TOKEN 时启动终端捕获 + 传输；本地直跑为 no-op。"""
     global _session
     if _session is not None:
         return _session
-    if not os.environ.get("NEMOLAB_TOKEN"):
+    if not os.environ.get("STARFORGE_TOKEN"):
         return None
 
-    endpoint = os.environ.get("NEMOLAB_ENDPOINT", "")
-    run_id = os.environ.get("NEMOLAB_RUN_ID") or os.environ.get("NRL_RUN_ID", "")
-    token = os.environ.get("NEMOLAB_TOKEN", "")
+    endpoint = os.environ.get("STARFORGE_ENDPOINT", "")
+    run_id = os.environ.get("STARFORGE_RUN_ID") or os.environ.get("NRL_RUN_ID", "")
+    token = os.environ.get("STARFORGE_TOKEN", "")
     if not endpoint or not run_id or not token:
         return None
 
     from common.observability.ingest_client import IngestClient
     from common.observability.terminal_proxy import TerminalProxy
 
-    flush_interval = float(os.environ.get("NEMOLAB_FLUSH_INTERVAL", "1.5"))
+    flush_interval = float(os.environ.get("STARFORGE_FLUSH_INTERVAL", "1.5"))
     ingest = IngestClient(endpoint, run_id, token, flush_interval=flush_interval)
     ingest.start()
     try:
@@ -38,12 +38,12 @@ def start_observability() -> ObservabilitySession | None:
 
         ingest.enqueue_environment(collect_environment())
     except Exception as e:
-        print(f"NeMoLab environment probe skipped: {e}")
+        print(f"StarForge environment probe skipped: {e}")
     terminal = TerminalProxy(ingest)
     terminal.install()
     _session = ObservabilitySession(ingest, terminal)
     atexit.register(stop_observability)
-    print(f"NeMoLab observability started for run {run_id}")
+    print(f"StarForge observability started for run {run_id}")
     return _session
 
 

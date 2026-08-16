@@ -9,8 +9,8 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
-from nemo_rl_lab import cli
-from nemo_rl_lab.commands import common, exp, jobs
+from starforge_cli import cli
+from starforge_cli.commands import common, exp, jobs
 
 runner = CliRunner()
 
@@ -32,7 +32,7 @@ def test_list_exps_nonempty():
 
 def test_list_profiles_reads_server_registry(monkeypatch):
     """profile 注册表已服务端化：列表来自 /api/cluster/status，失败时静默为空。"""
-    from nemo_rl_lab import api_client
+    from starforge_cli import api_client
 
     monkeypatch.setattr(
         api_client, "cluster_status_via_server",
@@ -93,7 +93,7 @@ def test_validate_exp_clean_on_real_experiment():
 def test_custom_validation_does_not_run_nemo_config_parser(tmp_path, monkeypatch):
     import json
 
-    from nemo_rl_lab.recipe_lock import recipe_lock
+    from starforge_cli.recipe_lock import recipe_lock
 
     monkeypatch.setattr(common, "ROOT", tmp_path)
     e = tmp_path / "experiments" / "custom"
@@ -107,7 +107,7 @@ def test_custom_validation_does_not_run_nemo_config_parser(tmp_path, monkeypatch
 def test_verl_validation_only_requires_mapping_config(tmp_path, monkeypatch):
     import json
 
-    from nemo_rl_lab.recipe_lock import recipe_lock
+    from starforge_cli.recipe_lock import recipe_lock
 
     monkeypatch.setattr(common, "ROOT", tmp_path)
     e = tmp_path / "experiments" / "verl"
@@ -120,7 +120,7 @@ def test_verl_validation_only_requires_mapping_config(tmp_path, monkeypatch):
 def test_trl_validation_requires_entrypoint_and_mapping_config(tmp_path, monkeypatch):
     import json
 
-    from nemo_rl_lab.recipe_lock import recipe_lock
+    from starforge_cli.recipe_lock import recipe_lock
 
     monkeypatch.setattr(common, "ROOT", tmp_path)
     e = tmp_path / "experiments" / "trl"
@@ -198,9 +198,9 @@ def test_dataset_push_puts_with_server_signed_headers(monkeypatch, tmp_path):
     对象存储回 403 SignatureDoesNotMatch。"""
     import urllib.request
 
-    from nemo_rl_lab import api_client
+    from starforge_cli import api_client
 
-    monkeypatch.setenv("LAB_HOME", str(tmp_path / ".lab"))  # 断点状态不落到真实 ~/.lab
+    monkeypatch.setenv("FORGE_HOME", str(tmp_path / ".forge"))  # 断点状态不落到真实 ~/.forge
     (tmp_path / "train.jsonl").write_text('{"q":1}\n', encoding="utf-8")
 
     signed = {"Content-Type": "application/octet-stream"}
@@ -235,9 +235,9 @@ def test_dataset_push_resumes_skipping_uploaded_files(monkeypatch, tmp_path):
 
     import typer
 
-    from nemo_rl_lab import api_client
+    from starforge_cli import api_client
 
-    monkeypatch.setenv("LAB_HOME", str(tmp_path / ".lab"))
+    monkeypatch.setenv("FORGE_HOME", str(tmp_path / ".forge"))
     data = tmp_path / "ds"
     data.mkdir()
     (data / "train.jsonl").write_text('{"q":1}\n', encoding="utf-8")
@@ -281,7 +281,7 @@ def test_dataset_push_resumes_skipping_uploaded_files(monkeypatch, tmp_path):
 
 def test_dataset_refs_read_from_experiment_config(monkeypatch, tmp_path):
     """数据集引用声明在实验 config（data.{train,validation}.dataset），submit 自动拾取。"""
-    from nemo_rl_lab.commands import submit as submit_cmd
+    from starforge_cli.commands import submit as submit_cmd
 
     e = tmp_path / "experiments" / "demo"
     e.mkdir(parents=True)
@@ -302,7 +302,7 @@ def test_dataset_refs_read_from_experiment_config(monkeypatch, tmp_path):
 
 def test_dataset_refs_absent_or_broken_config_is_silent(monkeypatch, tmp_path):
     """没 config、没声明、config 解析失败都返回空——报错归校验环节，这里不重复拦。"""
-    from nemo_rl_lab.commands import submit as submit_cmd
+    from starforge_cli.commands import submit as submit_cmd
 
     (tmp_path / "experiments" / "none").mkdir(parents=True)
     plain = tmp_path / "experiments" / "plain"
@@ -320,8 +320,8 @@ def test_dataset_refs_absent_or_broken_config_is_silent(monkeypatch, tmp_path):
 
 def test_dataset_push_forwards_namespace_and_visibility(monkeypatch, tmp_path):
     """push 把数据集名与 --public 原样交给服务端（owner 归属由服务端裁决）。"""
-    from nemo_rl_lab import api_client
-    from nemo_rl_lab.commands import dataset as dataset_cmd
+    from starforge_cli import api_client
+    from starforge_cli.commands import dataset as dataset_cmd
 
     (tmp_path / "train.jsonl").write_text('{"q":1}\n', encoding="utf-8")
     seen: dict = {}
@@ -341,7 +341,7 @@ def test_dataset_push_forwards_namespace_and_visibility(monkeypatch, tmp_path):
 
 
 def test_dataset_visibility_requires_exactly_one_flag(monkeypatch):
-    from nemo_rl_lab.commands import dataset as dataset_cmd
+    from starforge_cli.commands import dataset as dataset_cmd
 
     monkeypatch.setattr(dataset_cmd, "gate", lambda: None)
     assert runner.invoke(cli.app, ["dataset", "visibility", "alice/qa-rl"]).exit_code != 0

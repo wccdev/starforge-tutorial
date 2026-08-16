@@ -83,8 +83,8 @@ TRAIN_NODE_2 = {**TRAIN_NODE, "hostname": "train-node-2"}
 
 @pytest.fixture
 def monitor(monkeypatch):
-    monkeypatch.delenv("LAB_CLUSTER_GPUS_PER_NODE", raising=False)
-    monkeypatch.delenv("LAB_CLUSTER_NUM_NODES", raising=False)
+    monkeypatch.delenv("FORGE_CLUSTER_GPUS_PER_NODE", raising=False)
+    monkeypatch.delenv("FORGE_CLUSTER_NUM_NODES", raising=False)
     return HardwareMonitor(_Ingest(), scope="job")
 
 
@@ -121,7 +121,7 @@ def test_gpu_placement_beats_actor_placement(monkeypatch, monitor):
 
 def test_falls_back_to_actor_nodes_without_gpu_placement_group(monkeypatch, monitor):
     """纯 CPU 作业没有 GPU placement group，此时 actor 落点是唯一线索。"""
-    monkeypatch.delenv("LAB_CLUSTER_GPUS_PER_NODE", raising=False)
+    monkeypatch.delenv("FORGE_CLUSTER_GPUS_PER_NODE", raising=False)
     _install_fake_ray(monkeypatch, snapshots={"node-a": TRAIN_NODE})
     _gpu_nodes(monkeypatch)
     _actor_nodes(monkeypatch, "node-a")
@@ -133,7 +133,7 @@ def test_falls_back_to_actor_nodes_without_gpu_placement_group(monkeypatch, moni
 
 def test_gpu_job_waits_for_placement_group_not_head_actors(monkeypatch, monitor):
     """异构 GPU 作业：PG 未就绪前不要把 head 辅助 actor 写成运行节点。"""
-    monkeypatch.setenv("LAB_CLUSTER_GPUS_PER_NODE", "2")
+    monkeypatch.setenv("FORGE_CLUSTER_GPUS_PER_NODE", "2")
     _install_fake_ray(monkeypatch, snapshots={"node-head": TRAIN_NODE, "node-train": TRAIN_NODE_2})
     _gpu_nodes(monkeypatch)
     _actor_nodes(monkeypatch, "node-head")
@@ -148,7 +148,7 @@ def test_gpu_job_waits_for_placement_group_not_head_actors(monkeypatch, monitor)
 
 def test_actor_fallback_refuses_driver(monkeypatch, monitor):
     """回退到 actor 落点时也不许兜底到 driver，否则又会把 head 报上去。"""
-    monkeypatch.delenv("LAB_CLUSTER_GPUS_PER_NODE", raising=False)
+    monkeypatch.delenv("FORGE_CLUSTER_GPUS_PER_NODE", raising=False)
     seen: list[dict] = []
     _install_fake_ray(monkeypatch, snapshots={})
     _gpu_nodes(monkeypatch)
@@ -183,7 +183,7 @@ def test_does_not_resend_unchanged_node_set(monkeypatch, monitor):
 
 def test_corrects_itself_when_node_set_grows(monkeypatch, monitor):
     """CPU 作业：监控比 worker 早起来时，节点集合长大后要纠正，不能锁死第一拍。"""
-    monkeypatch.delenv("LAB_CLUSTER_GPUS_PER_NODE", raising=False)
+    monkeypatch.delenv("FORGE_CLUSTER_GPUS_PER_NODE", raising=False)
     _install_fake_ray(monkeypatch, snapshots={"node-head": TRAIN_NODE, "node-train": TRAIN_NODE_2})
     _gpu_nodes(monkeypatch)
     _actor_nodes(monkeypatch, "node-head")
@@ -199,7 +199,7 @@ def test_corrects_itself_when_node_set_grows(monkeypatch, monitor):
 
 def test_resends_when_reported_gpu_count_exceeds_quota(monkeypatch, monitor):
     """同节点集合下若先前误报了整机卡数，配额就绪后要重报纠正。"""
-    monkeypatch.setenv("LAB_CLUSTER_GPUS_PER_NODE", "2")
+    monkeypatch.setenv("FORGE_CLUSTER_GPUS_PER_NODE", "2")
     fat = {
         "hostname": "h200-host",
         "cpu": {"brand": "Xeon", "cores": 192, "memory_gb": 2015},
@@ -310,8 +310,8 @@ def test_passes_job_gpu_scope_into_node_hardware_probe(monkeypatch, monitor):
 
 
 def test_max_gpus_falls_back_to_cluster_env_topology(monkeypatch, monitor):
-    """PG bundle 计数暂缺时，用 LAB_CLUSTER_GPUS_PER_NODE 封顶（异构提交侧权威拓扑）。"""
-    monkeypatch.setenv("LAB_CLUSTER_GPUS_PER_NODE", "2")
+    """PG bundle 计数暂缺时，用 FORGE_CLUSTER_GPUS_PER_NODE 封顶（异构提交侧权威拓扑）。"""
+    monkeypatch.setenv("FORGE_CLUSTER_GPUS_PER_NODE", "2")
     calls = _install_fake_ray(monkeypatch, snapshots={"node-h200": TRAIN_NODE})
     _gpu_nodes(monkeypatch, "node-h200")
     monkeypatch.setattr(hm, "discover_gpu_bundle_counts", lambda: {})

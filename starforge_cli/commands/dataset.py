@@ -7,9 +7,9 @@ from typing import Optional
 
 import typer
 
-from nemo_rl_lab import api_client, cli_ui
-from nemo_rl_lab.auth import gate
-from nemo_rl_lab.commands import common
+from starforge_cli import api_client, cli_ui
+from starforge_cli.auth import gate
+from starforge_cli.commands import common
 
 dataset_app = typer.Typer(
     no_args_is_help=True,
@@ -18,14 +18,14 @@ dataset_app = typer.Typer(
 )
 
 def _complete_dataset(incomplete: str) -> list[str]:
-    from nemo_rl_lab.data_prep import discover
+    from starforge_cli.data_prep import discover
 
     return [d for d in sorted(discover()) if d.startswith(incomplete)]
 
 
 @dataset_app.command(
     "prepare",
-    help="本地预处理数据集（按约定发现 common/data/prepare_*.py，`lab dataset prepare` 不带参数列出可选）",
+    help="本地预处理数据集（按约定发现 common/data/prepare_*.py，`forge dataset prepare` 不带参数列出可选）",
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
 )
 def dataset_prepare(
@@ -37,7 +37,7 @@ def dataset_prepare(
     import os
     import subprocess
 
-    from nemo_rl_lab.data_prep import discover
+    from starforge_cli.data_prep import discover
 
     preps = discover()
     if not dataset:
@@ -69,7 +69,7 @@ def dataset_ls(
         if "/" not in dataset:
             cli_ui.fail(
                 f"数据集 ID 必须是 <owner>/<name>，得到 {dataset!r}",
-                hint="用 `lab dataset ls` 查看完整 ID",
+                hint="用 `forge dataset ls` 查看完整 ID",
             )
         owner, _, name = dataset.partition("/")
         q = f"?version={version}" if version else ""
@@ -84,7 +84,7 @@ def dataset_ls(
         return
     rows = api_client.api_get("/api/datasets")["datasets"]
     if not rows:
-        typer.echo("（还没有可见的数据集；`lab dataset push` 上传一个）")
+        typer.echo("（还没有可见的数据集；`forge dataset push` 上传一个）")
         return
     for d in rows:
         vis = "公开" if d["visibility"] == "public" else "私有"
@@ -142,7 +142,7 @@ def dataset_visibility(
     if "/" not in dataset:
         cli_ui.fail(
             f"数据集 ID 必须是 <owner>/<name>，得到 {dataset!r}",
-            hint="用 `lab dataset ls` 查看完整 ID",
+            hint="用 `forge dataset ls` 查看完整 ID",
         )
     owner, _, name = dataset.partition("/")
     vis = "public" if public else "private"

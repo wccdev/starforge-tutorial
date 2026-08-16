@@ -10,7 +10,7 @@ import sys
 from typing import Callable, Literal, cast
 
 _in_callback: contextvars.ContextVar[bool] = contextvars.ContextVar(
-    "_nemolab_console_in_callback",
+    "_starforge_console_in_callback",
     default=False,
 )
 

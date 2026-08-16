@@ -1,4 +1,4 @@
-"""Monkey-patch nemo_rl.utils.logger：NeMoLabLogger + 验证样本结构化上报。"""
+"""Monkey-patch nemo_rl.utils.logger：StarForgeLogger + 验证样本结构化上报。"""
 from __future__ import annotations
 
 import os
@@ -14,11 +14,11 @@ _DEFAULT_SFT_SAMPLES = 8
 def _val_upload_config() -> tuple[int | None, int, int]:
     """验证样本上报配置（环境变量）。
 
-    - NEMOLAB_VAL_UPLOAD_SAMPLES：整轮上报条数上限；0 → 关闭，未设/非法 → None（全量）。
-    - NEMOLAB_VAL_CHUNK：分片大小（默认 8），避免大 payload 触发代理体积限制 / 超时。
-    - NEMOLAB_VAL_FIELD_CHARS：单字段（user/assistant/env）字符上限（默认 12000）。
+    - STARFORGE_VAL_UPLOAD_SAMPLES：整轮上报条数上限；0 → 关闭，未设/非法 → None（全量）。
+    - STARFORGE_VAL_CHUNK：分片大小（默认 8），避免大 payload 触发代理体积限制 / 超时。
+    - STARFORGE_VAL_FIELD_CHARS：单字段（user/assistant/env）字符上限（默认 12000）。
     """
-    raw = os.environ.get("NEMOLAB_VAL_UPLOAD_SAMPLES", "").strip()
+    raw = os.environ.get("STARFORGE_VAL_UPLOAD_SAMPLES", "").strip()
     upload_n: int | None = None
     if raw:
         try:
@@ -27,13 +27,13 @@ def _val_upload_config() -> tuple[int | None, int, int]:
         except ValueError:
             upload_n = None
     try:
-        chunk = int(os.environ.get("NEMOLAB_VAL_CHUNK", str(_DEFAULT_CHUNK)))
+        chunk = int(os.environ.get("STARFORGE_VAL_CHUNK", str(_DEFAULT_CHUNK)))
     except ValueError:
         chunk = _DEFAULT_CHUNK
     if chunk <= 0:
         chunk = _DEFAULT_CHUNK
     try:
-        field_chars = int(os.environ.get("NEMOLAB_VAL_FIELD_CHARS", str(_DEFAULT_FIELD_CHARS)))
+        field_chars = int(os.environ.get("STARFORGE_VAL_FIELD_CHARS", str(_DEFAULT_FIELD_CHARS)))
     except ValueError:
         field_chars = _DEFAULT_FIELD_CHARS
     if field_chars <= 0:
@@ -61,13 +61,13 @@ def _enqueue_samples(ingest, step: int, samples, chunk_size: int, avg_reward=Non
             ok += 1
     if ok < len(chunks):
         print(
-            f"NeMoLab validation upload partial: step={step} "
+            f"StarForge validation upload partial: step={step} "
             f"chunks_ok={ok}/{len(chunks)} samples={total}",
             flush=True,
         )
     else:
         print(
-            f"NeMoLab validation upload ok: step={step} samples={total} chunks={len(chunks)}",
+            f"StarForge validation upload ok: step={step} samples={total} chunks={len(chunks)}",
             flush=True,
         )
 
@@ -161,14 +161,14 @@ def _patch_dpo_validate() -> None:
         import nemo_rl.algorithms.dpo as dpo_mod
     except ImportError:
         return
-    if getattr(dpo_mod.validate, "__nemolab_dpo_patched__", False):
+    if getattr(dpo_mod.validate, "__starforge_dpo_patched__", False):
         return
     _orig_validate = dpo_mod.validate
 
     def _wrapped_validate(*args, **kwargs):
         result = _orig_validate(*args, **kwargs)
-        # 样本上报默认开，NEMOLAB_VAL_DPO_SAMPLES=0 关闭
-        if os.environ.get("NEMOLAB_VAL_DPO_SAMPLES", "1").strip().lower() not in ("0", "false"):
+        # 样本上报默认开，STARFORGE_VAL_DPO_SAMPLES=0 关闭
+        if os.environ.get("STARFORGE_VAL_DPO_SAMPLES", "1").strip().lower() not in ("0", "false"):
             try:
                 from common.observability.session import get_ingest
 
@@ -181,10 +181,10 @@ def _patch_dpo_validate() -> None:
                     if val_dataloader is not None and tokenizer is not None:
                         _upload_dpo_samples(ingest, int(step), val_dataloader, tokenizer)
             except Exception as e:
-                print(f"NeMoLab DPO validation upload failed (training continues): {e}", flush=True)
+                print(f"StarForge DPO validation upload failed (training continues): {e}", flush=True)
         return result
 
-    _wrapped_validate.__nemolab_dpo_patched__ = True
+    _wrapped_validate.__starforge_dpo_patched__ = True
     dpo_mod.validate = _wrapped_validate
 
 
@@ -303,7 +303,7 @@ def _upload_sft_samples(ingest, step: int, policy, val_dataloader, tokenizer) ->
         _materialize_sft_completions(policy, tokenizer, samples)
     except Exception as exc:
         # Reference-only remains useful and must not affect the completed validation.
-        print(f"NeMoLab SFT generation failed; uploading references only: {exc}", flush=True)
+        print(f"StarForge SFT generation failed; uploading references only: {exc}", flush=True)
     for sample in samples:
         sample.pop("_prompt_token_ids", None)
     _enqueue_samples(ingest, step, samples, chunk_size)
@@ -315,7 +315,7 @@ def _patch_sft_validate() -> None:
         import nemo_rl.algorithms.sft as sft_mod
     except ImportError:
         return
-    if getattr(sft_mod.validate, "__nemolab_sft_patched__", False):
+    if getattr(sft_mod.validate, "__starforge_sft_patched__", False):
         return
     original = sft_mod.validate
 
@@ -341,10 +341,10 @@ def _patch_sft_validate() -> None:
                         ingest, int(step), policy, val_dataloader, tokenizer
                     )
         except Exception as exc:
-            print(f"NeMoLab SFT validation upload failed (training continues): {exc}", flush=True)
+            print(f"StarForge SFT validation upload failed (training continues): {exc}", flush=True)
         return result
 
-    wrapped.__nemolab_sft_patched__ = True
+    wrapped.__starforge_sft_patched__ = True
     sft_mod.validate = wrapped
 
 
@@ -352,15 +352,15 @@ def apply_patch() -> None:
     global _PATCHED
     if _PATCHED:
         return
-    if not os.environ.get("NEMOLAB_TOKEN"):
+    if not os.environ.get("STARFORGE_TOKEN"):
         return
     try:
         import nemo_rl.utils.logger as logger_mod
     except ImportError:
-        print("NeMoLab patch skipped: nemo_rl not importable")
+        print("StarForge patch skipped: nemo_rl not importable")
         return
 
-    from common.observability.logger import NeMoLabLogger
+    from common.observability.logger import StarForgeLogger
     from common.observability.session import get_ingest
     from common.observability.validation_ctx import active_validation_step, clear_validation_step
 
@@ -370,17 +370,17 @@ def apply_patch() -> None:
 
     def _patched_init(self, cfg):
         _orig_init(self, cfg)
-        nemolab_log_dir = os.path.join(self.base_log_dir, "nemolab")
-        os.makedirs(nemolab_log_dir, exist_ok=True)
+        starforge_log_dir = os.path.join(self.base_log_dir, "starforge")
+        os.makedirs(starforge_log_dir, exist_ok=True)
         try:
-            self.nemolab_logger = NeMoLabLogger({}, log_dir=nemolab_log_dir)
-            self.loggers.append(self.nemolab_logger)
+            self.starforge_logger = StarForgeLogger({}, log_dir=starforge_log_dir)
+            self.loggers.append(self.starforge_logger)
         except Exception as e:
-            print(f"NeMoLab logger init failed (training continues): {e}")
-            self.nemolab_logger = None
+            print(f"StarForge logger init failed (training continues): {e}")
+            self.starforge_logger = None
 
     def _patched_del(self):
-        nl = getattr(self, "nemolab_logger", None)
+        nl = getattr(self, "starforge_logger", None)
         if nl is not None:
             nl.finish()
         if _orig_del is not None:
@@ -404,7 +404,7 @@ def apply_patch() -> None:
             try:
                 _upload_validation_samples(ingest, upload_step, message_logs, rewards)
             except Exception as e:
-                print(f"NeMoLab validation upload failed (training continues): {e}", flush=True)
+                print(f"StarForge validation upload failed (training continues): {e}", flush=True)
             finally:
                 clear_validation_step()
         elif val_step is not None:
@@ -413,7 +413,7 @@ def apply_patch() -> None:
         try:
             _orig_print_samples(message_logs, rewards, num_samples=num_samples, step=step)
         except Exception as e:
-            print(f"NeMoLab sample print failed (upload may still have succeeded): {e}", flush=True)
+            print(f"StarForge sample print failed (upload may still have succeeded): {e}", flush=True)
 
     logger_mod.Logger.__init__ = _patched_init
     logger_mod.Logger.__del__ = _patched_del
@@ -421,4 +421,4 @@ def apply_patch() -> None:
     _patch_dpo_validate()
     _patch_sft_validate()
     _PATCHED = True
-    print("NeMoLab logger patch applied")
+    print("StarForge logger patch applied")

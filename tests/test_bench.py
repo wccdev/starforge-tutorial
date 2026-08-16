@@ -1,4 +1,4 @@
-"""lab bench：模型引用解析与评测提交参数翻译。"""
+"""forge bench：模型引用解析与评测提交参数翻译。"""
 from __future__ import annotations
 
 import io
@@ -6,8 +6,8 @@ import json
 
 from typer.testing import CliRunner
 
-from nemo_rl_lab import cli
-from nemo_rl_lab.commands import bench as bench_cmd
+from starforge_cli import cli
+from starforge_cli.commands import bench as bench_cmd
 
 runner = CliRunner()
 

@@ -9,10 +9,10 @@
     "version": "0.7.0"
   },
   "recipe": {
-    "digest": "sha256:351834da9b1919350d1258631925d90ff0a2bf72fea7d1006c5c5fddd0050523",
-    "manifest_digest": "sha256:d563bf249f0e68bb760e4811089485b48804ec37c887daa2a006cc25675630c5",
+    "digest": "sha256:d6fe3ff9a37611b5b622f0a57a3bf30c8f34e05eba4999fb9edcf934792156a1",
+    "manifest_digest": "sha256:0f5c892dddb64aa4ea2101d3f0ebe6ebcf95c8b3f21e21da8f67d6db9bd48e1e",
     "name": "nemo-rl/sft",
-    "template_digest": "sha256:d17e2205a6c36df94b4cb346f7435715aab170e1d8636d8108f4edcab9d3f75f",
+    "template_digest": "sha256:23f98994cb64d110066f0d8856e16935d6d8faf21ccc6c56bced899258f15f88",
     "version": "0.7.0"
   },
   "requires": {

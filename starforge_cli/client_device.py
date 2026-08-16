@@ -21,7 +21,7 @@ from typing import Any, Optional
 
 
 def collect_cli_device() -> dict[str, str]:
-    """从当前终端环境采集设备信息（lab login 打开浏览器前调用）。"""
+    """从当前终端环境采集设备信息（forge login 打开浏览器前调用）。"""
     hostname = (socket.gethostname() or platform.node() or "").strip()[:64]
     shell_path = (os.environ.get("SHELL") or "").strip()
     shell = Path(shell_path).name[:32] if shell_path else ""
@@ -53,7 +53,7 @@ def _lab_version() -> str:
     try:
         from importlib.metadata import version
 
-        return version("nemo-rl-lab")
+        return version("starforge")
     except Exception:  # noqa: BLE001
         return "unknown"
 

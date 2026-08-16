@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from nemo_rl_lab.config_resolve import deep_merge, resolve, validate_config
+from starforge_cli.config_resolve import deep_merge, resolve, validate_config
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 

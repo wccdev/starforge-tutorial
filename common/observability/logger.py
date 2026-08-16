@@ -1,4 +1,4 @@
-"""NeMoLabLogger：实现 NeMo-RL LoggerInterface 兼容接口，主动上报 console。"""
+"""StarForgeLogger：实现 NeMo-RL LoggerInterface 兼容接口，主动上报 console。"""
 from __future__ import annotations
 
 import os
@@ -10,7 +10,7 @@ from common.observability.session import get_ingest
 from common.observability.util import flatten_dict, scalarize_metric
 
 
-class NeMoLabLogger:
+class StarForgeLogger:
     """Drop-in backend，经 common.observability.patch 挂到 nemo_rl.utils.logger.Logger。"""
 
     def __init__(self, cfg: dict | None = None, log_dir: str | None = None):
@@ -19,32 +19,32 @@ class NeMoLabLogger:
         ingest = get_ingest()
         if ingest is None:
             raise ValueError(
-                "NeMoLabLogger requires active observability session "
+                "StarForgeLogger requires active observability session "
                 "(start_observability before NeMo-RL Logger init)"
             )
         self._ingest = ingest
         monitor_interval = float(
             cfg.get("monitor_interval")
-            or os.environ.get("NEMOLAB_MONITOR_INTERVAL", "10")
+            or os.environ.get("STARFORGE_MONITOR_INTERVAL", "10")
         )
         monitor_dynamic = str(
             cfg.get(
                 "monitor_dynamic_interval",
-                os.environ.get("NEMOLAB_MONITOR_DYNAMIC", "1"),
+                os.environ.get("STARFORGE_MONITOR_DYNAMIC", "1"),
             )
         ).lower() not in ("0", "false", "no")
         monitor_hardware = str(
-            cfg.get("monitor_hardware", os.environ.get("NEMOLAB_MONITOR_HARDWARE", "1"))
+            cfg.get("monitor_hardware", os.environ.get("STARFORGE_MONITOR_HARDWARE", "1"))
         ).lower() not in ("0", "false", "no")
         scope_raw = str(
             cfg.get("monitor_scope")
-            or os.environ.get("NEMOLAB_MONITOR_SCOPE")
+            or os.environ.get("STARFORGE_MONITOR_SCOPE")
             or (
                 "cluster"
                 if str(
                     cfg.get(
                         "monitor_cluster",
-                        os.environ.get("NEMOLAB_MONITOR_CLUSTER", "0"),
+                        os.environ.get("STARFORGE_MONITOR_CLUSTER", "0"),
                     )
                 ).lower()
                 in ("1", "true", "yes")

@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 import typer
 
-from nemo_rl_lab import api_client, cli_ui, packing
+from starforge_cli import api_client, cli_ui, packing
 
 # --------------------------- 打包白名单 ---------------------------
 GIT_TREE = "\n".join([
@@ -29,7 +29,7 @@ GIT_TREE = "\n".join([
     "configs/base/grpo_math_1B.yaml",
     "scripts/launch.sh",
     "scripts/download_models.py",         # 工具脚本 → 不上传
-    "nemo_rl_lab/cli.py",                 # CLI 源码 → 不上传
+    "starforge_cli/cli.py",                 # CLI 源码 → 不上传
     "README.md",
     "docs/MaxRL.pdf",
     "datasets/gsm8k/train.jsonl",
@@ -110,7 +110,7 @@ def test_pack_respects_gitignore(tmp_path):
         ("scripts/launch.sh", True),
         ("cluster/h100/overrides.conf", True),
         ("lab", True),
-        ("nemo_rl_lab/cli.py", False),
+        ("starforge_cli/cli.py", False),
         ("lab.cmd", False),
     ],
 )
@@ -236,7 +236,7 @@ def test_pipeline_reporter_stages_and_timing():
     with console.capture() as capture:
         console.print(panel)
     rendered = capture.get()
-    assert "lab submit" in rendered
+    assert "forge submit" in rendered
     assert "服务端受理" in rendered
 
 

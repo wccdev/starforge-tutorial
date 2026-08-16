@@ -1,4 +1,4 @@
-"""common.observability：采集库单测（util / IngestClient / NeMoLabLogger / patch）。"""
+"""common.observability：采集库单测（util / IngestClient / StarForgeLogger / patch）。"""
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -98,10 +98,10 @@ def test_collect_node_hardware_is_self_contained():
 
 
 def test_logger_enqueues_metrics(monkeypatch):
-    monkeypatch.setenv("NEMOLAB_ENDPOINT", "http://host/api/ingest")
-    monkeypatch.setenv("NEMOLAB_RUN_ID", "run-1")
-    monkeypatch.setenv("NEMOLAB_TOKEN", "tok")
-    monkeypatch.setenv("NEMOLAB_MONITOR_HARDWARE", "0")
+    monkeypatch.setenv("STARFORGE_ENDPOINT", "http://host/api/ingest")
+    monkeypatch.setenv("STARFORGE_RUN_ID", "run-1")
+    monkeypatch.setenv("STARFORGE_TOKEN", "tok")
+    monkeypatch.setenv("STARFORGE_MONITOR_HARDWARE", "0")
 
     posted = []
 
@@ -110,12 +110,12 @@ def test_logger_enqueues_metrics(monkeypatch):
         return _resp_ok()
 
     with patch("requests.post", _post):
-        from common.observability.logger import NeMoLabLogger
+        from common.observability.logger import StarForgeLogger
         from common.observability.session import start_observability, stop_observability
 
         start_observability()
         try:
-            nl = NeMoLabLogger({})
+            nl = StarForgeLogger({})
             nl.log_metrics({"reward": 0.6, "loss": 0.2}, step=1, prefix="train")
             nl.log_metrics({"accuracy": 0.35}, step=2, prefix="validation")
             nl._ingest.flush()
@@ -129,9 +129,9 @@ def test_logger_enqueues_metrics(monkeypatch):
 
 
 def test_terminal_proxy_posts_logs(monkeypatch):
-    monkeypatch.setenv("NEMOLAB_ENDPOINT", "http://host/api/ingest")
-    monkeypatch.setenv("NEMOLAB_RUN_ID", "run-1")
-    monkeypatch.setenv("NEMOLAB_TOKEN", "tok")
+    monkeypatch.setenv("STARFORGE_ENDPOINT", "http://host/api/ingest")
+    monkeypatch.setenv("STARFORGE_RUN_ID", "run-1")
+    monkeypatch.setenv("STARFORGE_TOKEN", "tok")
 
     posted = []
 
@@ -154,16 +154,16 @@ def test_terminal_proxy_posts_logs(monkeypatch):
 
 
 def test_logger_requires_credentials(monkeypatch):
-    for var in ("NEMOLAB_ENDPOINT", "NEMOLAB_RUN_ID", "NEMOLAB_TOKEN", "NRL_RUN_ID"):
+    for var in ("STARFORGE_ENDPOINT", "STARFORGE_RUN_ID", "STARFORGE_TOKEN", "NRL_RUN_ID"):
         monkeypatch.delenv(var, raising=False)
-    from common.observability.logger import NeMoLabLogger
+    from common.observability.logger import StarForgeLogger
 
     with pytest.raises(ValueError):
-        NeMoLabLogger({})
+        StarForgeLogger({})
 
 
 def test_patch_is_noop_without_token(monkeypatch):
-    monkeypatch.delenv("NEMOLAB_TOKEN", raising=False)
+    monkeypatch.delenv("STARFORGE_TOKEN", raising=False)
     import common.observability.patch as patch_mod
 
     patch_mod._PATCHED = False
@@ -245,7 +245,7 @@ def test_dpo_samples_accept_tensor_like_token_ids():
 def test_dpo_samples_respect_upload_limit(monkeypatch):
     from common.observability.patch import _upload_dpo_samples
 
-    monkeypatch.setenv("NEMOLAB_VAL_UPLOAD_SAMPLES", "1")
+    monkeypatch.setenv("STARFORGE_VAL_UPLOAD_SAMPLES", "1")
     data = [_dpo_datum([97], [98], [99])] * 5
 
     class _Loader:
@@ -259,7 +259,7 @@ def test_dpo_samples_respect_upload_limit(monkeypatch):
 def test_zero_sample_limit_disables_dpo_upload(monkeypatch):
     from common.observability.patch import _upload_dpo_samples
 
-    monkeypatch.setenv("NEMOLAB_VAL_UPLOAD_SAMPLES", "0")
+    monkeypatch.setenv("STARFORGE_VAL_UPLOAD_SAMPLES", "0")
     data = [_dpo_datum([113], [52], [53])]
 
     class _Loader:
@@ -273,7 +273,7 @@ def test_zero_sample_limit_disables_dpo_upload(monkeypatch):
 def test_zero_sample_limit_disables_conversation_upload(monkeypatch):
     from common.observability.patch import _upload_validation_samples
 
-    monkeypatch.setenv("NEMOLAB_VAL_UPLOAD_SAMPLES", "0")
+    monkeypatch.setenv("STARFORGE_VAL_UPLOAD_SAMPLES", "0")
     ingest = _FakeIngest()
     logs = [[{"role": "user", "content": "q"}, {"role": "assistant", "content": "a"}]]
     _upload_validation_samples(ingest, 1, logs, [1.0])

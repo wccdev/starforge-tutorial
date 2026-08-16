@@ -8,8 +8,8 @@ import json
 import pytest
 import typer
 
-from nemo_rl_lab import api_client, auth, packing
-from nemo_rl_lab.client_device import collect_cli_device, encode_device_param
+from starforge_cli import api_client, auth, packing
+from starforge_cli.client_device import collect_cli_device, encode_device_param
 
 
 def test_parse_sse_stream_ignores_protocol_noise():
@@ -68,16 +68,16 @@ def test_pkce_pair_self_consistent():
 def isolated_lab(tmp_path, monkeypatch):
     monkeypatch.setattr(auth, "CONFIG_PATH", tmp_path / "config.json")
     monkeypatch.setattr(auth, "CRED_PATH", tmp_path / "credentials.json")
-    monkeypatch.delenv("LAB_SERVER", raising=False)
+    monkeypatch.delenv("FORGE_SERVER", raising=False)
     return tmp_path
 
 
 def test_server_mode_detection(isolated_lab, monkeypatch):
-    assert auth.current_server() == auth.DEFAULT_LAB_SERVER
+    assert auth.current_server() == auth.DEFAULT_FORGE_SERVER
     assert auth.is_server_mode() is True
     auth._save_server("https://lab.x.com/")
     assert auth.current_server() == "https://lab.x.com"  # 去尾斜杠
-    monkeypatch.setenv("LAB_SERVER", "https://env.x.com")
+    monkeypatch.setenv("FORGE_SERVER", "https://env.x.com")
     assert auth.current_server() == "https://env.x.com"  # 环境优先
     assert auth.current_server("https://explicit.com") == "https://explicit.com"
 
@@ -112,7 +112,7 @@ def test_creds_roundtrip(isolated_lab):
 
 
 def test_prefer_device_flow_ssh(monkeypatch):
-    monkeypatch.delenv("LAB_DEVICE_FLOW", raising=False)
+    monkeypatch.delenv("FORGE_DEVICE_FLOW", raising=False)
     monkeypatch.delenv("SSH_CONNECTION", raising=False)
     monkeypatch.delenv("SSH_TTY", raising=False)
     monkeypatch.delenv("DISPLAY", raising=False)

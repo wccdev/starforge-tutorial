@@ -34,8 +34,8 @@ _KNOWN_TITLES: tuple[tuple[str, str], ...] = (
 _HINT_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
     (("未绑定 HF", "绑定后重试"), "在 Web 控制台绑定 HuggingFace：集成 → HuggingFace"),
     (("gated", "访问条款"), "到 HuggingFace 接受该资源的访问条款后再试"),
-    (("请先运行 lab login", "登录"), "运行 lab login 登录"),
-    (("登录令牌无效", "登录失败"), "运行 lab login 重新登录"),
+    (("请先运行 forge login", "登录"), "运行 forge login 登录"),
+    (("登录令牌无效", "登录失败"), "运行 forge login 重新登录"),
 )
 
 # 含这些片段时不附加 CLI 侧「→ 提示」（服务端文案已足够或会误导）
@@ -364,7 +364,7 @@ class _PipelineReporter:
         table.add_column(min_width=28)
         table.add_column(justify="right", min_width=8, no_wrap=True)
 
-        table.add_row("", Text("lab submit", style="bold"), "", "")
+        table.add_row("", Text("forge submit", style="bold"), "", "")
 
         for key in self._ORDER:
             stage = self._stages[key]

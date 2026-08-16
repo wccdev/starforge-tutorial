@@ -2,16 +2,16 @@
 from pathlib import Path
 
 import pytest
-from nemo_lab_sdk.frameworks import CompileRequest, compile_launch_plan
-from nemo_lab_sdk.recipes import get_recipe
+from starforge_sdk.frameworks import CompileRequest, compile_launch_plan
+from starforge_sdk.recipes import get_recipe
 
-from nemo_rl_lab.recipe_lock import validate_recipe_lock
-from nemo_rl_lab.spec_builder import build_spec
+from starforge_cli.recipe_lock import validate_recipe_lock
+from starforge_cli.spec_builder import build_spec
 
 ROOT = Path(__file__).resolve().parents[1]
 MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
-TRAIN = "/data/nemo-lab/smoke/gsm8k/train.parquet"
-VALIDATION = "/data/nemo-lab/smoke/gsm8k/test.parquet"
+TRAIN = "/data/starforge/smoke/gsm8k/train.parquet"
+VALIDATION = "/data/starforge/smoke/gsm8k/test.parquet"
 
 
 @pytest.mark.parametrize(
@@ -39,9 +39,9 @@ def test_verl_smoke_contract_is_exact_and_compiles(name, exp_dir, pool, gpus, sc
         recipe=recipe,
         work_dir=ROOT,
         env={
-            "NEMOLAB_ENABLED": "0",
-            "LAB_CLUSTER_NUM_NODES": "1",
-            "LAB_CLUSTER_GPUS_PER_NODE": str(gpus),
+            "STARFORGE_ENABLED": "0",
+            "FORGE_CLUSTER_NUM_NODES": "1",
+            "FORGE_CLUSTER_GPUS_PER_NODE": str(gpus),
         },
     ))
 

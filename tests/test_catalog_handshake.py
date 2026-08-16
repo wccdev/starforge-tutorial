@@ -4,10 +4,10 @@ import hashlib
 import json
 
 import pytest
-from nemo_lab_sdk.recipes import get_recipe
+from starforge_sdk.recipes import get_recipe
 
-from nemo_rl_lab.catalog import CatalogCompatibilityError, verify_catalog_compatibility
-from nemo_rl_lab.spec_builder import build_spec
+from starforge_cli.catalog import CatalogCompatibilityError, verify_catalog_compatibility
+from starforge_cli.spec_builder import build_spec
 
 
 def _payload(spec, **recipe_overrides):
@@ -98,7 +98,7 @@ def test_catalog_handshake_rejects_framework_version_or_runtime_id_drift():
 
 
 def test_submit_does_not_package_when_handshake_fails(tmp_path, monkeypatch):
-    from nemo_rl_lab import api_client
+    from starforge_cli import api_client
 
     spec = _spec()
     packed = []
@@ -123,7 +123,7 @@ def test_submit_does_not_package_when_handshake_fails(tmp_path, monkeypatch):
 
 
 def test_submit_requires_explicit_profile(tmp_path):
-    from nemo_rl_lab import api_client
+    from starforge_cli import api_client
 
     with pytest.raises(ValueError, match="profile"):
         api_client.submit_via_server("experiments/demo", "", tmp_path, spec=_spec())

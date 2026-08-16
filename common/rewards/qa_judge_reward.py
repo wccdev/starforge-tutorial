@@ -38,10 +38,10 @@ except ImportError:  # 直接在本目录运行自测时
 
 # 端点优先级：平台 judge 服务（提交时由 console 注入，OpenAI 兼容代理，
 # 凭据/缓存/审计都在平台侧）> 实验自带 JUDGE_* 变量 > 本地默认。
-_PLATFORM_JUDGE = os.environ.get("NEMOLAB_JUDGE_ENDPOINT", "").rstrip("/")
+_PLATFORM_JUDGE = os.environ.get("STARFORGE_JUDGE_ENDPOINT", "").rstrip("/")
 if _PLATFORM_JUDGE:
     JUDGE_BASE_URL = f"{_PLATFORM_JUDGE}/v1"
-    JUDGE_API_KEY = os.environ.get("NEMOLAB_JUDGE_TOKEN", "EMPTY")
+    JUDGE_API_KEY = os.environ.get("STARFORGE_JUDGE_TOKEN", "EMPTY")
     # 平台代理强制模型（服务端配置），这里的值只是协议占位。
     JUDGE_MODEL = os.environ.get("JUDGE_MODEL", "platform-judge")
 else:

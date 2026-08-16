@@ -6,9 +6,9 @@ from typing import Optional
 
 import typer
 
-from nemo_rl_lab import cli_ui
-from nemo_rl_lab.commands import common
-from nemo_rl_lab.recipe_lock import (
+from starforge_cli import cli_ui
+from starforge_cli.commands import common
+from starforge_cli.recipe_lock import (
     LOCK_FILE,
     LockInspection,
     RecipeLockBatchError,
@@ -40,11 +40,11 @@ def _print_inspection(item: LockInspection) -> None:
     for diff in item.diffs:
         typer.echo(f"  - {diff.field}: {diff.locked or '∅'} → {diff.current or '∅'}")
     if not item.is_current:
-        typer.echo(f"  hint: lab recipe upgrade {_rel(item.path)}")
+        typer.echo(f"  hint: forge recipe upgrade {_rel(item.path)}")
 
 
 def _config_errors(exp_dir: Path, recipe) -> list[str]:
-    from nemo_rl_lab.commands.exp import validate_exp_config
+    from starforge_cli.commands.exp import validate_exp_config
 
     return validate_exp_config(exp_dir, recipe, repo_root=common.ROOT)
 
@@ -77,7 +77,7 @@ def recipe_status(
 
 
 def _echo_server_drift(item: LockInspection) -> None:
-    from nemo_rl_lab import api_client
+    from starforge_cli import api_client
 
     if item.expected is None:
         return

@@ -1,4 +1,4 @@
-"""跨平台新建 / fork 实验（唯一入口：lab new，macOS / Linux / Windows 共用）。"""
+"""跨平台新建 / fork 实验（唯一入口：forge new，macOS / Linux / Windows 共用）。"""
 from __future__ import annotations
 
 import re
@@ -65,7 +65,7 @@ def _validate_recipe_template(dest: Path, recipe) -> None:
 
 
 def _copy_recipe_template(dest: Path, recipe) -> None:
-    from nemo_lab_sdk.recipes import recipe_directory
+    from starforge_sdk.recipes import recipe_directory
 
     template = recipe_directory(recipe.id) / recipe.template
     if not template.is_dir():
@@ -79,9 +79,9 @@ def _fork_experiment(repo_root: Path, kind: str, name: str, src: str) -> None:
         raise NewExperimentError(f"已存在: {dest}")
 
     src_dir = _resolve_src_dir(repo_root, src)
-    from nemo_rl_lab.commands.exp import validate_exp_config
-    from nemo_rl_lab.recipe_lock import RecipeLockError, RecipeLockManager
-    from nemo_rl_lab.spec_builder import infer_recipe
+    from starforge_cli.commands.exp import validate_exp_config
+    from starforge_cli.recipe_lock import RecipeLockError, RecipeLockManager
+    from starforge_cli.spec_builder import infer_recipe
 
     recipe_name = infer_recipe(src_dir)
     if not recipe_name:
@@ -104,13 +104,13 @@ def _fork_experiment(repo_root: Path, kind: str, name: str, src: str) -> None:
         shutil.rmtree(dest, ignore_errors=True)
         raise NewExperimentError(
             f"fork 后无法升级到当前 recipe：{exc}。"
-            f"先对来源执行 `lab recipe upgrade {src_dir.name}`"
+            f"先对来源执行 `forge recipe upgrade {src_dir.name}`"
         ) from exc
 
     print(f"已 fork 实验: {dest}（来源: {src}）")
     print(f"  · config.yaml 的 swanlab project/name 与 README 标题已改为: {name}")
     print(f"下一步: 改 {dest}/config.yaml 顶部【① 调参区】试你的超参，"
-          f"然后 lab submit {name} --profile <目标集群>")
+          f"然后 forge submit {name} --profile <目标集群>")
 
 
 def _create_from_template(
@@ -124,8 +124,8 @@ def _create_from_template(
     if dest.exists():
         raise NewExperimentError(f"已存在: {dest}")
 
-    from nemo_lab_sdk.contract import SpecError
-    from nemo_lab_sdk.recipes import get_recipe
+    from starforge_sdk.contract import SpecError
+    from starforge_sdk.recipes import get_recipe
 
     try:
         recipe = get_recipe(method)
@@ -148,7 +148,7 @@ def _create_from_template(
             gitkeep.unlink()
         # recipe 声明只存在于 recipe.lock.json（infer_recipe 从锁读），不再写 method 标注文件；
         # 硬件 profile 在提交时用 --profile 指定（env/overrides/拓扑均由服务端注册表下发）。
-        from nemo_rl_lab.recipe_lock import write_recipe_lock
+        from starforge_cli.recipe_lock import write_recipe_lock
 
         write_recipe_lock(staging, recipe.id, selected_framework_version)
         _validate_recipe_template(staging, recipe)
@@ -164,7 +164,7 @@ def _create_from_template(
     print("下一步:")
     print(f"  1. 编辑 {dest}/README.md（目标 / 模型 / 数据 / 监控）")
     print(f"  2. 按 {recipe.id} recipe 编辑模板文件")
-    print(f"  3. 用 lab submit {name} --profile <目标集群>[:总卡数] 提交（如 h200 / h200:4）")
+    print(f"  3. 用 forge submit {name} --profile <目标集群>[:总卡数] 提交（如 h200 / h200:4）")
 
 
 def create_experiment(

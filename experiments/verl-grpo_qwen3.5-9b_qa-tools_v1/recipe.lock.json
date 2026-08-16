@@ -9,10 +9,10 @@
     "version": "0.8.0"
   },
   "recipe": {
-    "digest": "sha256:043cbed382e4dd9535894b8fe06fd0ae1aea1a7088dccc7de09e97eec044689c",
+    "digest": "sha256:d0832ee25621fdbbe4a9f700b5e7d4d886ffcfdade2103a6f86c34b982d016af",
     "manifest_digest": "sha256:d0f8abbb440b6705b05b4f7f4fe1c1ecc94002d29c101a5a7fee6ceb962bd69a",
     "name": "verl/grpo",
-    "template_digest": "sha256:ceb201442c8e801877af17c1888541267cc616080b0c86588e41c107614799e8",
+    "template_digest": "sha256:0c3f1dd26a4e307a32f2743fa74a2fac97887c499719a6a6e95b537465498843",
     "version": "0.8.0"
   },
   "requires": {

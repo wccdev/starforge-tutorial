@@ -1,4 +1,4 @@
-"""`lab admin maintenance` 的输出契约。
+"""`forge admin maintenance` 的输出契约。
 
 这几条命令的产出会被管理员当成「能不能重启集群」的判断依据，所以最要紧的不是它调对了
 接口，而是**看错了不会重启**：还有作业占卡时必须显眼地说不能重启，而不是把一行
@@ -11,13 +11,13 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
-from nemo_rl_lab import cli
+from starforge_cli import cli
 
 runner = CliRunner()
 
 
 def _invoke(*args, reply: dict):
-    with patch("nemo_rl_lab.api_client._admin_call", return_value=reply) as call:
+    with patch("starforge_cli.api_client._admin_call", return_value=reply) as call:
         res = runner.invoke(cli.app, ["admin", "maintenance", *args])
     return res, call
 

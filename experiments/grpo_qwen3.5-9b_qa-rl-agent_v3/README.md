@@ -86,7 +86,7 @@ grep -rinI --include="*.md" -C2 "随便挑一道题里的关键词" /data/docs |
 ```bash
 # 1) 确保题库在集群、资料 markdown 已放到容器内 DOCS_DIR；服务端已注入 QA_RL_DATA_DIR / JUDGE_* / DOCS_*
 # 2) 提交
-lab submit grpo_qwen3.5-9b_qa-rl-agent_v1
+forge submit grpo_qwen3.5-9b_qa-rl-agent_v1
 ```
 
 ## H200 优化：稳定在线检索 RL
@@ -134,7 +134,7 @@ soft overlong punishment 治本（在**还没被截断**的缓冲区内按超长
 验证时每次会把若干条完整多轮对话（含 `<search>` 与 grep 检索结果）打印到作业日志，直接看日志即可：
 
 ```bash
-uv run lab logs <JOB_ID>      # 不给 JOB_ID 则跟随最近一个作业
+uv run forge logs <JOB_ID>      # 不给 JOB_ID 则跟随最近一个作业
 ```
 
 ## 结论 / 记录

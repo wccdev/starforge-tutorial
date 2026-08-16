@@ -9,10 +9,10 @@
     "version": "0.8.0"
   },
   "recipe": {
-    "digest": "sha256:e2fe88f81b41d06d4f731eb6ceeaa2c00e5225286a1a5899cbdcb31cb5f4d6a5",
+    "digest": "sha256:b0563122b9fb1a2dc423ccea01cdb27c80045921819258c1c68abc53ab762d32",
     "manifest_digest": "sha256:79d099e5a3e966f97817742f0d6b0f5b3fcfa0ce3ea092960ffc3aad383f82d0",
     "name": "verl/sft",
-    "template_digest": "sha256:774e18a5391bb5e22c21b78e7316c5a6239562677a6278dbaf41d09b6cfbbbe8",
+    "template_digest": "sha256:d06230879edfd3f381b02343d3cbff37764ab73567ce48b44fc6a24c6dfdb830",
     "version": "0.8.0"
   },
   "requires": {

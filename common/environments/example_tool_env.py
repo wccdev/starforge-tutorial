@@ -27,7 +27,7 @@ from nemo_rl.environments.interfaces import EnvironmentInterface, EnvironmentRet
 
 # ============================ 工具实现（envkit 内核） ============================
 # 工具与算术求值收口到 common/envkit（与 Gym server 腿共用同一实现）；
-# python 工具经 nemo_lab_sdk.sandbox.SandboxProvider 分派（本地子进程 / 外部沙箱）。
+# python 工具经 starforge_sdk.sandbox.SandboxProvider 分派（本地子进程 / 外部沙箱）。
 # 保留原模块级名字：实验 run.py 与测试按旧名引用。
 from common.envkit.tools import TOOLS as TOOLS  # noqa: E402
 from common.envkit.tools import safe_eval as safe_eval  # noqa: E402

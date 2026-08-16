@@ -1,7 +1,7 @@
 """CLI 错误格式化单测。"""
 from __future__ import annotations
 
-from nemo_rl_lab import cli_ui
+from starforge_cli import cli_ui
 
 
 def test_parse_hf_preflight_multiline():

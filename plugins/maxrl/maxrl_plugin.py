@@ -4,7 +4,7 @@
 本包是它在插件链路上的适配层 —— 让 maxrl 可以按 `<owner>/maxrl@<version>`
 被发布、锁定、注入，而不是只能靠 recipe 内置名。发布：
 
-    lab plugin publish plugins/maxrl --owner lab
+    forge plugin publish plugins/maxrl --owner lab
 """
 from __future__ import annotations
 

@@ -21,8 +21,8 @@ _CATALOG_VERSIONS = ("lab/recipe-catalog/v1", "lab/recipe-catalog/v2")
 
 def verify_catalog_compatibility(spec, payload: dict) -> None:
     """在上传前验证 Console 公布的 SDK/recipe/adapter 契约。"""
-    from nemo_lab_sdk import __version__ as sdk_version
-    from nemo_lab_sdk.contract import API_VERSION
+    from starforge_sdk import __version__ as sdk_version
+    from starforge_sdk.contract import API_VERSION
 
     api_version = payload.get("apiVersion")
     if api_version not in _CATALOG_VERSIONS:

@@ -17,10 +17,10 @@ from typing import Optional
 
 import typer
 
-from nemo_rl_lab import cli_ui
-from nemo_rl_lab.auth import MSG_NOT_LOGGED_IN, _api, current_server, get_access_token
-from nemo_rl_lab.catalog import CatalogCompatibilityError, verify_catalog_compatibility
-from nemo_rl_lab.packing import git_provenance, list_working_files, pack_working_dir
+from starforge_cli import cli_ui
+from starforge_cli.auth import MSG_NOT_LOGGED_IN, _api, current_server, get_access_token
+from starforge_cli.catalog import CatalogCompatibilityError, verify_catalog_compatibility
+from starforge_cli.packing import git_provenance, list_working_files, pack_working_dir
 
 
 # ----------------------------- 基础请求 -----------------------------
@@ -29,7 +29,7 @@ def _bearer_request(server: str, method: str, path: str, *, data=None,
     """带 token 的请求；返回 urlopen 的响应对象（调用方负责读取/关闭）。"""
     token = get_access_token(server)
     if not token:
-        cli_ui.fail(MSG_NOT_LOGGED_IN, hint="运行 lab login 登录")
+        cli_ui.fail(MSG_NOT_LOGGED_IN, hint="运行 forge login 登录")
     h = {"Authorization": f"Bearer {token}"}
     if headers:
         h.update(headers)
@@ -101,7 +101,7 @@ def _admin_call(method: str, path: str, *, body: Optional[dict] = None) -> dict:
     srv = current_server()
     token = get_access_token(srv)
     if not token:
-        cli_ui.fail(MSG_NOT_LOGGED_IN, hint="运行 lab login 登录")
+        cli_ui.fail(MSG_NOT_LOGGED_IN, hint="运行 forge login 登录")
     try:
         return _api(srv, method, path, token=token, body=body)
     except urllib.error.HTTPError as e:
@@ -264,7 +264,7 @@ def whoami_via_server(server: Optional[str] = None) -> dict:
     srv = current_server(server)
     token = get_access_token(srv)
     if not token:
-        cli_ui.fail(MSG_NOT_LOGGED_IN, hint="运行 lab login 登录")
+        cli_ui.fail(MSG_NOT_LOGGED_IN, hint="运行 forge login 登录")
     try:
         return _api(srv, "GET", "/api/whoami", token=token)
     except urllib.error.HTTPError as e:
@@ -375,10 +375,10 @@ def _sha256_file(path: Path) -> tuple[str, int]:
 def _push_state_paths():
     import os
 
-    from nemo_rl_lab.auth import LAB_DIR, _read_json, _write_json
+    from starforge_cli.auth import FORGE_DIR, _read_json, _write_json
 
-    # 调用时读 LAB_HOME（而不是沿用 import 时固化的 LAB_DIR）：测试与多环境切换友好。
-    base = Path(os.environ.get("LAB_HOME") or LAB_DIR)
+    # 调用时读 FORGE_HOME（而不是沿用 import 时固化的 FORGE_DIR）：测试与多环境切换友好。
+    base = Path(os.environ.get("FORGE_HOME") or FORGE_DIR)
     return base / "dataset-push-state.json", _read_json, _write_json
 
 

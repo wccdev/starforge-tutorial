@@ -5,9 +5,9 @@ from typing import Optional
 
 import typer
 
-from nemo_rl_lab import cli_ui
-from nemo_rl_lab.commands import common
-from nemo_rl_lab.new_experiment import NewExperimentError, create_experiment
+from starforge_cli import cli_ui
+from starforge_cli.commands import common
+from starforge_cli.new_experiment import NewExperimentError, create_experiment
 
 
 def ls() -> None:
@@ -30,7 +30,7 @@ def new(
     ),
     method: str = typer.Option(
         "nemo-rl/grpo", "--method", "-m", autocompletion=common.complete_method,
-        help="方法标识 <framework>/<method>；默认 nemo-rl/grpo，`lab methods` 查看全部",
+        help="方法标识 <framework>/<method>；默认 nemo-rl/grpo，`forge methods` 查看全部",
     ),
     framework_version: Optional[str] = typer.Option(
         None,
@@ -71,7 +71,7 @@ def validate_exp_config(exp_dir, recipe, *, repo_root=None) -> list[str]:
 def _validate_exp_contents(exp_dir, recipe, *, repo_root=None) -> tuple[list[str], list[str]]:
     import yaml
 
-    from nemo_rl_lab.config_resolve import resolve, validate_framework_config
+    from starforge_cli.config_resolve import resolve, validate_framework_config
 
     root = repo_root or common.ROOT
     if recipe.entrypoint.kind == "experiment":
@@ -117,11 +117,11 @@ def _validate_exp_contents(exp_dir, recipe, *, repo_root=None) -> tuple[list[str
 
 def _validate_exp(exp_path: str, recipe_override: str = "") -> tuple[list[str], list[str]]:
     """锁必须是当前 bundle，再跑 recipe 所属框架的 validator。"""
-    from nemo_lab_sdk.contract import SpecError
-    from nemo_lab_sdk.recipes import get_recipe
+    from starforge_sdk.contract import SpecError
+    from starforge_sdk.recipes import get_recipe
 
-    from nemo_rl_lab.recipe_lock import validate_recipe_lock
-    from nemo_rl_lab.spec_builder import infer_recipe
+    from starforge_cli.recipe_lock import validate_recipe_lock
+    from starforge_cli.spec_builder import infer_recipe
 
     exp_dir = common.ROOT / exp_path
     recipe_name = recipe_override.strip() or infer_recipe(exp_dir)
@@ -158,10 +158,10 @@ def methods(
 ) -> None:
     """列出可用的后训练方法与它们的超参。
 
-    方法目录来自 nemo-lab-sdk，与服务端是同一份 —— 这里看到的就是提交时会被校验的。
+    方法目录来自 starforge-sdk，与服务端是同一份 —— 这里看到的就是提交时会被校验的。
     """
-    from nemo_lab_sdk.contract import SpecError
-    from nemo_lab_sdk.recipes import get_recipe, recipe_names
+    from starforge_sdk.contract import SpecError
+    from starforge_sdk.recipes import get_recipe, recipe_names
 
     if not name:
         for n in recipe_names():
@@ -172,7 +172,7 @@ def methods(
                 f" · 支持 {', '.join(r.runtime.supported_versions)}"
             )
             typer.echo(f"{'':22s} {r.summary.strip()}")
-        typer.echo("\n用 `lab methods <方法名>` 看它的可调超参。")
+        typer.echo("\n用 `forge methods <方法名>` 看它的可调超参。")
         return
 
     try:

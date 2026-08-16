@@ -5,8 +5,8 @@ import json
 
 import pytest
 
-from nemo_rl_lab.new_experiment import NewExperimentError, create_experiment
-from nemo_rl_lab.recipe_lock import LOCK_FILE, recipe_lock
+from starforge_cli.new_experiment import NewExperimentError, create_experiment
+from starforge_cli.recipe_lock import LOCK_FILE, recipe_lock
 
 
 def _lock(path, recipe):
@@ -166,7 +166,7 @@ def test_recipe_template_failure_is_atomic(tmp_path, monkeypatch):
     def fail(*_args, **_kwargs):
         raise NewExperimentError("template invalid")
 
-    monkeypatch.setattr("nemo_rl_lab.new_experiment._validate_recipe_template", fail)
+    monkeypatch.setattr("starforge_cli.new_experiment._validate_recipe_template", fail)
     with pytest.raises(NewExperimentError, match="template invalid"):
         create_experiment(repo, "experiments", "never_visible", method="nemo-rl/grpo")
     assert not (repo / "experiments" / "never_visible").exists()

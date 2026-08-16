@@ -29,8 +29,8 @@ python experiments/verl-grpo_qwen3.5-9b_qa-tools_v1/prepare_data.py \
     --data-dir /path/to/datasets/qa_rl --out-dir /path/to/datasets/qa_rl_parquet
 
 # 2. 校验 + 提交（模型须用支持工具调用 chat template 的 Instruct 版）
-lab validate verl-grpo_qwen3.5-9b_qa-tools_v1
-lab submit verl-grpo_qwen3.5-9b_qa-tools_v1 \
+forge validate verl-grpo_qwen3.5-9b_qa-tools_v1
+forge submit verl-grpo_qwen3.5-9b_qa-tools_v1 \
     --model Qwen/Qwen3.5-9B \
     --train-data <集群路径>/qa_rl_parquet/train.parquet \
     --validation-data <集群路径>/qa_rl_parquet/val.parquet

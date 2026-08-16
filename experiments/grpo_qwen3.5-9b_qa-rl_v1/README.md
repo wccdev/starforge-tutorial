@@ -23,7 +23,7 @@
 
 数据答案格式（`expected_answer` 带 `[type]` 前缀）见 `common/rewards/README.md`。
 
-## 跑起来（`lab submit` 经中心化服务到集群）
+## 跑起来（`forge submit` 经中心化服务到集群）
 
 **前置 1 · 题库数据要在集群上。** `datasets/qa_rl/` 被 `.gitignore`（公司题库），作业上传 working_dir 尊重 .gitignore → **不会自动上传**。先把题库放到集群共享盘，并在 `config.yaml` 的 `data.data_dir` 指过去（当前已写死 `/data/datasets/qa_rl`；也可由服务端注入 `QA_RL_DATA_DIR` 覆盖）：
 
@@ -42,7 +42,7 @@ lab prepare qa_rl
 **提交：**
 
 ```bash
-lab submit grpo_qwen3.5-9b_qa-rl_v1
+forge submit grpo_qwen3.5-9b_qa-rl_v1
 ```
 
 > 注意：环境（Ray actor）需要能 `import common.*`，本仓库根目录会随作业上传到集群作业工作目录（服务端打包 working-dir）。

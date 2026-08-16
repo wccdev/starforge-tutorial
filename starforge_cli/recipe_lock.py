@@ -12,9 +12,9 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from nemo_lab_sdk import __version__ as SDK_VERSION
-from nemo_lab_sdk.contract import SpecError
-from nemo_lab_sdk.recipes import Recipe, get_recipe
+from starforge_sdk import __version__ as SDK_VERSION
+from starforge_sdk.contract import SpecError
+from starforge_sdk.recipes import Recipe, get_recipe
 
 LOCK_FILE = "recipe.lock.json"
 LOCK_VERSION = "lab/recipe-lock/v3"
@@ -69,7 +69,7 @@ class RecipeLockManager:
             return _malformed(
                 path,
                 recipe_name,
-                f"实验缺少 {LOCK_FILE}；用 `lab new` 重建，或 `lab recipe upgrade` 生成",
+                f"实验缺少 {LOCK_FILE}；用 `forge new` 重建，或 `forge recipe upgrade` 生成",
             )
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
@@ -126,7 +126,7 @@ class RecipeLockManager:
                 message=(
                     f"{path} 锁定的 {recipe.framework}@{locked_runtime} 已从 catalog 移除；"
                     f"可用: {', '.join(recipe.runtime.supported_versions)}。"
-                    f"执行 `lab recipe upgrade {exp_dir.name} --accept-runtime-change`"
+                    f"执行 `forge recipe upgrade {exp_dir.name} --accept-runtime-change`"
                     " 或指定 --framework-version"
                 ),
             )
@@ -144,7 +144,7 @@ class RecipeLockManager:
                 diffs=diffs,
                 message=(
                     f"{path} 与当前 SDK recipe bundle 不一致。"
-                    f"执行 `lab recipe upgrade {exp_dir.name}` 后重新提交"
+                    f"执行 `forge recipe upgrade {exp_dir.name}` 后重新提交"
                 ),
             )
         return LockInspection(

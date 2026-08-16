@@ -7,9 +7,9 @@ from typing import Optional
 
 import typer
 
-from nemo_rl_lab import cli_ui
+from starforge_cli import cli_ui
 
-# 包位于 <repo>/nemo_rl_lab/commands/，仓库根是上两级（editable 安装下 __file__ 指向源码）。
+# 包位于 <repo>/starforge_cli/commands/，仓库根是上两级（editable 安装下 __file__ 指向源码）。
 ROOT = Path(__file__).resolve().parent.parent.parent
 
 
@@ -24,7 +24,7 @@ def resolve_exp(name: str) -> str:
     for c in cands:
         if (ROOT / c).is_dir():
             return c
-    cli_ui.fail(f"找不到实验「{name}」", hint="运行 lab ls 查看可用实验")
+    cli_ui.fail(f"找不到实验「{name}」", hint="运行 forge ls 查看可用实验")
 
 
 def list_exps() -> list[str]:
@@ -42,7 +42,7 @@ def list_profiles() -> list[str]:
     仅用于补全与提示：拿不到（未登录/服务不可达）就静默返回空，不阻断主流程。
     """
     try:
-        from nemo_rl_lab import api_client
+        from starforge_cli import api_client
 
         data = api_client.cluster_status_via_server()
         return sorted(
@@ -58,14 +58,14 @@ def profile_registry() -> dict[str, dict]:
     提交时把 `--profile 名称[:总卡数]` 物化成 JobSpec 资源池要用（series 与
     默认形状的唯一来源）。拿不到就显式失败——提交本来就离不开服务端。
     """
-    from nemo_rl_lab import api_client
+    from starforge_cli import api_client
 
     try:
         data = api_client.cluster_status_via_server()
     except Exception as e:  # noqa: BLE001
         cli_ui.fail(
             "无法从服务端获取 profile 注册表",
-            hint=f"提交需要在线解析 --profile 的卡型与默认形状；请先 lab login 或检查服务可达性（{e}）",
+            hint=f"提交需要在线解析 --profile 的卡型与默认形状；请先 forge login 或检查服务可达性（{e}）",
         )
     return {
         str(p.get("name")): p
@@ -105,7 +105,7 @@ def complete_profile(incomplete: str) -> list[str]:
 
 def complete_method(incomplete: str) -> list[str]:
     """补全两段式方法标识；也按叶子名前缀匹配（输入 gr 可补出 nemo-rl/grpo）。"""
-    from nemo_lab_sdk.recipes import recipe_names
+    from starforge_sdk.recipes import recipe_names
 
     return [
         name for name in recipe_names()
@@ -116,7 +116,7 @@ def complete_method(incomplete: str) -> list[str]:
 # 共享的 profile 选项（export/eval 用：资源形状由 recipe 固定，只选卡型/环境）。
 PROF_OPT = typer.Option(
     None, "--profile", autocompletion=complete_profile,
-    help="硬件 profile（服务端注册表管理；`lab status` 可查看可用值）",
+    help="硬件 profile（服务端注册表管理；`forge status` 可查看可用值）",
 )
 
 # submit 用的统一资源参数：profile 即资源入口，形状用 :总卡数 修饰。

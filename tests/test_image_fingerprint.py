@@ -14,27 +14,27 @@ from common.observability import env_probe
 # ---------------------------------------------------------------- Python 侧
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
-    for var in ("LAB_IMAGE", "NVIDIA_BUILD_ID", "NEMO_RL_COMMIT"):
+    for var in ("FORGE_IMAGE", "NVIDIA_BUILD_ID", "NEMO_RL_COMMIT"):
         monkeypatch.delenv(var, raising=False)
-    # 默认指向一个不存在的路径，避免读到开发机上真实的 /etc/nemo-lab-image
-    monkeypatch.setattr(env_probe, "IMAGE_FINGERPRINT_FILE", "/nonexistent/nemo-lab-image")
+    # 默认指向一个不存在的路径，避免读到开发机上真实的 /etc/starforge-image
+    monkeypatch.setattr(env_probe, "IMAGE_FINGERPRINT_FILE", "/nonexistent/starforge-image")
 
 
 def test_prefers_lab_image_env(monkeypatch):
     """统一 launcher 已经算好并导出了，Python 侧不该再自己算一遍。"""
-    monkeypatch.setenv("LAB_IMAGE", "registry/nemo-rl-lab:0.7.0-20260805@abc123")
-    assert env_probe.collect_image_id() == "registry/nemo-rl-lab:0.7.0-20260805@abc123"
+    monkeypatch.setenv("FORGE_IMAGE", "registry/starforge:0.7.0-20260805@abc123")
+    assert env_probe.collect_image_id() == "registry/starforge:0.7.0-20260805@abc123"
 
 
 def test_reads_fingerprint_file(monkeypatch, tmp_path):
-    fp = tmp_path / "nemo-lab-image"
+    fp = tmp_path / "starforge-image"
     fp.write_text(
-        "LAB_IMAGE_TAG=nexus/nemo-rl-lab:0.7.0-20260805\n"
-        "LAB_IMAGE_BUILD_ID=20260805-a1b2c3d4\n"
-        "LAB_IMAGE_BUILD_DATE=2026-08-05T10:00:00Z\n"
+        "FORGE_IMAGE_TAG=nexus/starforge:0.7.0-20260805\n"
+        "FORGE_IMAGE_BUILD_ID=20260805-a1b2c3d4\n"
+        "FORGE_IMAGE_BUILD_DATE=2026-08-05T10:00:00Z\n"
     )
     monkeypatch.setattr(env_probe, "IMAGE_FINGERPRINT_FILE", str(fp))
-    assert env_probe.collect_image_id() == "nexus/nemo-rl-lab:0.7.0-20260805@20260805-a1b2c3d4"
+    assert env_probe.collect_image_id() == "nexus/starforge:0.7.0-20260805@20260805-a1b2c3d4"
 
 
 def test_falls_back_to_official_build_id(monkeypatch):
@@ -60,5 +60,5 @@ def test_never_raises_on_unreadable_file(monkeypatch, tmp_path):
 
 def test_image_lands_in_environment_payload(monkeypatch):
     """指纹要真的出现在上报 payload 里，否则 console 面板上还是看不到。"""
-    monkeypatch.setenv("LAB_IMAGE", "img@build1")
+    monkeypatch.setenv("FORGE_IMAGE", "img@build1")
     assert env_probe.collect_environment()["overview"]["image"] == "img@build1"

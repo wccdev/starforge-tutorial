@@ -1,4 +1,4 @@
-# nemo-rl-lab
+# starforge
 
 面向多框架的大模型后训练实验室。**NeMo-RL 是默认且第一优先级框架**，verl 与
 Hugging Face TRL 也是一等 adapter，此外提供必须显式选择的 custom recipe。涵盖：
@@ -21,18 +21,18 @@ Hugging Face TRL 也是一等 adapter，此外提供必须显式选择的 custom
 ```bash
 # 1) 装本机 CLI（只是提交客户端，无需 GPU）+ 接入中心化服务（登录一次）
 uv sync
-lab login                                       # 登录官方 Lab 服务（默认 https://nemolab.gcoreinc.com）
+forge login                                       # 登录官方 Lab 服务（默认 https://starforge.gcoreinc.com）
 
 # 2) 选实验、按需调参：打开 experiments/<exp>/config.yaml 顶部「调参速查」改几行
-lab ls                                          # 看现成实验
-lab new my_run --from grpo_qwen3.5-4b_gsm8k_v1  # 或 fork 一个来调参（自动改 SwanLab 名）
+forge ls                                          # 看现成实验
+forge new my_run --from grpo_qwen3.5-4b_gsm8k_v1  # 或 fork 一个来调参（自动改 SwanLab 名）
 # 新建 TRL 论文实验（版本写入 recipe.lock.json，不在提交端再猜）
-lab new trl_paper_run --method trl/grpo --framework-version 1.10.0
+forge new trl_paper_run --method trl/grpo --framework-version 1.10.0
 
 # 3) 准备数据 → 提交 → 看结果
-lab dataset prepare gsm8k
-lab submit grpo_qwen3.5-4b_gsm8k_v1 --profile h200   # --profile 指定目标集群（服务端注册表管理）
-lab job logs                                    # 跟随最近一个作业的实时日志
+forge dataset prepare gsm8k
+forge submit grpo_qwen3.5-4b_gsm8k_v1 --profile h200   # --profile 指定目标集群（服务端注册表管理）
+forge job logs                                    # 跟随最近一个作业的实时日志
 ```
 
 每个实验「调什么 / 数据 / 奖励 / 怎么跑」见其目录下 `README.md`。
@@ -47,14 +47,14 @@ lab job logs                                    # 跟随最近一个作业的实
 
 训练配置与硬件解耦：profile 的进程环境（NCCL/显存分配）、框架覆盖项（并行度/vLLM 调优）
 与默认资源形状全部由 **Console 服务端硬件注册表**管理，提交时经环境变量注入作业
-（`LAB_PROFILE_OVERRIDES` / profile env），本仓库不再有 `cluster/` 目录。
+（`FORGE_PROFILE_OVERRIDES` / profile env），本仓库不再有 `cluster/` 目录。
 
 `--profile` 是唯一的资源入口，格式 `名称[:总卡数]`：
 
 ```bash
-lab submit <实验名> --profile h200        # 注册表默认形状（1×8）
-lab submit <实验名> --profile h200:4      # 同卡型只要 4 张（单节点）
-lab submit <实验名> --profile h200:16     # 16 张 = 2 满节点（须整节点倍数）
+forge submit <实验名> --profile h200        # 注册表默认形状（1×8）
+forge submit <实验名> --profile h200:4      # 同卡型只要 4 张（单节点）
+forge submit <实验名> --profile h200:16     # 16 张 = 2 满节点（须整节点倍数）
 ```
 
 卡型（series）与拓扑细节由注册表补齐，不需要也不能手写。batch/seq/LoRA/显存等超参
@@ -66,17 +66,17 @@ lab submit <实验名> --profile h200:16     # 16 张 = 2 满节点（须整节�
 ## 它和控制平面是什么关系
 
 本仓是**客户端**：管实验、改超参、提交、看结果。真正的鉴权 / 配额 / 排队 / 调度
-在控制平面 `nemo-rl-console` 里，本机不直连 Ray。
+在控制平面 `starforge-console` 里，本机不直连 Ray。
 
-两边靠一份独立的契约包 `nemo-lab-sdk` 对接（源码在 console 仓的 `sdk/`）：
+两边靠一份独立的契约包 `starforge-sdk` 对接（源码在 console 仓的 `sdk/`）：
 
 ```mermaid
 flowchart LR
   CLI["lab CLI\nrecipe 驱动脚手架/校验"] -->|"lab/v2 JobSpec"| Console["Console\n握手 · 准入 · 排队 · 装配"]
-  SDK["nemo-lab-sdk==2.1.0\ncontract · catalog · adapters · launcher"] -. "精确版本" .-> CLI
+  SDK["starforge-sdk==2.1.0\ncontract · catalog · adapters · launcher"] -. "精确版本" .-> CLI
   SDK -. "精确版本" .-> Console
   Console --> Executor["Local / KubeRay\n同一 LaunchRequest"]
-  Executor --> Launcher["nemo-lab-launch\nverify → compile → run → report"]
+  Executor --> Launcher["forge-launch\nverify → compile → run → report"]
   Launcher --> NeMo["NeMoRLAdapter（默认）"]
   Launcher --> Verl["VerlAdapter"]
   Launcher --> TRL["TRLAdapter\nAccelerate + Trainer"]
@@ -105,28 +105,28 @@ spec:
   resources: {pools: [{name: train, series: h200, nodes: 1, gpus_per_node: 8}]}
 ```
 
-`lab submit` 生成它，服务端据此装配作业。两边各有一份 golden test 钉住这份映射，
+`forge submit` 生成它，服务端据此装配作业。两边各有一份 golden test 钉住这份映射，
 契约漂移会在 CI 当场失败，而不是在某次训练跑到一半时。
 
 recipe identity 与 framework runtime identity 分开记录；`recipe.lock.json` v3 固定
 recipe bundle digest 和精确 framework version。SDK 只要求满足兼容范围。
-锁过期时用 `lab recipe upgrade`，提交过程不会静默改写。`--framework-version`
+锁过期时用 `forge recipe upgrade`，提交过程不会静默改写。`--framework-version`
 只能选择 catalog 已发布版本，不接受 `latest`、范围或分支。
 
 **加一种后训练方法不需要改本仓代码** —— 方法定义在 SDK 的
 `recipes/catalog/<framework>/<recipe>/` 两级目录里，
-`lab methods` 列的就是它。
+`forge methods` 列的就是它。
 
-生产环境从 Nexus 安装精确的 `nemo-lab-sdk==2.1.0`；开发环境由 `pyproject.toml` 的
-editable path 指向 `../nemo-rl-console/sdk`。提交前会与 Console 做精确 catalog 握手，
+生产环境从 Nexus 安装精确的 `starforge-sdk==2.1.0`；开发环境由 `pyproject.toml` 的
+editable path 指向 `../starforge-console/sdk`。提交前会与 Console 做精确 catalog 握手，
 不匹配时在打包之前失败。
 
 ## 目录结构
 
 ```
-nemo-rl-lab/
-├── lab                       # CLI 薄 shim（= uv run lab）
-├── nemo_rl_lab/              # 统一 CLI 实现（Typer；cli.py 为入口）
+starforge/
+├── lab                       # CLI 薄 shim（= uv run forge）
+├── starforge_cli/              # 统一 CLI 实现（Typer；cli.py 为入口）
 ├── pyproject.toml            # uv 项目：依赖 + lab 命令入口（[project.scripts]）
 ├── uv.lock                   # 锁定版本（uv sync 用）
 ├── README.md                 # 本文件：总览
@@ -151,7 +151,7 @@ nemo-rl-lab/
 ```
 
 > NeMo-RL 配置工作流：每个实验有自己的 `config.yaml`，通过 `defaults` **继承基底 + 模型片段，只写差异**。
-> recipe 固定入口，adapter 读取该配置并叠加服务端下发的 profile 覆盖项（`LAB_PROFILE_OVERRIDES`）；
+> recipe 固定入口，adapter 读取该配置并叠加服务端下发的 profile 覆盖项（`FORGE_PROFILE_OVERRIDES`）；
 > 实验目录不再拥有 `run.sh` 或可覆盖入口。verl、TRL、custom 使用各自 recipe 模板和校验器。
 
 ## experiments vs projects
@@ -189,53 +189,53 @@ agent-grpo_qwen3.5-9b_toolbench_v1
 所有操作都通过 `lab` 入口（[Typer](https://typer.tiangolo.com) 实现，纯 Python，**macOS / Linux / Windows 完全兼容**）：
 
 ```bash
-uv run lab login                             # 接入官方 Lab 服务（默认 https://nemolab.gcoreinc.com）
-uv run lab ls                                # 列出实验 / 项目
-uv run lab methods                           # 有哪些后训练方法、各自能调什么超参（--method 的取值来源）
-uv run lab new grpo_qwen3.5-4b_gsm8k_v1 --method nemo-rl/grpo   # 从骨架新建实验
-uv run lab dataset prepare gsm8k             # 本地预处理数据集（gsm8k / alpaca / qa_rl / opsd_math）
-uv run lab dataset push qa-rl v1 ./out       # 上传数据集版本（默认私有；--public 公开给所有人）
-uv run lab dataset ls                        # 可见的数据集（公开的 + 自己的），ID 为 <owner>/<name>
-uv run lab dataset visibility alice/qa-rl --public   # 改可见性（owner 或 admin）
-uv run lab status                            # 账号 / 配额 / 用量 / 活跃作业（submit 前预检，别撞满卡）
-uv run lab validate grpo_qwen3.5-4b_gsm8k_v1 # 提交前静态校验 config（本地秒级，省得跑到集群才报错）
-uv run lab submit agent-grpo_qwen3.5-9b_multitool_v1   # 经服务端提交作业到集群（提交前自动校验）
+uv run forge login                             # 接入官方 Lab 服务（默认 https://starforge.gcoreinc.com）
+uv run forge ls                                # 列出实验 / 项目
+uv run forge methods                           # 有哪些后训练方法、各自能调什么超参（--method 的取值来源）
+uv run forge new grpo_qwen3.5-4b_gsm8k_v1 --method nemo-rl/grpo   # 从骨架新建实验
+uv run forge dataset prepare gsm8k             # 本地预处理数据集（gsm8k / alpaca / qa_rl / opsd_math）
+uv run forge dataset push qa-rl v1 ./out       # 上传数据集版本（默认私有；--public 公开给所有人）
+uv run forge dataset ls                        # 可见的数据集（公开的 + 自己的），ID 为 <owner>/<name>
+uv run forge dataset visibility alice/qa-rl --public   # 改可见性（owner 或 admin）
+uv run forge status                            # 账号 / 配额 / 用量 / 活跃作业（submit 前预检，别撞满卡）
+uv run forge validate grpo_qwen3.5-4b_gsm8k_v1 # 提交前静态校验 config（本地秒级，省得跑到集群才报错）
+uv run forge submit agent-grpo_qwen3.5-9b_multitool_v1   # 经服务端提交作业到集群（提交前自动校验）
 # 训练引用平台数据集：config 里声明 data.train.dataset: alice/qa-rl@v1（submit 自动拾取，
 # 作业启动时拉到共享缓存并注入 QA_RL_DATA_DIR）；--train-dataset 仅作临时覆盖：
-uv run lab submit <实验> --train-dataset alice/qa-rl@v2
+uv run forge submit <实验> --train-dataset alice/qa-rl@v2
 # verl/TRL 同样支持：声明数据集后 --train-data 写数据集内的相对文件名，作业侧自动解析到缓存：
-uv run lab submit verl-grpo_xxx --train-data train.parquet --validation-data val.parquet
-uv run lab job ls                            # 我的作业列表 + 提交历史（--all 看全部，--exp 过滤）
-uv run lab job logs                          # 跟随最近一个作业日志（可指定作业 ID）
-uv run lab export grpo_qwen3.5-9b_gsm8k_v1   # 训练后：把 checkpoint 转 HF（自适应 dcp/megatron），可 --push-repo 推 Hub
-uv run lab eval grpo_qwen3.5-9b_gsm8k_v1     # 训练后：对 checkpoint 跑独立评测（未给 --model 时先自动导出）
-uv run lab job stop <job_id>                 # 停止运行中的作业
+uv run forge submit verl-grpo_xxx --train-data train.parquet --validation-data val.parquet
+uv run forge job ls                            # 我的作业列表 + 提交历史（--all 看全部，--exp 过滤）
+uv run forge job logs                          # 跟随最近一个作业日志（可指定作业 ID）
+uv run forge export grpo_qwen3.5-9b_gsm8k_v1   # 训练后：把 checkpoint 转 HF（自适应 dcp/megatron），可 --push-repo 推 Hub
+uv run forge eval grpo_qwen3.5-9b_gsm8k_v1     # 训练后：对 checkpoint 跑独立评测（未给 --model 时先自动导出）
+uv run forge job stop <job_id>                 # 停止运行中的作业
 ```
 
-> 首次使用：`uv run lab login` 接入官方 Lab 服务，再 `uv run lab status` 确认身份与配额，然后 `lab submit`。
+> 首次使用：`uv run forge login` 接入官方 Lab 服务，再 `uv run forge status` 确认身份与配额，然后 `forge submit`。
 > 提交一律经服务端代理：Ray 地址 / 密钥 / 数据目录都在服务端，本机不直连 Ray、无需任何 `submit.env`。
-> 每次 `lab submit` 会自动：① 校验 config（batch 三者相等等，不过不放行，可 `--no-validate` 跳过）；
+> 每次 `forge submit` 会自动：① 校验 config（batch 三者相等等，不过不放行，可 `--no-validate` 跳过）；
 > ② 只打包运行时清单（实验目录 + common/ + configs/ + launch.sh；profile 的 env/overrides 由服务端注入），
 > 工作区有未提交改动时拒绝提交（`--allow-dirty` 显式确认）；
 > ③ 由服务端记录 git commit / dirty / config 指纹与 `run_id`。
-> 事后 `lab job ls` 对上作业状态（RUNNING/SUCCEEDED/FAILED…）。
+> 事后 `forge job ls` 对上作业状态（RUNNING/SUCCEEDED/FAILED…）。
 
 三种等价调用方式：
 
 | 方式 | 说明 |
 | --- | --- |
-| `uv run lab ...` | 推荐；uv 自动同步项目环境再运行，**macOS / Linux / Windows 均可用** |
-| `./lab ...`（macOS / Linux）或 `lab.cmd ...`（Windows） | 仓库根的薄 shim，内部就是 `uv run lab` |
+| `uv run forge ...` | 推荐；uv 自动同步项目环境再运行，**macOS / Linux / Windows 均可用** |
+| `./lab ...`（macOS / Linux）或 `lab.cmd ...`（Windows） | 仓库根的薄 shim，内部就是 `uv run forge` |
 | `lab ...` | `uv sync` 后 `.venv/bin/lab`（Unix）或 `.venv\Scripts\lab.exe`（Windows）已生成；激活 venv 即可直接用 |
 
-`uv run lab <子命令> --help` 看每个命令的参数。app 组装见 `nemo_rl_lab/cli.py`，命令实现按领域拆在 `nemo_rl_lab/commands/`。
+`uv run forge <子命令> --help` 看每个命令的参数。app 组装见 `starforge_cli/cli.py`，命令实现按领域拆在 `starforge_cli/commands/`。
 
 ### 终端补全（Tab）
 
 子命令、实验名、数据集、profile 都支持 Tab 补全，用 Typer 内建安装：
 
 ```bash
-lab --install-completion    # 安装到当前 shell（zsh / bash / fish / powershell）
+forge --install-completion    # 安装到当前 shell（zsh / bash / fish / powershell）
 lab --show-completion       # 只打印脚本，手动粘贴到 shell 配置
 ```
 
@@ -246,17 +246,17 @@ lab --show-completion       # 只打印脚本，手动粘贴到 shell 配置
 
 ```bash
 # 方式一：从空白模板新建
-uv run lab new grpo_qwen3.5-4b_gsm8k_v1
+uv run forge new grpo_qwen3.5-4b_gsm8k_v1
 
 # 方式二（推荐调参）：fork 一个现成实验，只改超参试不同配置
-uv run lab new grpo_qwen3.5-4b_gsm8k_lr1e4 --from grpo_qwen3.5-4b_gsm8k_v1
+uv run forge new grpo_qwen3.5-4b_gsm8k_lr1e4 --from grpo_qwen3.5-4b_gsm8k_v1
 #   自动 copy 目录、把 config.yaml 的 swanlab project/name 改成新名（避免日志撞车）
 
 cd experiments/<新实验名>
 # 1. 改 config.yaml 顶部「调参区」：lr / kl / 采样数 / 数据集 / seq（这些数值按目标集群的卡调）
 # 2. 改 README.md 与 recipe 模板允许的 config；入口由 recipe 固定，不能在实验内覆盖
 # 3. 提交（--profile 指定目标集群，README 里写明推荐值）：
-uv run lab submit <新实验名> --profile h200
+uv run forge submit <新实验名> --profile h200
 ```
 
 ## 示例实验（覆盖三种方法）
@@ -279,36 +279,36 @@ uv run lab submit <新实验名> --profile h200
 ```bash
 # A. 一次性：装本机 CLI + 接入中心化服务
 uv sync
-uv run lab login
+uv run forge login
 
 # B. 每次：提交、看/停作业（全程经服务端，本机不直连 Ray）
-uv run lab submit grpo_qwen3.5-4b_gsm8k_v1
-uv run lab job ls                   # 我的作业列表
-uv run lab job logs <job_id>        # 实时日志（不给 job_id 跟随最近一个）
-uv run lab job stop <job_id>        # 停止作业
+uv run forge submit grpo_qwen3.5-4b_gsm8k_v1
+uv run forge job ls                   # 我的作业列表
+uv run forge job logs <job_id>        # 实时日志（不给 job_id 跟随最近一个）
+uv run forge job stop <job_id>        # 停止作业
 ```
 
 ## 训练后闭环（导出 / 评测）
 
-训练产物由 `lab/artifacts/v1` manifest 登记。两条命令与训练共用 `nemo-lab-launch`，
+训练产物由 `lab/artifacts/v1` manifest 登记。两条命令与训练共用 `forge-launch`，
 由 recipe 的 adapter 编译 NeMo-RL、verl 或 TRL 原生命令：
 
 ```bash
 # 导出：checkpoint 路径和格式都必须显式给出，不猜测后端
-uv run lab export grpo_qwen3.5-9b_gsm8k_v1 \
+uv run forge export grpo_qwen3.5-9b_gsm8k_v1 \
   --checkpoint /outputs/run/checkpoints/step_170 --checkpoint-format nemo-megatron
-uv run lab export grpo_qwen3.5-9b_gsm8k_v1 \
+uv run forge export grpo_qwen3.5-9b_gsm8k_v1 \
   --checkpoint /outputs/run/checkpoints/step_170 --checkpoint-format nemo-megatron \
   --push-repo myorg/qwen-gsm8k --dry-run
 
 # 评测：参数按 framework 严格校验
-uv run lab eval grpo_qwen3.5-9b_gsm8k_v1 --eval-config examples/configs/evals/math_eval.yaml \
+uv run forge eval grpo_qwen3.5-9b_gsm8k_v1 --eval-config examples/configs/evals/math_eval.yaml \
   --model myorg/qwen-gsm8k -- generation.temperature=0.6 generation.top_p=0.95
-uv run lab eval smoke/verl-sft --data /data/nemo-lab/smoke/gsm8k/test.parquet --dry-run
+uv run forge eval smoke/verl-sft --data /data/starforge/smoke/gsm8k/test.parquet --dry-run
 ```
 
 - **格式不推断**：调用者必须提供 `--checkpoint-format`；adapter 对不支持的组合立即报错。
-- **导出/评测也记台账**：与 `submit` 一样由服务端记录 action / run_id / commit，可追溯（`lab job ls` 查看）。
+- **导出/评测也记台账**：与 `submit` 一样由服务端记录 action / run_id / commit，可追溯（`forge job ls` 查看）。
 - **GPU smoke（可选）**：准备固定路径的最小 GSM8K parquet 后，运行
   `scripts/smoke_verl_sft.sh`（1×H100）或 `scripts/smoke_verl_grpo.sh`（2×H200）。
 

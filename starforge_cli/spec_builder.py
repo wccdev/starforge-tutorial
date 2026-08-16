@@ -3,7 +3,7 @@
 客户端构建完整 JobSpec，并在**本地**按 recipe 声明预校验 —— 超参拼错、
 取值越界在敲回车那一刻就能看到，不必等上传完、排完队、跑起来才发现。
 
-本地校验用的是与服务端**同一份** recipe 目录（都来自 nemo-lab-sdk），所以不会
+本地校验用的是与服务端**同一份** recipe 目录（都来自 starforge-sdk），所以不会
 出现「本地说没问题、服务端说不行」。
 """
 from __future__ import annotations
@@ -12,8 +12,8 @@ import json
 from pathlib import Path
 from typing import Any, Optional
 
-from nemo_lab_sdk import __version__ as SDK_VERSION
-from nemo_lab_sdk.contract import (
+from starforge_sdk import __version__ as SDK_VERSION
+from starforge_sdk.contract import (
     ArtifactRef,
     DataRef,
     DataSpec,
@@ -32,7 +32,7 @@ from nemo_lab_sdk.contract import (
     SpecError,
     exp_basename,
 )
-from nemo_lab_sdk.recipes import get_recipe
+from starforge_sdk.recipes import get_recipe
 
 
 def parse_set(items: list[str]) -> dict[str, Any]:
@@ -140,7 +140,7 @@ def materialize_pools(
     多条目是异构多池扩展位：每条必须带 role= 前缀，池名即角色名。
     """
     if not exprs:
-        raise SpecError("至少需要一个 --profile（`lab status` 查看可用值）")
+        raise SpecError("至少需要一个 --profile（`forge status` 查看可用值）")
     parsed = [parse_profile_expr(e) for e in exprs]
 
     known = "、".join(sorted(registry)) or "（注册表为空）"
@@ -250,7 +250,7 @@ def build_spec(
         if ref.strip() and ("/" not in ds_id or len([s for s in ds_id.split("/") if s]) != 2):
             raise SpecError(
                 f"{flag} 必须是 <owner>/<name>[@version]（如 alice/gsm8k@v1），收到 {ref!r}；"
-                "用 `lab dataset ls` 查看完整 ID"
+                "用 `forge dataset ls` 查看完整 ID"
             )
 
     hyperparams = parse_set(sets or [])
@@ -352,7 +352,7 @@ def build_spec(
 def infer_recipe(exp_path: Path) -> str:
     """从实验目录读取显式 recipe：`recipe.lock.json` 的 recipe.name 是唯一事实源。
 
-    锁文件本来就是实验必备（`lab new` 生成、提交前校验 digest），recipe 名与版本
+    锁文件本来就是实验必备（`forge new` 生成、提交前校验 digest），recipe 名与版本
     都在里面，不再要求单独的 method 标注文件；旧实验遗留的 `method` 文件作为
     兼容回退仍可读。读不到返回空串，由调用方明确报错；不按其他文件的存在性推断。
     """

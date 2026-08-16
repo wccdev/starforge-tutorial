@@ -4,9 +4,9 @@ from __future__ import annotations
 import pytest
 from typer.testing import CliRunner
 
-from nemo_rl_lab import cli
-from nemo_rl_lab.commands import sweep as sweep_cmd
-from nemo_rl_lab.commands.sweep import MAX_VARIANTS, parse_grid
+from starforge_cli import cli
+from starforge_cli.commands import sweep as sweep_cmd
+from starforge_cli.commands.sweep import MAX_VARIANTS, parse_grid
 
 runner = CliRunner()
 
@@ -118,7 +118,7 @@ def test_sweep_variant_cap_guards_fat_fingers(monkeypatch, tmp_path):
 
 
 def test_stop_sweep_command_calls_endpoint(monkeypatch):
-    from nemo_rl_lab.commands import jobs as jobs_cmd
+    from starforge_cli.commands import jobs as jobs_cmd
 
     seen = {}
     monkeypatch.setattr(jobs_cmd, "gate", lambda: None)
@@ -133,7 +133,7 @@ def test_stop_sweep_command_calls_endpoint(monkeypatch):
 
 
 def test_extra_meta_cannot_shadow_reserved_keys(monkeypatch, tmp_path):
-    from nemo_rl_lab import api_client
+    from starforge_cli import api_client
 
     monkeypatch.setattr(api_client, "current_server", lambda *a, **k: "http://srv")
     monkeypatch.setattr(api_client, "verify_server_compatibility", lambda *a, **k: None)

@@ -597,7 +597,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="经 ssh 中继机下载模型到本机 HF 缓存（无外网的推理机专用）",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument("--relay", default=os.environ.get("LAB_RELAY"), help="中继机，如 root@10.0.0.2（可用环境变量 LAB_RELAY）")
+    p.add_argument("--relay", default=os.environ.get("FORGE_RELAY"), help="中继机，如 root@10.0.0.2（可用环境变量 FORGE_RELAY）")
     p.add_argument("--hf-home", default="hf_cache", help="本机缓存根目录，模型落到 <HF_HOME>/hub/（默认 ./hf_cache）")
     p.add_argument("--source", choices=("hf", "modelscope"), default="hf", help="下载源（默认 hf）")
     p.add_argument("--endpoint", default=HF_ENDPOINT_DEFAULT, help=f"HF 端点（默认 {HF_ENDPOINT_DEFAULT}）")

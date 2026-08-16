@@ -1,7 +1,7 @@
 """实验插件锁文件（plugins.lock.json）。
 
 与 recipe.lock.json 同一哲学：实验用哪个插件的哪个精确版本、什么内容摘要，
-在 `lab plugin install --exp` 时固定下来；提交时原样写进 JobSpec，服务端与
+在 `forge plugin install --exp` 时固定下来；提交时原样写进 JobSpec，服务端与
 集群侧各自比对 —— 不一致就拒绝，绝不猜。
 
 锁定的是 (id, version, digest) 三元组，不含代码：插件包体由平台在提交时注入
@@ -28,7 +28,7 @@ def read_plugin_lock(exp_dir: Path) -> list[dict]:
     if payload.get("apiVersion") != LOCK_VERSION:
         raise ValueError(
             f"{path} 的 apiVersion 不是 {LOCK_VERSION}；"
-            "重新执行 `lab plugin install <id> --exp <exp>` 重建锁文件"
+            "重新执行 `forge plugin install <id> --exp <exp>` 重建锁文件"
         )
     plugins = payload.get("plugins") or []
     for p in plugins:

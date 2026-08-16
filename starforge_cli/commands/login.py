@@ -1,4 +1,4 @@
-"""身份命令：login / logout（凭据管理核心见 nemo_rl_lab.auth）。"""
+"""身份命令：login / logout（凭据管理核心见 starforge_cli.auth）。"""
 from __future__ import annotations
 
 import urllib.error
@@ -6,13 +6,13 @@ from typing import Optional
 
 import typer
 
-from nemo_rl_lab import auth, cli_ui
+from starforge_cli import auth, cli_ui
 
 
 def login(
     server: Optional[str] = typer.Option(
         None, "--server", "-s",
-        help=f"Lab 服务地址（默认 {auth.DEFAULT_LAB_SERVER}）",
+        help=f"Lab 服务地址（默认 {auth.DEFAULT_FORGE_SERVER}）",
     ),
     token: Optional[str] = typer.Option(None, "--token", help="非交互登录：直接用服务令牌（CI 用）"),
     device_flow: bool = typer.Option(False, "--device-flow", help="强制使用设备码登录（SSH / 无浏览器）"),
@@ -27,7 +27,7 @@ def login(
             who = auth._api(srv, "GET", "/api/whoami", token=token)
             creds["user"] = who.get("user")
         except urllib.error.HTTPError:
-            cli_ui.fail("登录令牌无效，请重新登录。", hint="运行 lab login 重新登录")
+            cli_ui.fail("登录令牌无效，请重新登录。", hint="运行 forge login 重新登录")
         auth._save_creds(srv, creds)
     else:
         creds = auth._interactive_login(srv, device_flow=device_flow, no_browser=no_browser)

@@ -2,11 +2,11 @@
 
 算法实现的单一事实来源仍是 common/algorithms/opsd.py（随作业包上传）；
 本包是插件链路上的适配层。launcher 在启动期把本入口登记到
-nemo_lab_sdk.plugins 的 deferred 表，训练入口拿到 tokenizer 后统一经
+starforge_sdk.plugins 的 deferred 表，训练入口拿到 tokenizer 后统一经
 common.algorithms.registry.install_deferred("opsd", ...) 装载（registry
 会优先取插件包版本）。发布：
 
-    lab plugin publish plugins/opsd --owner lab
+    forge plugin publish plugins/opsd --owner lab
 """
 from __future__ import annotations
 

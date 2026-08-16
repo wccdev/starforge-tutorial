@@ -45,7 +45,7 @@ class TerminalProxy:
             )
             self._stderr_capture.install()
         self._worker = threading.Thread(
-            target=self._worker_loop, daemon=True, name="NeMoLab·Terminal"
+            target=self._worker_loop, daemon=True, name="StarForge·Terminal"
         )
         self._worker.start()
         self._installed = True

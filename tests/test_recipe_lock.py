@@ -4,9 +4,9 @@ from __future__ import annotations
 import json
 
 import pytest
-from nemo_lab_sdk.recipes import get_recipe
+from starforge_sdk.recipes import get_recipe
 
-from nemo_rl_lab.recipe_lock import (
+from starforge_cli.recipe_lock import (
     LOCK_FILE,
     LOCK_VERSION,
     LockState,
@@ -49,7 +49,7 @@ def test_v2_lock_is_stale_and_can_upgrade(tmp_path):
     manager = RecipeLockManager()
     inspection = manager.inspect(tmp_path, "nemo-rl/grpo")
     assert inspection.state is LockState.RECIPE_STALE
-    with pytest.raises(RecipeLockError, match="lab recipe upgrade"):
+    with pytest.raises(RecipeLockError, match="forge recipe upgrade"):
         manager.require_current(tmp_path, "nemo-rl/grpo")
     upgraded = manager.upgrade(tmp_path, recipe_name="nemo-rl/grpo")
     assert upgraded.is_current

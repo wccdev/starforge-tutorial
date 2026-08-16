@@ -13,7 +13,7 @@
 
 ## 目标集群
 
-`cluster` 文件 = `h100`（单机 1×H100 80GB）。`lab submit` 默认用它；`--profile` 可临时换卡（换卡通常要重调显存类超参）。
+`cluster` 文件 = `h100`（单机 1×H100 80GB）。`forge submit` 默认用它；`--profile` 可临时换卡（换卡通常要重调显存类超参）。
 
 ## 组成
 
@@ -46,9 +46,9 @@
 ## 运行
 
 ```bash
-# 提交到集群（经中心化服务，全程在本机；先 lab login 接入服务）
-uv run lab submit agent-grpo_qwen3.5-9b_sliding-puzzle_v1
-uv run lab logs <job_id>               # 实时日志（不给 job_id 跟随最近一个）
+# 提交到集群（经中心化服务，全程在本机；先 forge login 接入服务）
+uv run forge submit agent-grpo_qwen3.5-9b_sliding-puzzle_v1
+uv run forge logs <job_id>               # 实时日志（不给 job_id 跟随最近一个）
 ```
 
 > 前提：H100 容器里已装 NeMo-RL 0.6.0，且 `Qwen/Qwen3.5-9B-Base` 已缓存到 `HF_HOME`（或集群能直连 huggingface.co）。

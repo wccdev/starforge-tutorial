@@ -3,15 +3,15 @@
 客户端构建完整 spec 并在**本地**按 recipe 声明预校验 —— 超参拼错、取值越界
 在敲回车那一刻就报，不必等上传完、排完队、跑起来才发现。
 
-本地用的是与服务端同一份 recipe 目录（都来自 nemo-lab-sdk），不会出现
+本地用的是与服务端同一份 recipe 目录（都来自 starforge-sdk），不会出现
 「本地说没问题、服务端说不行」。
 """
 from __future__ import annotations
 
 import pytest
-from nemo_lab_sdk.contract import SpecError
+from starforge_sdk.contract import SpecError
 
-from nemo_rl_lab.spec_builder import (
+from starforge_cli.spec_builder import (
     build_spec,
     infer_recipe,
     materialize_pools,
@@ -186,7 +186,7 @@ def test_multiple_pools_require_explicit_roles():
 
 def test_single_pool_infers_roles():
     """只有一个池时不必手写映射：方法声明的角色全落在它上面。"""
-    from nemo_lab_sdk.recipes import get_recipe
+    from starforge_sdk.recipes import get_recipe
 
     spec = build_spec("experiments/demo", recipe="nemo-rl/grpo", pools=["all:h200:1:8"])
     assert set(spec.spec.resources.roles) == set(get_recipe("nemo-rl/grpo").roles)

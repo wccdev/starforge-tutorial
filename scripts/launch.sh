@@ -11,7 +11,7 @@ set -euo pipefail
 
 WORK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${WORK_DIR}"
-export LAB_WORK_DIR="${WORK_DIR}"
+export FORGE_WORK_DIR="${WORK_DIR}"
 
 # 集群侧预置密钥文件（服务端只转发路径，密钥不进 Ray dashboard）。
 if [[ -n "${CLUSTER_SECRETS_FILE:-}" && -f "${CLUSTER_SECRETS_FILE}" ]]; then
@@ -30,5 +30,5 @@ if [[ -n "${CLUSTER_PROFILE:-}" && -f "${PROFILE_ENV}" ]]; then
   echo "[launch] env     : sourced ${PROFILE_ENV}"
 fi
 
-# 入口由 nemo-lab-sdk 提供（镜像里已装），不再依赖上传包内的 Python 包。
-exec python -m nemo_lab_sdk.launcher "$@"
+# 入口由 starforge-sdk 提供（镜像里已装），不再依赖上传包内的 Python 包。
+exec python -m starforge_sdk.launcher "$@"

@@ -9,7 +9,7 @@ import common.telemetry as telemetry
 
 
 def _reload_reward(monkeypatch, **env):
-    for key in ("NEMOLAB_JUDGE_ENDPOINT", "NEMOLAB_JUDGE_TOKEN",
+    for key in ("STARFORGE_JUDGE_ENDPOINT", "STARFORGE_JUDGE_TOKEN",
                 "JUDGE_BASE_URL", "JUDGE_MODEL", "JUDGE_API_KEY"):
         monkeypatch.delenv(key, raising=False)
     for key, value in env.items():
@@ -22,8 +22,8 @@ def _reload_reward(monkeypatch, **env):
 def test_platform_judge_endpoint_takes_priority(monkeypatch):
     mod = _reload_reward(
         monkeypatch,
-        NEMOLAB_JUDGE_ENDPOINT="https://console.internal/api/judge",
-        NEMOLAB_JUDGE_TOKEN="tok-judge",
+        STARFORGE_JUDGE_ENDPOINT="https://console.internal/api/judge",
+        STARFORGE_JUDGE_TOKEN="tok-judge",
         JUDGE_BASE_URL="http://should-not-win:8001/v1",
     )
     assert mod.JUDGE_BASE_URL == "https://console.internal/api/judge/v1"
@@ -39,9 +39,9 @@ def test_local_judge_env_still_works_without_platform(monkeypatch):
 
 
 def test_report_metrics_posts_ingest_payload(monkeypatch):
-    monkeypatch.setenv("NEMOLAB_ENDPOINT", "https://console.internal/api/ingest")
-    monkeypatch.setenv("NEMOLAB_RUN_ID", "run-1")
-    monkeypatch.setenv("NEMOLAB_TOKEN", "tok")
+    monkeypatch.setenv("STARFORGE_ENDPOINT", "https://console.internal/api/ingest")
+    monkeypatch.setenv("STARFORGE_RUN_ID", "run-1")
+    monkeypatch.setenv("STARFORGE_TOKEN", "tok")
     captured = {}
 
     class _Resp(io.BytesIO):
@@ -73,9 +73,9 @@ def test_report_metrics_posts_ingest_payload(monkeypatch):
 
 
 def test_report_metrics_never_raises(monkeypatch):
-    monkeypatch.setenv("NEMOLAB_ENDPOINT", "https://console.internal/api/ingest")
-    monkeypatch.setenv("NEMOLAB_RUN_ID", "run-1")
-    monkeypatch.setenv("NEMOLAB_TOKEN", "tok")
+    monkeypatch.setenv("STARFORGE_ENDPOINT", "https://console.internal/api/ingest")
+    monkeypatch.setenv("STARFORGE_RUN_ID", "run-1")
+    monkeypatch.setenv("STARFORGE_TOKEN", "tok")
 
     def broken(*a, **k):
         raise ConnectionResetError("boom")
@@ -85,6 +85,6 @@ def test_report_metrics_never_raises(monkeypatch):
 
 
 def test_report_metrics_noop_without_credentials(monkeypatch):
-    for key in ("NEMOLAB_ENDPOINT", "NEMOLAB_RUN_ID", "NEMOLAB_TOKEN"):
+    for key in ("STARFORGE_ENDPOINT", "STARFORGE_RUN_ID", "STARFORGE_TOKEN"):
         monkeypatch.delenv(key, raising=False)
     assert telemetry.report_metrics({"env/x": 1.0}) is False

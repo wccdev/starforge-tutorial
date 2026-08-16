@@ -1,11 +1,11 @@
 """登录 / 凭据 / 命令门控（客户端核心，不含任何业务 API）。
 
 仅用标准库（http.server / urllib / webbrowser）+ typer，不依赖 web extra，
-保证未装 fastapi 的纯客户端也能 `lab login`。
+保证未装 fastapi 的纯客户端也能 `forge login`。
 
 本地状态：
-  ~/.lab/config.json       {"server": "https://nemolab.gcoreinc.com"}
-  ~/.lab/credentials.json  {"<server>": {access_token, refresh_token, expires_at, user}}
+  ~/.forge/config.json       {"server": "https://starforge.gcoreinc.com"}
+  ~/.forge/credentials.json  {"<server>": {access_token, refresh_token, expires_at, user}}
 """
 from __future__ import annotations
 
@@ -27,16 +27,16 @@ from typing import Optional
 
 import typer
 
-from nemo_rl_lab import cli_ui
+from starforge_cli import cli_ui
 
-# 官方中心化 Lab 服务（lab login 默认；未配置时 CLI 亦指向此地址）
-DEFAULT_LAB_SERVER = "https://nemolab.gcoreinc.com"
+# 官方中心化 Lab 服务（forge login 默认；未配置时 CLI 亦指向此地址）
+DEFAULT_FORGE_SERVER = "https://starforge.gcoreinc.com"
 
-MSG_NOT_LOGGED_IN = "请先运行 lab login"
+MSG_NOT_LOGGED_IN = "请先运行 forge login"
 
-LAB_DIR = Path(os.environ.get("LAB_HOME") or (Path.home() / ".lab"))
-CONFIG_PATH = LAB_DIR / "config.json"
-CRED_PATH = LAB_DIR / "credentials.json"
+FORGE_DIR = Path(os.environ.get("FORGE_HOME") or (Path.home() / ".forge"))
+CONFIG_PATH = FORGE_DIR / "config.json"
+CRED_PATH = FORGE_DIR / "credentials.json"
 
 
 # ----------------------------- PKCE（stdlib）-----------------------------
@@ -57,7 +57,7 @@ def _read_json(path: Path) -> dict:
     except json.JSONDecodeError:
         cli_ui.fail(
             f"本地状态文件损坏（非法 JSON）: {path}",
-            hint=f"删除该文件后重新 lab login：rm {path}",
+            hint=f"删除该文件后重新 forge login：rm {path}",
         )
 
 
@@ -75,12 +75,12 @@ def _write_json(path: Path, data: dict) -> None:
 
 
 def current_server(explicit: Optional[str] = None) -> Optional[str]:
-    """server 地址优先级：显式 > 环境 LAB_SERVER > config.json > 官方默认。"""
+    """server 地址优先级：显式 > 环境 FORGE_SERVER > config.json > 官方默认。"""
     s = (
         explicit
-        or os.environ.get("LAB_SERVER")
+        or os.environ.get("FORGE_SERVER")
         or _read_json(CONFIG_PATH).get("server")
-        or DEFAULT_LAB_SERVER
+        or DEFAULT_FORGE_SERVER
     )
     return s.rstrip("/") if s else None
 
@@ -187,7 +187,7 @@ def gate() -> None:
     """集群类命令执行前的登录门槛：未登录直接报错，不隐式发起登录流程。"""
     server = current_server()
     if not get_access_token(server):
-        cli_ui.fail(MSG_NOT_LOGGED_IN, hint="运行 lab login 登录")
+        cli_ui.fail(MSG_NOT_LOGGED_IN, hint="运行 forge login 登录")
 
 
 # ----------------------------- 环境检测 / 设备码登录 -----------------------------
@@ -195,7 +195,7 @@ def prefer_device_flow(*, force: bool = False, no_browser: bool = False) -> bool
     """SSH / 无图形环境优先走 RFC 8628 设备码流程。"""
     if force or no_browser:
         return True
-    if os.environ.get("LAB_DEVICE_FLOW", "").lower() in ("1", "true", "yes"):
+    if os.environ.get("FORGE_DEVICE_FLOW", "").lower() in ("1", "true", "yes"):
         return True
     if os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_TTY"):
         return True
@@ -205,7 +205,7 @@ def prefer_device_flow(*, force: bool = False, no_browser: bool = False) -> bool
 
 
 def _device_login(server: str, timeout: float = 900.0) -> dict:
-    from nemo_rl_lab.client_device import collect_cli_device, encode_device_param
+    from starforge_cli.client_device import collect_cli_device, encode_device_param
 
     device = encode_device_param(collect_cli_device())
     status, resp = _http_json(server, "POST", "/api/cli/device/code", body={"device": device})
@@ -286,7 +286,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(
             "<html><body style='font-family:sans-serif;text-align:center;margin-top:80px'>"
-            "<h2>授权失败</h2><p>请关闭此页面并在终端重试 lab login。</p>"
+            "<h2>授权失败</h2><p>请关闭此页面并在终端重试 forge login。</p>"
             "</body></html>".encode()
         )
 
@@ -295,7 +295,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
 
 
 def _browser_login(server: str, timeout: float = 180.0) -> dict:
-    from nemo_rl_lab.client_device import collect_cli_device, encode_device_param
+    from starforge_cli.client_device import collect_cli_device, encode_device_param
 
     verifier, challenge = pkce_pair()
     state = secrets.token_urlsafe(16)

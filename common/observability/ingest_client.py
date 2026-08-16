@@ -39,7 +39,7 @@ class IngestClient:
             return
         self._running = True
         self._thread = threading.Thread(
-            target=self._loop, daemon=True, name="NeMoLab·Transport"
+            target=self._loop, daemon=True, name="StarForge·Transport"
         )
         self._thread.start()
 
@@ -82,7 +82,7 @@ class IngestClient:
             self._post("environment/nodes", {"run_id": self.run_id, "nodes": nodes})
             return True
         except Exception as e:
-            print(f"NeMoLab environment nodes upload failed: {e}")
+            print(f"StarForge environment nodes upload failed: {e}")
             return False
 
     def send_lifecycle(self, event: str) -> bool:
@@ -108,7 +108,7 @@ class IngestClient:
             )
             return True
         except Exception as e:
-            print(f"NeMoLab lifecycle({event}) report failed: {e}")
+            print(f"StarForge lifecycle({event}) report failed: {e}")
             return False
 
     def register_artifact(
@@ -133,7 +133,7 @@ class IngestClient:
             self._post("artifact", payload, timeout=10)
             return True
         except Exception as e:
-            print(f"NeMoLab artifact register failed ({kind}@{path}): {e}")
+            print(f"StarForge artifact register failed ({kind}@{path}): {e}")
             return False
 
     def enqueue_log(self, chunk: str) -> None:
@@ -157,16 +157,16 @@ class IngestClient:
         ci = payload.get("chunk_index")
         n = len(payload.get("samples") or [])
         try:
-            # 默认 120s；可用 NEMOLAB_VAL_TIMEOUT 覆盖
+            # 默认 120s；可用 STARFORGE_VAL_TIMEOUT 覆盖
             try:
-                timeout = float(os.environ.get("NEMOLAB_VAL_TIMEOUT", "120"))
+                timeout = float(os.environ.get("STARFORGE_VAL_TIMEOUT", "120"))
             except ValueError:
                 timeout = 120.0
             self._post("validation", payload, timeout=max(15.0, timeout))
             return True
         except Exception as e:
             print(
-                f"NeMoLab validation upload failed: step={step} chunk={ci} "
+                f"StarForge validation upload failed: step={step} chunk={ci} "
                 f"samples={n}: {e}",
                 flush=True,
             )
@@ -183,13 +183,13 @@ class IngestClient:
             try:
                 self.flush()
             except Exception as e:
-                print(f"NeMoLab IngestClient flush error: {e}")
+                print(f"StarForge IngestClient flush error: {e}")
             time.sleep(self.flush_interval)
 
     def _headers(self) -> dict[str, str]:
         # 与 SDK Reporter 共用同一鉴权头（服务端同时兼容 Bearer，平滑过渡）。
         return {
-            "X-NeMoLab-Token": self.token,
+            "X-StarForge-Token": self.token,
             "Content-Type": "application/json",
         }
 

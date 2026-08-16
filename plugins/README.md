@@ -27,7 +27,7 @@ name: my-plugin           # 叶子名（字母数字开头，仅含字母/数字
 version: 0.1.0            # 不可变：改了内容必须换版本号，同版本重发会被 409 拒绝
 kind: algorithm           # algorithm | data-prep
 load: eager               # 仅 algorithm：eager | deferred（见下）
-summary: 一句话说明        # 显示在 Web 插件中心与 lab plugin ls
+summary: 一句话说明        # 显示在 Web 插件中心与 forge plugin ls
 entrypoint: my_module:install   # 仅 algorithm：模块路径相对包根
 requires:
   sdk: ">=2.1,<3"         # PEP 440；装载前校验，不满足直接拒跑
@@ -63,8 +63,8 @@ monkey-patch 框架行为 —— 完整可跑的样板见 [`examples/rloo/`](exa
 `prepare_<数据集名>.py` 自动发现：
 
 ```
-lab dataset prepare              # 列出所有可用数据集（内置 + 插件）
-lab dataset prepare tiny_qa      # 执行 lab_plugins/*/prepare_tiny_qa.py
+forge dataset prepare              # 列出所有可用数据集（内置 + 插件）
+forge dataset prepare tiny_qa      # 执行 lab_plugins/*/prepare_tiny_qa.py
 ```
 
 脚本首行 docstring 作为一句话说明展示在列表里；同名时仓库内置（`common/data/`）
@@ -74,17 +74,17 @@ lab dataset prepare tiny_qa      # 执行 lab_plugins/*/prepare_tiny_qa.py
 
 ```bash
 # 1. 发布（打包目录上传，平台解包校验 manifest、算内容 digest 盖章）
-lab plugin publish plugins/examples/rloo
+forge plugin publish plugins/examples/rloo
 
 # 2. 查看货架
-lab plugin ls
-lab plugin info <owner>/rloo
+forge plugin ls
+forge plugin info <owner>/rloo
 
 # 3. 安装：下载到本地 lab_plugins/，并锁定到实验（写 plugins.lock.json）
-lab plugin install <owner>/rloo --exp experiments/my-exp
+forge plugin install <owner>/rloo --exp experiments/my-exp
 
 # 4. 正常提交；提交时平台按锁文件校验并注入，launcher 装载前再验一次 digest
-lab submit experiments/my-exp
+forge submit experiments/my-exp
 ```
 
 digest 是插件目录内容的 sha256（`__pycache__`/`.pyc` 等不参与），在发布、提交、
@@ -93,7 +93,7 @@ digest 是插件目录内容的 sha256（`__pycache__`/`.pyc` 等不参与），
 发布前本地自检：
 
 ```python
-from nemo_lab_sdk.plugins import load_manifest, directory_digest
+from starforge_sdk.plugins import load_manifest, directory_digest
 m = load_manifest(Path("plugins/examples/rloo"))   # manifest 不合法这里就会抛
 print(m, directory_digest(Path("plugins/examples/rloo")))
 ```

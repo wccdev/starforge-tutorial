@@ -9,10 +9,10 @@
     "version": "0.7.0"
   },
   "recipe": {
-    "digest": "sha256:c79c852b4ecd4d1c5b6d2595947e871823e8ec66329cd61e2060f6524fdfbc0c",
-    "manifest_digest": "sha256:16e690ca285be247dfd0d5b77633bab356085c1afca6e2f5927f08d8553ea6b0",
+    "digest": "sha256:7f710430a4e3f609ccb224f4e53307573488e9fc8393e361abe777c0c18f5339",
+    "manifest_digest": "sha256:982b8a673f1d0f37e8f9ca1a3d082e5b2d1901dc54e22f11219ff5f763092c15",
     "name": "nemo-rl/maxrl",
-    "template_digest": "sha256:fc9292c5467feea40b6124bb5eb0ccdf7b12f444dfb535e926e336831a1636f4",
+    "template_digest": "sha256:916514fc214766f57af435d22b759d9cbed811c24ad49c3dc71f6f3ed1351e39",
     "version": "0.1.0"
   },
   "requires": {

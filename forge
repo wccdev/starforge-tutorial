@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# starforge CLI 薄入口：委托给项目环境里的 lab 命令（= uv run forge）。
+# 等价写法：在仓库目录下直接 `uv run forge ...`。
+# 实际实现见 starforge_cli/cli.py（pyproject [project.scripts] lab）。
+# Tab 补全：forge --install-completion（见 README）
+exec uv run --project "$(cd "$(dirname "$0")" && pwd)" forge "$@"

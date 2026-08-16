@@ -1,2 +1,2 @@
-[mcp_servers.nemo-rl-console]
-url = "https://nemolab.gcoreinc.com/api/mcp/rpc"
+[mcp_servers.starforge-console]
+url = "https://starforge.gcoreinc.com/api/mcp/rpc"

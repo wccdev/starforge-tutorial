@@ -12,8 +12,8 @@ from typing import Optional
 
 import typer
 
-from nemo_rl_lab import api_client, cli_ui
-from nemo_rl_lab.auth import gate
+from starforge_cli import api_client, cli_ui
+from starforge_cli.auth import gate
 
 serve_app = typer.Typer(no_args_is_help=True, help="推理服务（Playground）")
 
@@ -42,7 +42,7 @@ def serve_start(
     res = _call("POST", "/api/playground/start", body)
     typer.secho(f"✓ 推理服务已启动  {res.get('lab_run_id')}", fg=typer.colors.GREEN, bold=True)
     typer.echo(f"  模型: {res.get('model')}  端口: {res.get('port')}  到期: {res.get('expires_at')}")
-    typer.echo("  对话试用：web「Playground」页；一键停止：lab serve stop <run_id>")
+    typer.echo("  对话试用：web「Playground」页；一键停止：forge serve stop <run_id>")
 
 
 @serve_app.command("ls", help="列出我的推理服务")
@@ -51,7 +51,7 @@ def serve_ls() -> None:
     res = _call("GET", "/api/playground")
     rows = res.get("servings") or []
     if not rows:
-        typer.echo("没有推理服务。启动：lab serve start <模型>")
+        typer.echo("没有推理服务。启动：forge serve start <模型>")
         return
     for r in rows:
         flag = "●" if r.get("active") else "○"

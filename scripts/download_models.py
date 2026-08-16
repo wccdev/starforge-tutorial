@@ -478,8 +478,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--source",
         choices=("hf", "modelscope"),
-        default=os.environ.get("LAB_MODEL_SOURCE", "hf"),
-        help="下载源：hf（默认）或 modelscope（国内快）。也可用环境变量 LAB_MODEL_SOURCE",
+        default=os.environ.get("FORGE_MODEL_SOURCE", "hf"),
+        help="下载源：hf（默认）或 modelscope（国内快）。也可用环境变量 FORGE_MODEL_SOURCE",
     )
     parser.add_argument(
         "--only",

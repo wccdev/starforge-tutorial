@@ -5,10 +5,10 @@ from typing import Optional
 
 import typer
 
-from nemo_rl_lab import api_client, cli_ui, packing
-from nemo_rl_lab.auth import gate
-from nemo_rl_lab.commands import common
-from nemo_rl_lab.commands.exp import _validate_exp
+from starforge_cli import api_client, cli_ui, packing
+from starforge_cli.auth import gate
+from starforge_cli.commands import common
+from starforge_cli.commands.exp import _validate_exp
 
 
 def _require_clean_tree(allow_dirty: bool, prov: dict) -> None:
@@ -80,7 +80,7 @@ def submit(
     upgrade_recipe: bool = typer.Option(
         False,
         "--upgrade-recipe",
-        help="提交前把本实验锁升级到当前 catalog，复用 lab recipe upgrade",
+        help="提交前把本实验锁升级到当前 catalog，复用 forge recipe upgrade",
     ),
     allow_dirty: bool = typer.Option(
         False, "--allow-dirty", help="允许工作区有未提交改动（默认拒绝，保证可追溯）"
@@ -144,7 +144,7 @@ def _dataset_refs_from_config(exp_path: str) -> tuple[str, str]:
     config 缺失、解析失败或未声明时返回空串——坏 config 由校验环节负责报错，
     这里不重复拦。
     """
-    from nemo_lab_sdk.config_resolve import resolve
+    from starforge_sdk.config_resolve import resolve
 
     cfg_path = common.ROOT / exp_path / "config.yaml"
     if not cfg_path.is_file():
@@ -168,15 +168,15 @@ def _materialize_profile_or_exit(exprs: list[str]) -> tuple[str, list[str], list
     series 与默认形状查服务端注册表——用户只说「哪种卡、几张」，
     拓扑细节由注册表补齐，两边不可能写出互相矛盾的资源声明。
     """
-    from nemo_lab_sdk.contract import SpecError
+    from starforge_sdk.contract import SpecError
 
-    from nemo_rl_lab import spec_builder
+    from starforge_cli import spec_builder
 
     try:
         return spec_builder.materialize_pools(exprs, common.profile_registry())
     except SpecError as e:
         cli_ui.emit_error("--profile 解析未通过", items=[str(e)],
-                          hint="格式：[role=]名称[:总卡数]，如 h200、h200:4；`lab status` 查看可用 profile")
+                          hint="格式：[role=]名称[:总卡数]，如 h200、h200:4；`forge status` 查看可用 profile")
         raise typer.Exit(1) from e
 
 
@@ -186,15 +186,15 @@ def _upgrade_recipe_or_exit(exp_path: str, *, method, framework_version) -> None
     升级改写了锁文件时打印明确提示：随后的 clean-tree 检查会要求 commit
     （或 --allow-dirty 显式确认），锁变更与代码变更一样纳入溯源。
     """
-    from nemo_rl_lab import spec_builder
-    from nemo_rl_lab.commands.exp import validate_exp_config
-    from nemo_rl_lab.recipe_lock import RecipeLockManager
+    from starforge_cli import spec_builder
+    from starforge_cli.commands.exp import validate_exp_config
+    from starforge_cli.recipe_lock import RecipeLockManager
 
     recipe = (method or "").strip() or spec_builder.infer_recipe(common.ROOT / exp_path)
     if not recipe:
         cli_ui.emit_error(
             "实验没有声明 recipe",
-            hint="加 --method <framework>/<method>；`lab methods` 查看可用值",
+            hint="加 --method <framework>/<method>；`forge methods` 查看可用值",
         )
         raise typer.Exit(1)
     try:
@@ -223,20 +223,20 @@ def _build_spec_or_exit(exp_path: str, *, method, project, sets, pools, roles,
                         framework_version=None, image=None, provenance=None,
                         validate: bool):
     """构建强 JobSpec；缺少显式 recipe 时立即退出。"""
-    from nemo_lab_sdk.contract import SpecError
+    from starforge_sdk.contract import SpecError
 
-    from nemo_rl_lab import spec_builder
+    from starforge_cli import spec_builder
 
     recipe = (method or "").strip() or spec_builder.infer_recipe(common.ROOT / exp_path)
     if not recipe:
         cli_ui.emit_error(
             "实验没有声明 recipe",
-            hint="加 --method <framework>/<method>，或用 `lab new` 生成 recipe.lock.json；`lab methods` 查看可用值",
+            hint="加 --method <framework>/<method>，或用 `forge new` 生成 recipe.lock.json；`forge methods` 查看可用值",
         )
         raise typer.Exit(1)
     try:
-        from nemo_rl_lab.plugins_lock import read_plugin_lock
-        from nemo_rl_lab.recipe_lock import RecipeLockManager
+        from starforge_cli.plugins_lock import read_plugin_lock
+        from starforge_cli.recipe_lock import RecipeLockManager
 
         manager = RecipeLockManager()
         exp_dir = common.ROOT / exp_path
@@ -247,7 +247,7 @@ def _build_spec_or_exit(exp_path: str, *, method, project, sets, pools, roles,
                 raise ValueError(
                     f"锁内 framework version 是 {inspection.framework_version or '∅'}，"
                     f"与 --framework-version {selected} 不一致；"
-                    f"请执行 `lab recipe upgrade {exp_path} --framework-version {selected}`"
+                    f"请执行 `forge recipe upgrade {exp_path} --framework-version {selected}`"
                     " 或提交时加 --upgrade-recipe"
                 )
         selected_version = manager.require_current(exp_dir, recipe)
@@ -274,12 +274,12 @@ def _build_spec_or_exit(exp_path: str, *, method, project, sets, pools, roles,
             plugin_uses=plugin_uses,
         )
     except (SpecError, ValueError) as e:
-        from nemo_rl_lab.recipe_lock import RecipeLockError
+        from starforge_cli.recipe_lock import RecipeLockError
 
         hint = (
-            f"执行 `lab recipe upgrade {exp_path}` 或提交时加 --upgrade-recipe"
+            f"执行 `forge recipe upgrade {exp_path}` 或提交时加 --upgrade-recipe"
             if isinstance(e, RecipeLockError)
-            else "用 `lab methods` 查看可用方法与超参"
+            else "用 `forge methods` 查看可用方法与超参"
         )
         cli_ui.emit_error("作业规格校验未通过", items=[str(e)], hint=hint)
         raise typer.Exit(1) from e
@@ -296,7 +296,7 @@ def _echo_submit_result(res: dict, label: str = "") -> None:
         if res.get("message"):
             typer.secho(f"  {res['message']}", fg=typer.colors.BRIGHT_BLACK)
         _echo_upload_summary(res)
-        typer.echo("  满足条件后自动提交；查看状态：lab job ls")
+        typer.echo("  满足条件后自动提交；查看状态：forge job ls")
         _echo_submit_warnings(res)
         return
     msg = f"✓ 已提交{label}  作业 {res.get('job_id')}"
@@ -306,7 +306,7 @@ def _echo_submit_result(res: dict, label: str = "") -> None:
         msg += "  ·  预演"
     typer.secho(msg, fg=typer.colors.GREEN)
     _echo_upload_summary(res)
-    typer.echo(f"  查看日志：lab job logs {res.get('job_id')}")
+    typer.echo(f"  查看日志：forge job logs {res.get('job_id')}")
     _echo_submit_warnings(res)
 
 
@@ -335,17 +335,17 @@ def _echo_upload_summary(res: dict) -> None:
 def _submit_post(action: str, exp_path: str, profile: Optional[str], flags: list[str],
                  dry_run: bool, allow_dirty: bool) -> int:
     """构建并预编译训练后强契约，再通过统一 launcher 提交。"""
-    from nemo_lab_sdk.frameworks import CompileRequest, compile_launch_plan
-    from nemo_lab_sdk.recipes import get_recipe
+    from starforge_sdk.frameworks import CompileRequest, compile_launch_plan
+    from starforge_sdk.recipes import get_recipe
 
-    from nemo_rl_lab import spec_builder
-    from nemo_rl_lab.recipe_lock import validate_recipe_lock
+    from starforge_cli import spec_builder
+    from starforge_cli.recipe_lock import validate_recipe_lock
 
     recipe_name = spec_builder.infer_recipe(common.ROOT / exp_path)
     if not recipe_name:
         cli_ui.emit_error(
             "实验没有声明 recipe",
-            hint="实验缺少 recipe.lock.json；用 `lab new` 重建或 `lab recipe upgrade` 生成",
+            hint="实验缺少 recipe.lock.json；用 `forge new` 重建或 `forge recipe upgrade` 生成",
         )
         return 1
     recipe = get_recipe(recipe_name)
@@ -383,7 +383,7 @@ def _submit_post(action: str, exp_path: str, profile: Optional[str], flags: list
             spec=spec,
             recipe=recipe,
             work_dir=common.ROOT,
-            env={"NEMOLAB_ENABLED": "0", "OUTPUT_ROOT": "/tmp/nemo-lab-dry-run"},
+            env={"STARFORGE_ENABLED": "0", "OUTPUT_ROOT": "/tmp/starforge-dry-run"},
             action_args=tuple(flags),
         ))
     except (ValueError, OSError) as exc:
@@ -464,4 +464,4 @@ def clean(
         )
     res = api_client.clean_via_server(exp_path)
     typer.secho(f"✓ 已提交清理  作业 {res.get('job_id')}", fg=typer.colors.GREEN)
-    typer.echo(f"  查看进度：lab job logs {res.get('job_id')}")
+    typer.echo(f"  查看进度：forge job logs {res.get('job_id')}")

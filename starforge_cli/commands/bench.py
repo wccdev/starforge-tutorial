@@ -1,4 +1,4 @@
-"""标准基准评测提交：`lab bench <exp> --model … --suites …`。
+"""标准基准评测提交：`forge bench <exp> --model … --suites …`。
 
 评测作业就是一次普通提交（evalkit/benchmark recipe，同一条配额/排队/产物链路）；
 本命令只做三件事：解析模型引用（`run:<run_id>` → 该 run 的 hf_export 产物路径）、
@@ -12,10 +12,10 @@ from typing import Optional
 
 import typer
 
-from nemo_rl_lab import api_client, cli_ui, packing
-from nemo_rl_lab.auth import gate
-from nemo_rl_lab.commands import common
-from nemo_rl_lab.commands.submit import (
+from starforge_cli import api_client, cli_ui, packing
+from starforge_cli.auth import gate
+from starforge_cli.commands import common
+from starforge_cli.commands.submit import (
     _build_spec_or_exit,
     _echo_submit_result,
     _materialize_profile_or_exit,
@@ -43,14 +43,14 @@ def _resolve_model_ref(model: str) -> str:
     if not exports:
         cli_ui.fail(
             f"run {run_id} 没有 hf_export 产物",
-            hint=f"先导出：lab export {run_id}",
+            hint=f"先导出：forge export {run_id}",
         )
     return str(exports[-1]["path"])
 
 
 def bench(
     exp: str = typer.Argument(..., autocompletion=common.complete_exp,
-                              help="评测实验（lab new <名字> --method evalkit/benchmark 创建）"),
+                              help="评测实验（forge new <名字> --method evalkit/benchmark 创建）"),
     model: str = typer.Option(..., "--model", "-m",
                               help="HF 模型 id / 共享盘绝对路径 / run:<run_id>（取该 run 的 hf_export）"),
     suites: str = typer.Option(..., "--suites",

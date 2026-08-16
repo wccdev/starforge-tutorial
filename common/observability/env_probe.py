@@ -69,7 +69,7 @@ def _collect_overview() -> dict[str, Any]:
 
 
 # 平台镜像在构建期写入的指纹文件（见 console 的 deploy/ray-cluster/Dockerfile）。
-IMAGE_FINGERPRINT_FILE = "/etc/nemo-lab-image"
+IMAGE_FINGERPRINT_FILE = "/etc/starforge-image"
 
 
 def collect_image_id() -> str:
@@ -78,15 +78,15 @@ def collect_image_id() -> str:
     代码版本（git commit）和配置版本（config_sha）本来就有记录，唯独环境没有——
     而依赖一升级，老作业就永远说不清结果差异到底来自代码还是环境。这里把它补上。
 
-    优先级：统一 launcher 已导出的 LAB_IMAGE（集群侧唯一事实来源）>
+    优先级：统一 launcher 已导出的 FORGE_IMAGE（集群侧唯一事实来源）>
     指纹文件 > 官方 NeMo-RL 镜像自带的 build id > unknown。
     """
-    if env_image := os.environ.get("LAB_IMAGE", "").strip():
+    if env_image := os.environ.get("FORGE_IMAGE", "").strip():
         return env_image
 
     fields = _read_fingerprint_file(IMAGE_FINGERPRINT_FILE)
-    if tag := fields.get("LAB_IMAGE_TAG"):
-        return f"{tag}@{fields.get('LAB_IMAGE_BUILD_ID', 'unknown')}"
+    if tag := fields.get("FORGE_IMAGE_TAG"):
+        return f"{tag}@{fields.get('FORGE_IMAGE_BUILD_ID', 'unknown')}"
 
     # 还没换成平台镜像时，官方镜像自带这两个环境变量，聊胜于无。
     if build_id := os.environ.get("NVIDIA_BUILD_ID", "").strip():
@@ -214,7 +214,7 @@ def _collect_nvidia_gpu(
                 known_gpu_uuids=frozenset(known_gpu_uuids or ()),
                 max_gpus=max_gpus,
             )
-            # PG / LAB_CLUSTER_GPUS_PER_NODE 已告诉我们本节点卡数，但 PID/显存这拍
+            # PG / FORGE_CLUSTER_GPUS_PER_NODE 已告诉我们本节点卡数，但 PID/显存这拍
             # 还认不出时：按物理序号截到 max_gpus。静态页同型号卡型号/显存一样，
             # 张数正确比物理序号完美更重要；没有 max_gpus 时宁可不报卡，也别把
             # head 整机库存写进「运行节点」（异构集群常见误报）。

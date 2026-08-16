@@ -1,6 +1,0 @@
-#!/usr/bin/env bash
-# nemo-rl-lab CLI 薄入口：委托给项目环境里的 lab 命令（= uv run lab）。
-# 等价写法：在仓库目录下直接 `uv run lab ...`。
-# 实际实现见 nemo_rl_lab/cli.py（pyproject [project.scripts] lab）。
-# Tab 补全：lab --install-completion（见 README）
-exec uv run --project "$(cd "$(dirname "$0")" && pwd)" lab "$@"

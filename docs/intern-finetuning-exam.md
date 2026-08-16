@@ -1,6 +1,6 @@
 # 大模型微调考试操作手册
 
-> 面向 NeMo Lab 微调平台（格科内网）的实操考试指南。拿到本文档 + HR 发放的账号后，按顺序完成即可。
+> 面向 StarForge 微调平台（格科内网）的实操考试指南。拿到本文档 + HR 发放的账号后，按顺序完成即可。
 
 ---
 
@@ -31,7 +31,7 @@
 | 账号 | 用途 |
 | --- | --- |
 | **VPN 账号** | 连接格科内网 |
-| **NeMo Lab 控制台账号** | Web 控制台 + CLI 提交作业 |
+| **StarForge 控制台账号** | Web 控制台 + CLI 提交作业 |
 
 ### 2.2 VPN（深信服 EasyConnect）
 
@@ -49,11 +49,11 @@
 
 其他办公地点请向 HR 确认 VPN 地址。
 
-连上 VPN 后，浏览器能打开 [https://nemolab.gcoreinc.com/](https://nemolab.gcoreinc.com/) 即表示网络正常。
+连上 VPN 后，浏览器能打开 [https://starforge.gcoreinc.com/](https://starforge.gcoreinc.com/) 即表示网络正常。
 
 ### 2.3 Web 控制台
 
-访问 [https://nemolab.gcoreinc.com/](https://nemolab.gcoreinc.com/)，用 HR 账号登录。主要用 **作业** 页查看训练曲线、验证样本与日志。
+访问 [https://starforge.gcoreinc.com/](https://starforge.gcoreinc.com/)，用 HR 账号登录。主要用 **作业** 页查看训练曲线、验证样本与日志。
 
 ---
 
@@ -64,7 +64,7 @@
 在 GitHub 上 **Fork** 官方客户端仓库到你自己的账号：
 
 ```
-https://github.com/wccdev/nemo-rl-lab
+https://github.com/wccdev/starforge
 ```
 
 Fork 后你在自己的仓库里创建实验、改代码、提交 commit。**考试期间的所有改动都在你的 Fork 里完成**，不要直接在官方仓库改。
@@ -72,8 +72,8 @@ Fork 后你在自己的仓库里创建实验、改代码、提交 commit。**考
 ### 3.2 克隆你的 Fork 并安装 CLI
 
 ```bash
-git clone https://github.com/<你的GitHub用户名>/nemo-rl-lab.git
-cd nemo-rl-lab
+git clone https://github.com/<你的GitHub用户名>/starforge.git
+cd starforge
 uv sync
 ```
 
@@ -82,7 +82,7 @@ uv sync
 CLI 调用方式（任选）：
 
 ```bash
-uv run lab ...      # 推荐
+uv run forge ...      # 推荐
 ./lab ...           # macOS / Linux
 ```
 
@@ -91,14 +91,14 @@ uv run lab ...      # 推荐
 **确保 VPN 已连接**：
 
 ```bash
-lab login --server https://nemolab.gcoreinc.com
+forge login --server https://starforge.gcoreinc.com
 ```
 
-SSH / 无浏览器：`lab login --device-flow`
+SSH / 无浏览器：`forge login --device-flow`
 
 ```bash
-lab status    # 确认已登录、服务可达、配额
-lab status    # 查看 GPU 配额与活跃作业
+forge status    # 确认已登录、服务可达、配额
+forge status    # 查看 GPU 配额与活跃作业
 ```
 
 ---
@@ -139,8 +139,8 @@ lab status    # 查看 GPU 配额与活跃作业
 ### 4.4 创建你的实验
 
 ```bash
-lab ls
-lab new grpo_qwen3.5-9b_qa-rl-agent_<你的名字> --from agent-grpo_qwen3.5-9b_sliding-puzzle_v1
+forge ls
+forge new grpo_qwen3.5-9b_qa-rl-agent_<你的名字> --from agent-grpo_qwen3.5-9b_sliding-puzzle_v1
 ```
 
 在你的 Fork 里完成实验代码后，**push 到 GitHub**：
@@ -160,27 +160,27 @@ git push origin main
 ### 5.1 提交
 
 ```bash
-lab validate <你的实验名>    # 提交前校验 config
-lab submit <你的实验名>
+forge validate <你的实验名>    # 提交前校验 config
+forge submit <你的实验名>
 ```
 
 成功后会打印 **作业 ID**（如 `raysubmit_xxx`）。
 
 ```bash
-lab job logs [job_id]   # 查看日志
-lab job ls              # 作业列表
-lab job stop <job_id>   # 停止作业、释放 GPU
+forge job logs [job_id]   # 查看日志
+forge job ls              # 作业列表
+forge job stop <job_id>   # 停止作业、释放 GPU
 ```
 
 ### 5.2 控制台监控
 
-[https://nemolab.gcoreinc.com/](https://nemolab.gcoreinc.com/) → **作业** → 点击你的作业：
+[https://starforge.gcoreinc.com/](https://starforge.gcoreinc.com/) → **作业** → 点击你的作业：
 
 - **图表**：关注 **validation/accuracy**（主要评分指标）
 - **验证样本**：查看模型检索与作答轨迹
 - **日志 / 系统 / 诊断**：排查失败与 OOM
 
-48 小时内可多次 submit 调参；及时 `lab job stop` 释放不用的作业。
+48 小时内可多次 submit 调参；及时 `forge job stop` 释放不用的作业。
 
 ---
 
@@ -197,7 +197,7 @@ lab job stop <job_id>   # 停止作业、释放 GPU
 
 | 提交项 | 说明 |
 | --- | --- |
-| **GitHub Fork 地址** | 你的 `nemo-rl-lab` Fork 仓库 URL（含实验代码） |
+| **GitHub Fork 地址** | 你的 `starforge` Fork 仓库 URL（含实验代码） |
 | **作业 ID** | 最佳 run 对应的 Ray 作业 ID |
 | **截图** | 控制台 validation/accuracy 曲线或最终数值 |
 | **简要说明** | 实验思路、关键改动、最佳 accuracy 等（HR 指定格式为准） |
@@ -208,23 +208,23 @@ lab job stop <job_id>   # 停止作业、释放 GPU
 
 | 问题 | 处理 |
 | --- | --- |
-| 打不开 nemolab | 确认 VPN；切换张江双链路 |
-| `lab login` 无浏览器 | `lab login --device-flow` |
-| 配额不足 | `lab status`；`lab job stop` 释放卡 |
-| 作业 FAILED | 控制台看日志 / 诊断；`lab job logs <id> -n 0` |
+| 打不开 starforge | 确认 VPN；切换张江双链路 |
+| `forge login` 无浏览器 | `forge login --device-flow` |
+| 配额不足 | `forge status`；`forge job stop` 释放卡 |
+| 作业 FAILED | 控制台看日志 / 诊断；`forge job logs <id> -n 0` |
 | validate 失败 | 按终端报错改 config |
 
 ---
 
 ## 八、操作流程 Checklist
 
-- [ ] GitHub Fork `wccdev/nemo-rl-lab`
+- [ ] GitHub Fork `wccdev/starforge`
 - [ ] 克隆自己的 Fork，`uv sync`
-- [ ] 连 VPN，登录 [nemolab.gcoreinc.com](https://nemolab.gcoreinc.com/)
-- [ ] `lab login` + `lab status`
+- [ ] 连 VPN，登录 [starforge.gcoreinc.com](https://starforge.gcoreinc.com/)
+- [ ] `forge login` + `forge status`
 - [ ] 研究两个示例实验，创建并实现自己的 QA 多轮检索实验
 - [ ] 代码 push 到 GitHub Fork
-- [ ] `lab validate` → `lab submit`
+- [ ] `forge validate` → `forge submit`
 - [ ] 监控曲线，迭代调参
 - [ ] 向 HR 提交：Fork 地址 + 作业 ID + 截图 + 简要说明
 
@@ -234,14 +234,14 @@ lab job stop <job_id>   # 停止作业、释放 GPU
 
 ```bash
 uv sync
-lab login --server https://nemolab.gcoreinc.com
-lab status
-lab ls
-lab new <实验名> --from agent-grpo_qwen3.5-9b_sliding-puzzle_v1
-lab validate <实验名>
-lab submit <实验名>
-lab job logs [job_id]
-lab job stop <job_id>
+forge login --server https://starforge.gcoreinc.com
+forge status
+forge ls
+forge new <实验名> --from agent-grpo_qwen3.5-9b_sliding-puzzle_v1
+forge validate <实验名>
+forge submit <实验名>
+forge job logs [job_id]
+forge job stop <job_id>
 ```
 
 ---

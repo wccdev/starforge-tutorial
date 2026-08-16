@@ -1,4 +1,4 @@
-"""nemo-rl-lab 统一 CLI：app 组装（命令实现见 nemo_rl_lab/commands/）。
+"""starforge 统一 CLI：app 组装（命令实现见 starforge_cli/commands/）。
 
 命令面即架构：CLI 是 Console 的瘦客户端，只做四件事——
   身份        login / logout
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import typer
 
-from nemo_rl_lab.commands import (
+from starforge_cli.commands import (
     admin,
     bench,
     dataset,
@@ -29,7 +29,7 @@ app = typer.Typer(
     add_completion=True,
     no_args_is_help=True,
     rich_markup_mode="rich",
-    help="NeMo RL 实验 CLI",
+    help="StarForge（星锻）· 大模型后训练平台 CLI",
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 

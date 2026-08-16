@@ -31,7 +31,7 @@ data/raw/
 datasets/qa_rl/
 
 # OPSD 训练数据：带完整参考解，8000 条就有几十 MB、全量上百 MB。
-# 不入库之外还有一层原因：lab submit 打包用的是
+# 不入库之外还有一层原因：forge submit 打包用的是
 # `git ls-files --cached --others --exclude-standard`，**未被忽略的未跟踪文件也会上传**，
 # 不忽略就等于每次提交都把这几十 MB 重传一遍。数据本来就常驻集群
 # /data/datasets/opsd_math，随包上传纯属浪费。
@@ -52,8 +52,8 @@ ray_results/
 /tmp/ray/
 *.pid
 
-# 本地 run 台账（lab submit 追加；含 IP/用户，仅本地追溯用）
-.lab/
+# 本地 run 台账（forge submit 追加；含 IP/用户，仅本地追溯用）
+.forge/
 
 # ============ Python ============
 __pycache__/

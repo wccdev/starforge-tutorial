@@ -1,6 +1,6 @@
 """环境工具的内核实现（纯函数：`(arg, ctx) -> str`）。
 
-代码执行统一经 SandboxProvider 分派：平台注入 NEMOLAB_SANDBOX_ENDPOINT 时
+代码执行统一经 SandboxProvider 分派：平台注入 STARFORGE_SANDBOX_ENDPOINT 时
 走外部沙箱（E2B 兼容），否则容器内子进程 —— 环境代码不感知差异。
 """
 from __future__ import annotations
@@ -71,7 +71,7 @@ def tool_python(arg: str, ctx: dict[str, Any]) -> str:
     """执行一段 Python 代码，返回 stdout（经 SandboxProvider 分派，带超时）。"""
     timeout = float(ctx.get("code_timeout", 5))
     try:
-        from nemo_lab_sdk.sandbox import get_sandbox_provider
+        from starforge_sdk.sandbox import get_sandbox_provider
 
         result = get_sandbox_provider().run_code(arg, timeout=timeout)
     except Exception as e:  # noqa: BLE001 — 沙箱层失败给模型可读反馈，不炸训练

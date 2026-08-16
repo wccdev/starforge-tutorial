@@ -9,10 +9,10 @@
     "version": "0.7.0"
   },
   "recipe": {
-    "digest": "sha256:aa56d4a1786ceb25e6a3c49c0953bcf1fe3df3d10cd4fed1ebfa2b7594bce082",
-    "manifest_digest": "sha256:992411a5f6f23d84057690b3dd5299e4b83e9aa3f0e3818f85a61739a2f3e8f2",
+    "digest": "sha256:3165cadce6e6b7dc41bf8691bb9f2838c37cde87d204130f462be8acdb5acd02",
+    "manifest_digest": "sha256:2048d2e40bf060983e70ad481a7e077c8a81dd065355225edb6340aa4542bdc8",
     "name": "nemo-rl/opsd",
-    "template_digest": "sha256:8884a246385972f603bebbddd7dad36db5db07110ec2b233dc83b9f0659bff3b",
+    "template_digest": "sha256:863e3a44b26fae146df6eb1ae98717959936e97efa65b69c863545dedfed7d7f",
     "version": "0.1.0"
   },
   "requires": {

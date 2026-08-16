@@ -4,7 +4,7 @@
 多节点作业自动 fan-out 到这些节点；不扫整个 Ray 集群无关机器。
 
 scope=local  — 仅本进程所在机器（按显存阈值过滤空闲卡）
-scope=cluster — 全集群 alive 节点（调试用，NEMOLAB_MONITOR_CLUSTER=1 等价）
+scope=cluster — 全集群 alive 节点（调试用，STARFORGE_MONITOR_CLUSTER=1 等价）
 """
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ class HardwareMonitor:
         self.dynamic_interval = dynamic_interval
         self.scope: MonitorScope = scope
         self.min_mem_mib = float(
-            os.environ.get("NEMOLAB_GPU_MIN_MEM_MIB", str(DEFAULT_MIN_MEM_MIB))
+            os.environ.get("STARFORGE_GPU_MIN_MEM_MIB", str(DEFAULT_MIN_MEM_MIB))
         )
         self._samples_collected = 0
         self._running = False
@@ -73,14 +73,14 @@ class HardwareMonitor:
                 import ray  # noqa: F401
             except ImportError:
                 if self.scope == "cluster":
-                    print("NeMoLab hardware monitor skipped: ray not available")
+                    print("StarForge hardware monitor skipped: ray not available")
                     return
                 self.scope = "local"
         if self._running:
             return
         self._running = True
         self._thread = threading.Thread(
-            target=self._loop, daemon=True, name="NeMoLab·Monitor"
+            target=self._loop, daemon=True, name="StarForge·Monitor"
         )
         self._thread.start()
 
@@ -104,16 +104,16 @@ class HardwareMonitor:
                     self.ingest.enqueue_hardware(points)
                     self._samples_collected += 1
             except Exception as e:
-                print(f"NeMoLab hardware monitor error: {e}")
+                print(f"StarForge hardware monitor error: {e}")
             try:
                 self._sync_env_nodes()
             except Exception as e:
                 self._env_nodes_failures += 1
                 if self._env_nodes_failures >= ENV_PROBE_MAX_ATTEMPTS:
                     self._env_nodes_disabled = True  # 放弃，别把训练日志刷满
-                    print(f"NeMoLab environment nodes probe gave up after {self._env_nodes_failures} tries: {e}")
+                    print(f"StarForge environment nodes probe gave up after {self._env_nodes_failures} tries: {e}")
                 else:
-                    print(f"NeMoLab environment nodes probe error: {e}")
+                    print(f"StarForge environment nodes probe error: {e}")
             time.sleep(self._sleep_interval())
 
     def _sync_env_nodes(self) -> None:
@@ -180,8 +180,8 @@ class HardwareMonitor:
 
     @staticmethod
     def _expected_gpus_per_node() -> int | None:
-        """提交侧注入的每节点卡数（LAB_CLUSTER_GPUS_PER_NODE）；GPU 作业的权威拓扑。"""
-        raw = os.environ.get("LAB_CLUSTER_GPUS_PER_NODE", "").strip()
+        """提交侧注入的每节点卡数（FORGE_CLUSTER_GPUS_PER_NODE）；GPU 作业的权威拓扑。"""
+        raw = os.environ.get("FORGE_CLUSTER_GPUS_PER_NODE", "").strip()
         if not raw:
             return None
         try:

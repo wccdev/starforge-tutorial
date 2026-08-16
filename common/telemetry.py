@@ -1,6 +1,6 @@
 """环境/奖励层的轻量指标上报（best-effort，绝不影响训练）。
 
-训练容器里由平台注入 NEMOLAB_ENDPOINT / NEMOLAB_RUN_ID / NEMOLAB_TOKEN；
+训练容器里由平台注入 STARFORGE_ENDPOINT / STARFORGE_RUN_ID / STARFORGE_TOKEN；
 环境代码（reward hacking 监控指标：judge 降级率、search_rate、长度漂移等）
 用本模块把自定义指标打到 console 的 /api/ingest/metrics —— 与训练主指标
 同库同看板，诊断规则可以直接消费。
@@ -18,9 +18,9 @@ import urllib.request
 
 def ingest_ready() -> bool:
     return bool(
-        os.environ.get("NEMOLAB_ENDPOINT")
-        and os.environ.get("NEMOLAB_RUN_ID")
-        and os.environ.get("NEMOLAB_TOKEN")
+        os.environ.get("STARFORGE_ENDPOINT")
+        and os.environ.get("STARFORGE_RUN_ID")
+        and os.environ.get("STARFORGE_TOKEN")
     )
 
 
@@ -28,8 +28,8 @@ def report_metrics(points: dict[str, float], *, step: int = 0, timeout: float = 
     """上报一批自定义指标（key → value）。成功返回 True；任何失败返回 False。"""
     if not ingest_ready() or not points:
         return False
-    endpoint = os.environ["NEMOLAB_ENDPOINT"].rstrip("/")
-    run_id = os.environ["NEMOLAB_RUN_ID"]
+    endpoint = os.environ["STARFORGE_ENDPOINT"].rstrip("/")
+    run_id = os.environ["STARFORGE_RUN_ID"]
     body = json.dumps({
         "run_id": run_id,
         "points": [
@@ -42,7 +42,7 @@ def report_metrics(points: dict[str, float], *, step: int = 0, timeout: float = 
         data=body,
         headers={
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {os.environ['NEMOLAB_TOKEN']}",
+            "Authorization": f"Bearer {os.environ['STARFORGE_TOKEN']}",
         },
     )
     try:

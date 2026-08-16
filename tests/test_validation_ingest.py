@@ -71,8 +71,8 @@ def test_upload_runs_even_when_print_fails(monkeypatch):
     import common.observability.patch as patch_mod
     from common.observability.validation_ctx import clear_validation_step, feed_log_text
 
-    monkeypatch.setenv("NEMOLAB_TOKEN", "tok")
-    monkeypatch.setenv("NEMOLAB_VAL_CHUNK", "4")
+    monkeypatch.setenv("STARFORGE_TOKEN", "tok")
+    monkeypatch.setenv("STARFORGE_VAL_CHUNK", "4")
 
     uploaded: list[dict] = []
 
@@ -106,7 +106,7 @@ def test_upload_runs_even_when_print_fails(monkeypatch):
     sys.modules["nemo_rl.utils.logger"] = logger_mod
 
     monkeypatch.setattr(
-        "common.observability.logger.NeMoLabLogger",
+        "common.observability.logger.StarForgeLogger",
         MagicMock,
     )
     monkeypatch.setattr(
@@ -136,7 +136,7 @@ def test_upload_falls_back_to_step_when_ctx_missing(monkeypatch):
     import common.observability.patch as patch_mod
     from common.observability.validation_ctx import clear_validation_step
 
-    monkeypatch.setenv("NEMOLAB_TOKEN", "tok")
+    monkeypatch.setenv("STARFORGE_TOKEN", "tok")
     uploaded: list[dict] = []
 
     class FakeIngest:
@@ -167,7 +167,7 @@ def test_upload_falls_back_to_step_when_ctx_missing(monkeypatch):
     sys.modules["nemo_rl.utils"] = types.ModuleType("nemo_rl.utils")
     sys.modules["nemo_rl.utils.logger"] = logger_mod
 
-    monkeypatch.setattr("common.observability.logger.NeMoLabLogger", MagicMock)
+    monkeypatch.setattr("common.observability.logger.StarForgeLogger", MagicMock)
     monkeypatch.setattr("common.observability.session.get_ingest", lambda: FakeIngest())
 
     clear_validation_step()  # 模拟日志解析丢失

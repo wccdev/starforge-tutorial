@@ -94,13 +94,13 @@ def test_tool_calc_and_search():
 
 def test_tool_python_routes_through_sandbox_provider(monkeypatch):
     """python 工具经 SandboxProvider 分派：注入假 provider 验证。"""
-    import nemo_lab_sdk.sandbox as sandbox_mod
+    import starforge_sdk.sandbox as sandbox_mod
 
     class _FakeProvider:
         name = "fake"
 
         def run_code(self, code, *, timeout=10.0, language="python"):
-            from nemo_lab_sdk.sandbox import SandboxResult
+            from starforge_sdk.sandbox import SandboxResult
 
             assert code == "print('hi')"
             assert timeout == 5.0
@@ -111,11 +111,11 @@ def test_tool_python_routes_through_sandbox_provider(monkeypatch):
 
 
 def test_tool_python_sandbox_failure_is_model_readable(monkeypatch):
-    import nemo_lab_sdk.sandbox as sandbox_mod
+    import starforge_sdk.sandbox as sandbox_mod
 
     class _Broken:
         def run_code(self, *a, **k):
-            from nemo_lab_sdk.sandbox import SandboxResult
+            from starforge_sdk.sandbox import SandboxResult
 
             return SandboxResult(error="沙箱服务不可达: boom")
 

@@ -1,4 +1,4 @@
-"""框架无关的 NeMoLab 上报 SDK —— 让**任何**训练脚本都能把曲线打进 console。
+"""框架无关的 StarForge 上报 SDK —— 让**任何**训练脚本都能把曲线打进 console。
 
 背景：本仓库原有的上报链路是 `patch.py` 猴子补丁 `nemo_rl.utils.logger.Logger`，
 只对 NeMo-RL 生效。一旦实验换框架（TRL / verl / 纯 HF Trainer / 自己写的循环），
@@ -9,7 +9,7 @@
 
     from common.observability import report
 
-    report.init(hparams={"lr": 1e-5})          # 无 NEMOLAB_TOKEN（本地直跑）时全程 no-op
+    report.init(hparams={"lr": 1e-5})          # 无 STARFORGE_TOKEN（本地直跑）时全程 no-op
     for step, batch in enumerate(loader):
         loss = train_step(batch)
         report.log({"loss": loss}, step=step)
@@ -17,9 +17,9 @@
 
 用法二 —— HF Trainer / TRL（SFTTrainer、GRPOTrainer、GOLDTrainer…）：
 
-    from common.observability.report import NeMoLabCallback
+    from common.observability.report import StarForgeCallback
 
-    trainer = SFTTrainer(..., callbacks=[NeMoLabCallback()])
+    trainer = SFTTrainer(..., callbacks=[StarForgeCallback()])
 
 设计约束（都是被真实事故推着定下来的）：
   * **绝不抛异常**。上报是旁路，采集挂了也不能带崩训练——所以每个公开函数都吞异常。
@@ -43,7 +43,7 @@ _state: dict[str, Any] = {"inited": False, "hw": None, "step": 0}
 
 def enabled() -> bool:
     """console 是否注入了上报凭据（本地直跑为 False）。"""
-    return bool(os.environ.get("NEMOLAB_TOKEN"))
+    return bool(os.environ.get("STARFORGE_TOKEN"))
 
 
 def init(
@@ -61,7 +61,7 @@ def init(
         hparams:          超参，落到 console 的「配置」面板。
         monitor_hardware: 是否起后台线程采每卡 GPU/显存/功耗。自定义框架建议开——
                           否则 console 上这个作业的硬件面板会是空的。
-        monitor_interval: 采样间隔秒；None 则用 NEMOLAB_MONITOR_INTERVAL，默认 10。
+        monitor_interval: 采样间隔秒；None 则用 STARFORGE_MONITOR_INTERVAL，默认 10。
     """
     if not enabled():
         return False
@@ -84,7 +84,7 @@ def init(
                 interval = float(
                     monitor_interval
                     if monitor_interval is not None
-                    else os.environ.get("NEMOLAB_MONITOR_INTERVAL", "10")
+                    else os.environ.get("STARFORGE_MONITOR_INTERVAL", "10")
                 )
                 hw = HardwareMonitor(ingest, collection_interval=interval)
                 hw.start()
@@ -92,9 +92,9 @@ def init(
 
             _state["inited"] = True
             atexit.register(finish)
-            print(f"[nemolab] report SDK 已启用（run={ingest.run_id}）", flush=True)
+            print(f"[starforge] report SDK 已启用（run={ingest.run_id}）", flush=True)
         except Exception as e:  # 采集是旁路，任何异常都不应影响训练
-            print(f"[nemolab] report init 跳过: {e}", flush=True)
+            print(f"[starforge] report init 跳过: {e}", flush=True)
             return False
 
     if hparams:
@@ -171,7 +171,7 @@ def finish() -> None:
         pass
 
 
-class NeMoLabCallback:
+class StarForgeCallback:
     """HuggingFace `TrainerCallback` 适配器 —— TRL 各类 Trainer 同样适用。
 
     不继承 `transformers.TrainerCallback`：那样会把 transformers 变成本模块的 import 期依赖，

@@ -1,15 +1,15 @@
 [project]
-name = "nemo-rl-lab"
+name = "starforge"
 version = "0.1.0"
 description = "本机开发期工具环境：统一 CLI（lab）与数据预处理。重型训练依赖（NeMo-RL / vLLM / Ray / CUDA）走集群官方容器，不在此管理。"
 requires-python = ">=3.10"
 dependencies = [
     # 平台契约 SDK：JobSpec、recipe 目录、集群侧 launcher。
     # console / 本 CLI / 训练镜像三方共用同一份契约，彼此不再互相依赖。
-    "nemo-lab-sdk==2.1.0",
+    "starforge-sdk==2.1.0",
     "typer>=0.12", # 统一 CLI 入口 lab
     "datasets>=2.18",
-    "pyyaml>=6", # 解析/校验实验 config.yaml（lab validate）
+    "pyyaml>=6", # 解析/校验实验 config.yaml（forge validate）
 ]
 
 [project.optional-dependencies]
@@ -18,8 +18,8 @@ dependencies = [
 dev = ["pytest>=8", "ruff>=0.5", "pyyaml>=6", "fastapi>=0.110", "httpx>=0.27"]
 
 [project.scripts]
-# 安装后提供 `lab` 命令；`uv run lab ...` 直接可用，仓库根的 ./lab 是它的薄 shim。
-lab = "nemo_rl_lab.cli:app"
+# 安装后提供 `lab` 命令；`uv run forge ...` 直接可用，仓库根的 ./lab 是它的薄 shim。
+forge = "starforge_cli.cli:app"
 
 [build-system]
 requires = ["hatchling"]
@@ -27,7 +27,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 # 只打包 CLI 包；common/ configs/ 等是运行期按路径访问的仓库数据，靠 editable 安装就地访问。
-packages = ["nemo_rl_lab"]
+packages = ["starforge_cli"]
 
 [[tool.uv.index]]
 name = "gcore-pypi"
@@ -38,10 +38,12 @@ default = true
 # 本地开发精确指向同版本 SDK；构建出的 CLI wheel 只保留 ==2.1.0 元数据，
 # 干净环境从上面的 Nexus 索引解析，不依赖 Git 分支。
 [tool.uv.sources]
-nemo-lab-sdk = { path = "../nemo-rl-console/sdk", editable = true }
+# 本地开发路径：console 仓 checkout 目录名可能是 starforge-console（新）或
+# nemo-rl-console（旧 clone），按你的实际目录调整。
+starforge-sdk = { path = "../nemo-rl-console/sdk", editable = true }
 
 [tool.pytest.ini_options]
-# 让测试能 import 仓库根的 common / nemo_rl_lab（无需安装 common 包）。
+# 让测试能 import 仓库根的 common / starforge_cli（无需安装 common 包）。
 pythonpath = ["."]
 testpaths = ["tests"]
 

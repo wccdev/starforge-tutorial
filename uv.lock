@@ -835,7 +835,7 @@ wheels = [
 ]
 
 [[package]]
-name = "nemo-lab-sdk"
+name = "starforge-sdk"
 version = "2.1.0"
 source = { editable = "../nemo-rl-console/sdk" }
 dependencies = [
@@ -853,12 +853,12 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
-name = "nemo-rl-lab"
+name = "starforge"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "datasets" },
-    { name = "nemo-lab-sdk" },
+    { name = "starforge-sdk" },
     { name = "pyyaml" },
     { name = "typer" },
 ]
@@ -873,7 +873,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "datasets", specifier = ">=2.18" },
-    { name = "nemo-lab-sdk", editable = "../nemo-rl-console/sdk" },
+    { name = "starforge-sdk", editable = "../nemo-rl-console/sdk" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "pyyaml", specifier = ">=6" },
     { name = "pyyaml", marker = "extra == 'dev'", specifier = ">=6" },

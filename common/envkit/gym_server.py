@@ -50,7 +50,7 @@ def create_gym_app(adapter: GymEnvAdapter, *, max_sessions: int = 10000):
     from fastapi import FastAPI, HTTPException
     from pydantic import BaseModel
 
-    app = FastAPI(title=f"nemo-lab gym server · {adapter.name}")
+    app = FastAPI(title=f"starforge gym server · {adapter.name}")
     sessions: dict[str, _Session] = {}
 
     class SeedBody(BaseModel):
