@@ -1,0 +1,12 @@
+# 模型片段：qwen3.5-4b
+# 作为实验「多继承」的一项，覆盖基底里的模型相关字段。本身不含 defaults，是个 partial。
+# 用法（实验 config.yaml）：
+#   defaults:
+#     - ../../configs/base/grpo_math_1B.yaml
+#     - ../../configs/models/qwen3.5-4b.yaml
+policy:
+  model_name: "Qwen/Qwen3.5-4B"
+  tokenizer:
+    name: "Qwen/Qwen3.5-4B"
+  # 该模型常用的默认值可放这里（实验仍可再覆盖）
+  # max_total_sequence_length: 4096

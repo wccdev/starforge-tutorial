@@ -28,8 +28,8 @@ def _payload(spec, **recipe_overrides):
         json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     return {
-        "apiVersion": "lab/recipe-catalog/v2",
-        "contract": {"versions": ["lab/v2"]},
+        "apiVersion": "forge/recipe-catalog/v2",
+        "contract": {"versions": ["forge/v2"]},
         "sdk": {"version": "2.1.0", "requirement": ">=2.1,<3"},
         "catalog_digest": f"sha256:{digest}",
         "recipes": [item],
@@ -72,7 +72,7 @@ def test_catalog_handshake_accepts_compatible_sdk_range():
 def test_catalog_handshake_still_accepts_legacy_v1_exact_match():
     spec = _spec()
     payload = _payload(spec)
-    payload["apiVersion"] = "lab/recipe-catalog/v1"
+    payload["apiVersion"] = "forge/recipe-catalog/v1"
     payload["sdk"] = {"version": "2.1.0", "requirement": "==2.1.0"}
     verify_catalog_compatibility(spec, payload)
 

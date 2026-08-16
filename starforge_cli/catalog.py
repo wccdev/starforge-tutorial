@@ -16,7 +16,7 @@ class CatalogCompatibilityError(ValueError):
     """CLI、Console 与 recipe catalog 不是同一份精确契约。"""
 
 
-_CATALOG_VERSIONS = ("lab/recipe-catalog/v1", "lab/recipe-catalog/v2")
+_CATALOG_VERSIONS = ("forge/recipe-catalog/v1", "forge/recipe-catalog/v2")
 
 
 def verify_catalog_compatibility(spec, payload: dict) -> None:
@@ -98,7 +98,7 @@ def verify_catalog_compatibility(spec, payload: dict) -> None:
 def _verify_sdk_handshake(server_sdk: dict, cli_version: str, *, api_version: str) -> None:
     server_version = str(server_sdk.get("version") or "").strip()
     requirement = str(server_sdk.get("requirement") or "").strip()
-    if api_version == "lab/recipe-catalog/v1":
+    if api_version == "forge/recipe-catalog/v1":
         if server_version != cli_version or requirement != f"=={cli_version}":
             raise CatalogCompatibilityError(
                 f"SDK 版本不兼容：server={server_sdk!r}, cli=={cli_version}"

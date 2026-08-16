@@ -49,7 +49,7 @@ lab prepare gsm8k                              # 写到 datasets/gsm8k/{train,va
 
 ```bash
 # 提交到集群（经中心化服务）
-forge submit grpo_qwen3.5-4b_gsm8k_v1
+sf submit grpo_qwen3.5-4b_gsm8k_v1
 lab logs                          # 跟随最近一个作业日志
 ```
 

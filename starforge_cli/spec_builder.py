@@ -140,7 +140,7 @@ def materialize_pools(
     多条目是异构多池扩展位：每条必须带 role= 前缀，池名即角色名。
     """
     if not exprs:
-        raise SpecError("至少需要一个 --profile（`forge status` 查看可用值）")
+        raise SpecError("至少需要一个 --profile（`sf status` 查看可用值）")
     parsed = [parse_profile_expr(e) for e in exprs]
 
     known = "、".join(sorted(registry)) or "（注册表为空）"
@@ -250,7 +250,7 @@ def build_spec(
         if ref.strip() and ("/" not in ds_id or len([s for s in ds_id.split("/") if s]) != 2):
             raise SpecError(
                 f"{flag} 必须是 <owner>/<name>[@version]（如 alice/gsm8k@v1），收到 {ref!r}；"
-                "用 `forge dataset ls` 查看完整 ID"
+                "用 `sf dataset ls` 查看完整 ID"
             )
 
     hyperparams = parse_set(sets or [])
@@ -352,7 +352,7 @@ def build_spec(
 def infer_recipe(exp_path: Path) -> str:
     """从实验目录读取显式 recipe：`recipe.lock.json` 的 recipe.name 是唯一事实源。
 
-    锁文件本来就是实验必备（`forge new` 生成、提交前校验 digest），recipe 名与版本
+    锁文件本来就是实验必备（`sf new` 生成、提交前校验 digest），recipe 名与版本
     都在里面，不再要求单独的 method 标注文件；旧实验遗留的 `method` 文件作为
     兼容回退仍可读。读不到返回空串，由调用方明确报错；不按其他文件的存在性推断。
     """

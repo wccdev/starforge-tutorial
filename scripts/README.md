@@ -1,14 +1,14 @@
 # scripts/ — 通用脚本
 
-作业提交统一走中心化服务：`forge login` 接入后 `forge submit <exp>`，由服务端打包上传并在集群代理执行。
+作业提交统一走中心化服务：`sf login` 接入后 `sf submit <exp>`，由服务端打包上传并在集群代理执行。
 本目录下的脚本只负责「在集群侧执行」或「本地工具」，不再有从本机直连 Ray 的提交脚本。
 
 - `launch.sh` — 集群侧薄入口：只加载受信密钥/profile 环境，然后进入 SDK launcher。
   训练命令由版本化 recipe 选择 `nemo-rl`、`verl` 或显式 `custom` adapter 编译；
   不读取 `FRAMEWORK` 环境变量或实验目录 `framework` 文件，也不存在 adapter 回退。
-  **它是唯一会随作业上传到集群的脚本**（`forge submit` 清单式打包）。
+  **它是唯一会随作业上传到集群的脚本**（`sf submit` 清单式打包）。
 
-> 新建实验用 `forge new`；模型权重入内网属于运维操作，直接调下面的下载脚本
+> 新建实验用 `sf new`；模型权重入内网属于运维操作，直接调下面的下载脚本
 > （不再提供 `lab model` 包装——CLI 只保留作业契约相关的命令面）。
 - `prefetch_hf_model.sh` — **在集群容器内**预下载 HF 模型到 `HF_HOME`（避免训练时连不上 hf-mirror.com）
   ```bash

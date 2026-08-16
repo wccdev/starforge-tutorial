@@ -155,6 +155,7 @@ def test_format_user_label_with_email():
 # --------------------------- 命令面契约 ---------------------------
 # 精简后的完整顶层命令面；新增/复活命令必须先过这条测试（防止 CLI 再度膨胀）。
 EXPECTED_COMMANDS = {
+    "init",  # pip 化后的项目脚手架：sf init 创建微调项目
     "login", "logout",
     "ls", "new", "methods", "validate",
     "submit", "sweep", "bench", "export", "eval", "clean",

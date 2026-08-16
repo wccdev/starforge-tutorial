@@ -40,7 +40,7 @@ def _print_inspection(item: LockInspection) -> None:
     for diff in item.diffs:
         typer.echo(f"  - {diff.field}: {diff.locked or '∅'} → {diff.current or '∅'}")
     if not item.is_current:
-        typer.echo(f"  hint: forge recipe upgrade {_rel(item.path)}")
+        typer.echo(f"  hint: sf recipe upgrade {_rel(item.path)}")
 
 
 def _config_errors(exp_dir: Path, recipe) -> list[str]:

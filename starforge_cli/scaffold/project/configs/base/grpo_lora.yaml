@@ -1,0 +1,30 @@
+# LoRA / PEFT overlay（Megatron 后端）——实测在低显存机型上让 9B GRPO 能跑起来。
+# 用法：在实验 defaults 里放在 grpo_megatron.yaml「之后」。删掉这一行即回到全参数微调。
+#   defaults:
+#     - ../../configs/base/grpo_math_1B.yaml
+#     - ../../configs/models/qwen3.5-9b.yaml
+#     - ../../configs/base/grpo_megatron.yaml   # Megatron 后端 + 低显存调优
+#     - ../../configs/base/grpo_lora.yaml       # ← LoRA（删此行即全参数）
+#
+# 要点（来自跑通的 grpo_math_9B_megatron）：
+#   - LoRA 学习率比全参数高 1~2 个量级（这里 1e-4；4B 实测用 2e-4）
+#   - weight_decay=0，cosine 衰减，warmup 比全参数多
+#   - target_modules 用 Megatron 的命名（linear_qkv/linear_proj/linear_fc1/linear_fc2）
+policy:
+  megatron_cfg:
+    peft:
+      enabled: true
+      target_modules: ["linear_qkv", "linear_proj", "linear_fc1", "linear_fc2"]
+      exclude_modules: []
+      dim: 8
+      alpha: 16
+      dropout: 0.0
+      lora_dtype: "bfloat16"
+    optimizer:
+      lr: 1.0e-4
+      min_lr: 1.0e-5
+      weight_decay: 0.0
+    scheduler:
+      lr_decay_style: "cosine"
+      lr_warmup_iters: 50
+      lr_decay_iters: 1000

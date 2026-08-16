@@ -131,8 +131,8 @@ def test_device_login_polls_until_token(isolated_lab, monkeypatch):
             return 200, {
                 "device_code": "dc",
                 "user_code": "ABCD-1234",
-                "verification_uri": "http://lab/cli/device",
-                "verification_uri_complete": "http://lab/cli/device?user_code=ABCD-1234",
+                "verification_uri": "http://forge/cli/device",
+                "verification_uri_complete": "http://forge/cli/device?user_code=ABCD-1234",
                 "expires_in": 60,
                 "interval": 0,
             }

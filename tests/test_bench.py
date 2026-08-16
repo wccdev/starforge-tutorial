@@ -1,4 +1,4 @@
-"""forge bench：模型引用解析与评测提交参数翻译。"""
+"""sf bench：模型引用解析与评测提交参数翻译。"""
 from __future__ import annotations
 
 import io

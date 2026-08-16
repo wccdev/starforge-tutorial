@@ -77,7 +77,7 @@ def _is_sensitive(rel: str) -> bool:
 
 # 集群 Linux 侧会 source/读取；Windows 工作区可能是 CRLF，上传前须规范为 LF。
 _UNIX_LF_SUFFIXES = (".sh", ".conf")
-_UNIX_LF_BASENAMES = frozenset({"lab"})
+_UNIX_LF_BASENAMES = frozenset({"sf", "lab"})
 
 
 def _needs_unix_lf(rel: str) -> bool:
@@ -178,4 +178,29 @@ def pack_working_dir(repo_root: Path, files: list[str], on_add=None) -> bytes:
                 tar.add(p, arcname=arcname)
             if on_add:
                 on_add(1)
+        _inject_launch_script(tar, files)
     return buf.getvalue()
+
+
+def _inject_launch_script(tar, files: list[str]) -> None:
+    """把平台契约入口 scripts/launch.sh 从 CLI 包资源注入作业包。
+
+    launch.sh 是「集群侧怎么启动」的平台契约，不属于用户项目内容——由 CLI
+    打包时注入（单一事实来源），pip install -U starforge-cli 即自动携带新契约。
+    项目里若显式存在同名文件（清单已含）则尊重项目版本，不重复注入。
+    """
+    import io as _io
+    import tarfile as _tarfile
+
+    if "scripts/launch.sh" in files:
+        return
+    from starforge_cli.project import launch_script
+
+    src = launch_script()
+    if not src.is_file():
+        cli_ui.fail(f"CLI 包资源缺少 launch.sh：{src}（安装损坏，请重装 starforge-cli）")
+    data = _normalize_unix_lf(src.read_bytes())
+    info = _tarfile.TarInfo(name="scripts/launch.sh")
+    info.size = len(data)
+    info.mode = 0o755
+    tar.addfile(info, _io.BytesIO(data))

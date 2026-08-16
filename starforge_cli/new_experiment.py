@@ -1,4 +1,4 @@
-"""跨平台新建 / fork 实验（唯一入口：forge new，macOS / Linux / Windows 共用）。"""
+"""跨平台新建 / fork 实验（唯一入口：sf new，macOS / Linux / Windows 共用）。"""
 from __future__ import annotations
 
 import re
@@ -104,13 +104,13 @@ def _fork_experiment(repo_root: Path, kind: str, name: str, src: str) -> None:
         shutil.rmtree(dest, ignore_errors=True)
         raise NewExperimentError(
             f"fork 后无法升级到当前 recipe：{exc}。"
-            f"先对来源执行 `forge recipe upgrade {src_dir.name}`"
+            f"先对来源执行 `sf recipe upgrade {src_dir.name}`"
         ) from exc
 
     print(f"已 fork 实验: {dest}（来源: {src}）")
     print(f"  · config.yaml 的 swanlab project/name 与 README 标题已改为: {name}")
     print(f"下一步: 改 {dest}/config.yaml 顶部【① 调参区】试你的超参，"
-          f"然后 forge submit {name} --profile <目标集群>")
+          f"然后 sf submit {name} --profile <目标集群>")
 
 
 def _create_from_template(
@@ -134,7 +134,10 @@ def _create_from_template(
     except SpecError as exc:
         # get_recipe 的报错已列出可用值，并对无前缀裸名给出两段式提示。
         raise NewExperimentError(f"--method 非法: {exc}") from exc
-    template = repo_root / "templates" / "experiment-template"
+    # 实验模板随 CLI 包分发（starforge_cli/scaffold/），不依赖项目内容。
+    from starforge_cli.project import experiment_template
+
+    template = experiment_template()
     if not template.is_dir():
         raise NewExperimentError(f"缺少模板目录: {template}")
 
@@ -164,7 +167,7 @@ def _create_from_template(
     print("下一步:")
     print(f"  1. 编辑 {dest}/README.md（目标 / 模型 / 数据 / 监控）")
     print(f"  2. 按 {recipe.id} recipe 编辑模板文件")
-    print(f"  3. 用 forge submit {name} --profile <目标集群>[:总卡数] 提交（如 h200 / h200:4）")
+    print(f"  3. 用 sf submit {name} --profile <目标集群>[:总卡数] 提交（如 h200 / h200:4）")
 
 
 def create_experiment(

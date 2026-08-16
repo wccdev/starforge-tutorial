@@ -29,7 +29,7 @@ def _bearer_request(server: str, method: str, path: str, *, data=None,
     """带 token 的请求；返回 urlopen 的响应对象（调用方负责读取/关闭）。"""
     token = get_access_token(server)
     if not token:
-        cli_ui.fail(MSG_NOT_LOGGED_IN, hint="运行 forge login 登录")
+        cli_ui.fail(MSG_NOT_LOGGED_IN, hint="运行 sf login 登录")
     h = {"Authorization": f"Bearer {token}"}
     if headers:
         h.update(headers)
@@ -101,7 +101,7 @@ def _admin_call(method: str, path: str, *, body: Optional[dict] = None) -> dict:
     srv = current_server()
     token = get_access_token(srv)
     if not token:
-        cli_ui.fail(MSG_NOT_LOGGED_IN, hint="运行 forge login 登录")
+        cli_ui.fail(MSG_NOT_LOGGED_IN, hint="运行 sf login 登录")
     try:
         return _api(srv, method, path, token=token, body=body)
     except urllib.error.HTTPError as e:
@@ -162,7 +162,7 @@ def _upload_and_submit(srv: str, path: str, meta: dict, repo_root: Path, *,
     )
     headers = {
         "Content-Type": "application/gzip",
-        "X-Lab-Meta": json.dumps(meta, ensure_ascii=False),
+        "X-Forge-Meta": json.dumps(meta, ensure_ascii=False),
         "Content-Length": str(len(blob)),
     }
     if reporter:
@@ -189,13 +189,13 @@ def submit_via_server(exp_rel: str, profile: str, repo_root: Path,
                       reporter=None, spec=None, extra_meta: Optional[dict] = None) -> dict:
     """server 模式提交：清单式打包上传 + 服务端注入密钥后代理提交。
 
-    spec：必填的 lab/v2 JobSpec；profile：必填（--profile 或旧实验遗留 cluster 标注解析而来）。
+    spec：必填的 forge/v2 JobSpec；profile：必填（--profile 或旧实验遗留 cluster 标注解析而来）。
     extra_meta：附加的 client_meta 键（如 sweep_id/sweep_params），不得覆盖平台保留键。
     上传前先与 Console 做精确 catalog 握手，握手不过一个字节都不上传。
     返回值附带 upload_files / upload_skipped / upload_bytes 便于 CLI 展示。
     """
     if spec is None:
-        raise ValueError("提交必须携带 lab/v2 JobSpec")
+        raise ValueError("提交必须携带 forge/v2 JobSpec")
     if not profile:
         raise ValueError("提交必须携带显式硬件 profile")
     srv = current_server(server)
@@ -220,9 +220,9 @@ def submit_via_server(exp_rel: str, profile: str, repo_root: Path,
 def submit_post_via_server(action: str, exp_rel: str, profile: str, flags: list[str],
                            repo_root: Path, server: Optional[str] = None, reporter=None,
                            spec=None) -> dict:
-    """server 模式训练后闭环：与训练共用 lab/v2 launcher 与 catalog 握手。"""
+    """server 模式训练后闭环：与训练共用 forge/v2 launcher 与 catalog 握手。"""
     if spec is None:
-        raise ValueError("训练后作业必须携带 lab/v2 JobSpec")
+        raise ValueError("训练后作业必须携带 forge/v2 JobSpec")
     if not profile:
         raise ValueError("训练后作业必须携带显式硬件 profile")
     srv = current_server(server)
@@ -264,7 +264,7 @@ def whoami_via_server(server: Optional[str] = None) -> dict:
     srv = current_server(server)
     token = get_access_token(srv)
     if not token:
-        cli_ui.fail(MSG_NOT_LOGGED_IN, hint="运行 forge login 登录")
+        cli_ui.fail(MSG_NOT_LOGGED_IN, hint="运行 sf login 登录")
     try:
         return _api(srv, "GET", "/api/whoami", token=token)
     except urllib.error.HTTPError as e:

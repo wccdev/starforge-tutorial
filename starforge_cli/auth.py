@@ -1,7 +1,7 @@
 """登录 / 凭据 / 命令门控（客户端核心，不含任何业务 API）。
 
 仅用标准库（http.server / urllib / webbrowser）+ typer，不依赖 web extra，
-保证未装 fastapi 的纯客户端也能 `forge login`。
+保证未装 fastapi 的纯客户端也能 `sf login`。
 
 本地状态：
   ~/.forge/config.json       {"server": "https://starforge.gcoreinc.com"}
@@ -29,10 +29,10 @@ import typer
 
 from starforge_cli import cli_ui
 
-# 官方中心化 Lab 服务（forge login 默认；未配置时 CLI 亦指向此地址）
+# 官方中心化 Lab 服务（sf login 默认；未配置时 CLI 亦指向此地址）
 DEFAULT_FORGE_SERVER = "https://starforge.gcoreinc.com"
 
-MSG_NOT_LOGGED_IN = "请先运行 forge login"
+MSG_NOT_LOGGED_IN = "请先运行 sf login"
 
 FORGE_DIR = Path(os.environ.get("FORGE_HOME") or (Path.home() / ".forge"))
 CONFIG_PATH = FORGE_DIR / "config.json"
@@ -57,7 +57,7 @@ def _read_json(path: Path) -> dict:
     except json.JSONDecodeError:
         cli_ui.fail(
             f"本地状态文件损坏（非法 JSON）: {path}",
-            hint=f"删除该文件后重新 forge login：rm {path}",
+            hint=f"删除该文件后重新 sf login：rm {path}",
         )
 
 
@@ -187,7 +187,7 @@ def gate() -> None:
     """集群类命令执行前的登录门槛：未登录直接报错，不隐式发起登录流程。"""
     server = current_server()
     if not get_access_token(server):
-        cli_ui.fail(MSG_NOT_LOGGED_IN, hint="运行 forge login 登录")
+        cli_ui.fail(MSG_NOT_LOGGED_IN, hint="运行 sf login 登录")
 
 
 # ----------------------------- 环境检测 / 设备码登录 -----------------------------
@@ -286,7 +286,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(
             "<html><body style='font-family:sans-serif;text-align:center;margin-top:80px'>"
-            "<h2>授权失败</h2><p>请关闭此页面并在终端重试 forge login。</p>"
+            "<h2>授权失败</h2><p>请关闭此页面并在终端重试 sf login。</p>"
             "</body></html>".encode()
         )
 

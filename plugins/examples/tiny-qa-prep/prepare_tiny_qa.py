@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 """教程示例：生成一份极小的合成加法 QA 数据集（jsonl），用于流程冒烟。
 
-data-prep 插件不写 entrypoint：安装到 lab_plugins/<name>/ 后，CLI 按
-prepare_<数据集名>.py 的文件名约定发现（本文件 → `forge dataset prepare tiny_qa`），
+data-prep 插件不写 entrypoint：安装到 forge_plugins/<name>/ 后，CLI 按
+prepare_<数据集名>.py 的文件名约定发现（本文件 → `sf dataset prepare tiny_qa`），
 本行 docstring 的第一行会作为数据集的一句话说明展示在 CLI 列表里。
 
 用法：
-    forge dataset prepare tiny_qa            # 写到 <repo>/datasets/tiny_qa/
-    forge dataset prepare tiny_qa --out /abs/dir --n 200
+    sf dataset prepare tiny_qa            # 写到 <repo>/datasets/tiny_qa/
+    sf dataset prepare tiny_qa --out /abs/dir --n 200
 """
 import json
 import os

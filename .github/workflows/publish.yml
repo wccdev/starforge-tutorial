@@ -1,0 +1,55 @@
+# 把 starforge-cli 发到 PyPI。触发：推送 v* 标签。
+#
+# 前置：starforge-sdk==<本仓锁定版本> 必须已经在同一索引上（PyPI 或私有 Nexus），
+# 否则用户 pip install starforge-cli 会解析失败。
+#
+# Secrets：
+#   PYPI_TOKEN          — PyPI API token（__token__）
+#   NEXUS_PYPI_URL      — 可选，同时发到私有索引
+#   NEXUS_PYPI_USERNAME / NEXUS_PYPI_PASSWORD
+name: Publish
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        run: uv python install 3.10
+
+      - name: Build sdist + wheel
+        run: uv build
+
+      - name: 校验 wheel 含 scaffold / launch.sh
+        run: |
+          python - <<'PY'
+          import zipfile
+          from pathlib import Path
+          wheels = list(Path("dist").glob("*.whl"))
+          assert len(wheels) == 1, wheels
+          names = zipfile.ZipFile(wheels[0]).namelist()
+          required = (
+              "starforge_cli/scaffold/launch.sh",
+              "starforge_cli/scaffold/experiment-template/config.yaml",
+              "starforge_cli/scaffold/project/configs/base/sft.yaml",
+              "starforge_cli/scaffold/project/gitignore",
+          )
+          missing = [r for r in required if not any(n.endswith(r) for n in names)]
+          assert not missing, f"wheel 缺少脚手架资源: {missing}"
+          print("ok", wheels[0].name, "files", len(names))
+          PY
+
+      - name: Publish to PyPI
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
+        run: uv publish --token "$UV_PUBLISH_TOKEN"

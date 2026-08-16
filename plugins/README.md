@@ -27,7 +27,7 @@ name: my-plugin           # 叶子名（字母数字开头，仅含字母/数字
 version: 0.1.0            # 不可变：改了内容必须换版本号，同版本重发会被 409 拒绝
 kind: algorithm           # algorithm | data-prep
 load: eager               # 仅 algorithm：eager | deferred（见下）
-summary: 一句话说明        # 显示在 Web 插件中心与 forge plugin ls
+summary: 一句话说明        # 显示在 Web 插件中心与 sf plugin ls
 entrypoint: my_module:install   # 仅 algorithm：模块路径相对包根
 requires:
   sdk: ">=2.1,<3"         # PEP 440；装载前校验，不满足直接拒跑
@@ -35,7 +35,7 @@ requires:
 
 ## 类型一：algorithm（算法补丁，跑在训练容器里）
 
-作业提交时平台把插件包注入到作业目录 `lab_plugins/<name>/`，launcher 校验
+作业提交时平台把插件包注入到作业目录 `forge_plugins/<name>/`，launcher 校验
 digest 后按 manifest 装载。入口签名固定：
 
 ```python
@@ -59,12 +59,12 @@ monkey-patch 框架行为 —— 完整可跑的样板见 [`examples/rloo/`](exa
 
 ## 类型二：data-prep（数据预处理脚本，跑在你本机）
 
-不需要 entrypoint。安装到仓库 `lab_plugins/<name>/` 后，CLI 按文件名约定
+不需要 entrypoint。安装到仓库 `forge_plugins/<name>/` 后，CLI 按文件名约定
 `prepare_<数据集名>.py` 自动发现：
 
 ```
-forge dataset prepare              # 列出所有可用数据集（内置 + 插件）
-forge dataset prepare tiny_qa      # 执行 lab_plugins/*/prepare_tiny_qa.py
+sf dataset prepare              # 列出所有可用数据集（内置 + 插件）
+sf dataset prepare tiny_qa      # 执行 forge_plugins/*/prepare_tiny_qa.py
 ```
 
 脚本首行 docstring 作为一句话说明展示在列表里；同名时仓库内置（`common/data/`）
@@ -74,17 +74,17 @@ forge dataset prepare tiny_qa      # 执行 lab_plugins/*/prepare_tiny_qa.py
 
 ```bash
 # 1. 发布（打包目录上传，平台解包校验 manifest、算内容 digest 盖章）
-forge plugin publish plugins/examples/rloo
+sf plugin publish plugins/examples/rloo
 
 # 2. 查看货架
-forge plugin ls
-forge plugin info <owner>/rloo
+sf plugin ls
+sf plugin info <owner>/rloo
 
-# 3. 安装：下载到本地 lab_plugins/，并锁定到实验（写 plugins.lock.json）
-forge plugin install <owner>/rloo --exp experiments/my-exp
+# 3. 安装：下载到本地 forge_plugins/，并锁定到实验（写 plugins.lock.json）
+sf plugin install <owner>/rloo --exp experiments/my-exp
 
 # 4. 正常提交；提交时平台按锁文件校验并注入，launcher 装载前再验一次 digest
-forge submit experiments/my-exp
+sf submit experiments/my-exp
 ```
 
 digest 是插件目录内容的 sha256（`__pycache__`/`.pyc` 等不参与），在发布、提交、

@@ -30,7 +30,7 @@ def new(
     ),
     method: str = typer.Option(
         "nemo-rl/grpo", "--method", "-m", autocompletion=common.complete_method,
-        help="方法标识 <framework>/<method>；默认 nemo-rl/grpo，`forge methods` 查看全部",
+        help="方法标识 <framework>/<method>；默认 nemo-rl/grpo，`sf methods` 查看全部",
     ),
     framework_version: Optional[str] = typer.Option(
         None,
@@ -172,7 +172,7 @@ def methods(
                 f" · 支持 {', '.join(r.runtime.supported_versions)}"
             )
             typer.echo(f"{'':22s} {r.summary.strip()}")
-        typer.echo("\n用 `forge methods <方法名>` 看它的可调超参。")
+        typer.echo("\n用 `sf methods <方法名>` 看它的可调超参。")
         return
 
     try:

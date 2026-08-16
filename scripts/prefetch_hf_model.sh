@@ -2,7 +2,7 @@
 # 在【集群容器内】预下载 HuggingFace 模型到 HF_HOME，避免训练时在线拉取失败。
 #
 # 典型原因：设了 HF_ENDPOINT=hf-mirror.com，但容器连不上 mirror；
-# 或集群无外网。解决：unset 镜像，在容器里先跑本脚本，再 forge submit。
+# 或集群无外网。解决：unset 镜像，在容器里先跑本脚本，再 sf submit。
 #
 # 用法（在 NeMo-RL 容器内，先导出所需环境变量）：
 #   export HF_TOKEN=...   HF_HOME=/path/to/hf_cache

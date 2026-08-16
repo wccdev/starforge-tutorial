@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# starforge-cli 源码仓薄入口：委托给本仓环境里的 sf 命令（= uv run sf）。
+# 普通用户不需要这个文件：pip install starforge-cli 后直接用 sf。
+exec uv run --project "$(cd "$(dirname "$0")" && pwd)" sf "$@"

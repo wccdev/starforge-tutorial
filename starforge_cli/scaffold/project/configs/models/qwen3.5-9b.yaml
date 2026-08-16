@@ -1,0 +1,10 @@
+# 模型片段：qwen3.5-9b
+# 作为实验「多继承」的一项，覆盖基底里的模型相关字段。本身不含 defaults，是个 partial。
+# 注：你实测 GRPO 用的是 base 模型 "Qwen/Qwen3.5-9B-Base"；如需从 base 起强化训练，改下面 model_name。
+policy:
+  model_name: "Qwen/Qwen3.5-9B"
+  tokenizer:
+    name: "Qwen/Qwen3.5-9B"
+  # 9B 低显存策略（实测）：
+  logprob_chunk_size: 256              # 分块算 logprob，省显存
+  offload_optimizer_for_logprob: true # 非 colocated 生成时把优化器 offload 到 CPU（colocated 下为 no-op）

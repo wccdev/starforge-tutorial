@@ -34,14 +34,14 @@ def _summary(script: Path) -> str:
 
 
 def default_dirs() -> list[Path]:
-    """扫描目录：仓库内置的 common/data + 已安装插件（lab_plugins/<name>/）。
+    """扫描目录：仓库内置的 common/data + 已安装插件（forge_plugins/<name>/）。
 
     内置目录在前：同名脚本内置优先，插件不能悄悄替换内置数据集的语义。
     """
     from starforge_cli.commands.common import ROOT
 
     dirs = [ROOT / "common" / "data"]
-    plugins_root = ROOT / "lab_plugins"
+    plugins_root = ROOT / "forge_plugins"
     if plugins_root.is_dir():
         dirs += sorted(p for p in plugins_root.iterdir() if p.is_dir())
     return dirs

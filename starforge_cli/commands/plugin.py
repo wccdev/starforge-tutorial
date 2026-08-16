@@ -3,9 +3,9 @@
 插件是平台托管、digest 锁定的扩展包（algorithm 算法补丁 / data-prep 数据脚本）。
 代码只在用户自己的作业容器（或本机）执行，控制平面只存储与分发。
 
-    forge plugin publish ./my-plugin          # 发布（名字版本以 plugin.yaml 为准）
-    forge plugin install alice/myalgo --exp x # 下载到本地 + 写实验锁文件
-    forge submit x ...                        # 锁文件里的引用随 JobSpec 提交
+    sf plugin publish ./my-plugin          # 发布（名字版本以 plugin.yaml 为准）
+    sf plugin install alice/myalgo --exp x # 下载到本地 + 写实验锁文件
+    sf submit x ...                        # 锁文件里的引用随 JobSpec 提交
 """
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ plugin_app = typer.Typer(
 )
 
 #: 本地安装目录（仓库根下）。data-prep 插件的 prepare_*.py 从这里被发现。
-LOCAL_PLUGINS_DIR = "lab_plugins"
+LOCAL_PLUGINS_DIR = "forge_plugins"
 
 
 def _split_ref(ref: str) -> tuple[str, str, str]:
@@ -39,7 +39,7 @@ def _split_ref(ref: str) -> tuple[str, str, str]:
     if not owner or not name or "/" in name:
         cli_ui.fail(
             f"插件 ID 必须是 <owner>/<name>[@version]，收到 {ref!r}",
-            hint="用 `forge plugin ls` 查看完整 ID",
+            hint="用 `sf plugin ls` 查看完整 ID",
         )
     return owner, name, version
 
@@ -49,7 +49,7 @@ def plugin_ls() -> None:
     gate()
     rows = api_client.api_get("/api/plugins")["plugins"]
     if not rows:
-        typer.echo("（还没有插件；`forge plugin publish <目录>` 发布一个）")
+        typer.echo("（还没有插件；`sf plugin publish <目录>` 发布一个）")
         return
     for p in rows:
         state = "" if p["enabled"] else "  [已禁用]"
@@ -130,12 +130,12 @@ def plugin_publish(
         fg=typer.colors.GREEN,
     )
     typer.echo(f"  digest: {row['digest']}")
-    typer.echo(f"  实验里使用：forge plugin install {row['id']}@{row['version']} --exp <实验>")
+    typer.echo(f"  实验里使用：sf plugin install {row['id']}@{row['version']} --exp <实验>")
 
 
 @plugin_app.command(
     "install",
-    help="安装插件：下载到本地 lab_plugins/，并（可选）锁定到实验的 plugins.lock.json",
+    help="安装插件：下载到本地 forge_plugins/，并（可选）锁定到实验的 plugins.lock.json",
 )
 def plugin_install(
     ref: str = typer.Argument(..., help="插件 ID：<owner>/<name>[@version]，缺省最新版"),
@@ -179,10 +179,10 @@ def plugin_install(
     )
 
     if meta["kind"] == "data-prep":
-        typer.echo("  数据脚本已可用：forge dataset prepare 会自动发现其中的 prepare_*.py")
+        typer.echo("  数据脚本已可用：sf dataset prepare 会自动发现其中的 prepare_*.py")
     if not exp:
         if meta["kind"] == "algorithm":
-            typer.echo(f"  提交训练时使用：forge plugin install {meta['id']}@{meta['version']} --exp <实验>")
+            typer.echo(f"  提交训练时使用：sf plugin install {meta['id']}@{meta['version']} --exp <实验>")
         return
 
     from starforge_cli.plugins_lock import LOCK_FILE, upsert_plugin_lock

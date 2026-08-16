@@ -31,16 +31,26 @@ jobs:
       - name: Pytest
         run: uv run --extra dev pytest -q
 
-      - name: lab CLI smoke
+      - name: sf CLI smoke
         run: |
-          uv run forge --help
-          uv run forge ls
-          uv run forge validate grpo_qwen3.5-4b_gsm8k_v1
+          uv run sf --help
+          uv run sf ls
+          uv run sf validate grpo_qwen3.5-4b_gsm8k_v1
 
-      - name: lab.cmd smoke (Windows)
-        if: runner.os == 'Windows'
-        shell: cmd
-        run: lab.cmd --help
+      - name: wheel 含脚手架资源
+        if: runner.os == 'Linux'
+        run: |
+          uv build
+          python - <<'PY'
+          import zipfile
+          from pathlib import Path
+          wheels = list(Path("dist").glob("*.whl"))
+          assert wheels, "uv build 没产出 wheel"
+          names = zipfile.ZipFile(wheels[0]).namelist()
+          assert any(n.endswith("starforge_cli/scaffold/launch.sh") for n in names), names
+          assert any("scaffold/project/configs/base/sft.yaml" in n for n in names), names
+          print("wheel scaffold ok:", wheels[0].name)
+          PY
 
   # 干净安装：忽略 tool.uv.sources 的本地 editable SDK，从 Nexus 解析 starforge-sdk==<锁定版本>，
   # 跑契约相关测试。目的：消灭「本机 editable SDK 与发布版漂移」——CLI 实际用户装到的
@@ -63,9 +73,9 @@ jobs:
         run: >
           uv run --no-sources --extra dev pytest -q
           tests/test_catalog_handshake.py tests/test_spec_builder.py
-          tests/test_cli.py tests/test_submit_pack.py
+          tests/test_cli.py tests/test_submit_pack.py tests/test_project.py
 
-      - name: lab CLI smoke (published SDK)
+      - name: sf CLI smoke (published SDK)
         run: |
-          uv run --no-sources lab --help
-          uv run --no-sources forge methods
+          uv run --no-sources sf --help
+          uv run --no-sources sf methods

@@ -29,8 +29,8 @@ config 只承载 GRPOConfig 超参。这正是 TRL 官方形态（框架没有�
 
 ```bash
 # 数据无需预处理：直接用与 nemo-rl 对照实验同源的题库 jsonl
-forge validate trl-grpo_qwen3.5-9b_qa-tools_v1
-forge submit trl-grpo_qwen3.5-9b_qa-tools_v1 \
+sf validate trl-grpo_qwen3.5-9b_qa-tools_v1
+sf submit trl-grpo_qwen3.5-9b_qa-tools_v1 \
     --model Qwen/Qwen3.5-9B \
     --train-data <集群路径>/datasets/qa_rl/train.jsonl \
     --validation-data <集群路径>/datasets/qa_rl/val.jsonl

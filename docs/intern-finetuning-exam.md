@@ -64,7 +64,7 @@
 在 GitHub 上 **Fork** 官方客户端仓库到你自己的账号：
 
 ```
-https://github.com/wccdev/starforge
+https://github.com/wccdev/starforge-cli
 ```
 
 Fork 后你在自己的仓库里创建实验、改代码、提交 commit。**考试期间的所有改动都在你的 Fork 里完成**，不要直接在官方仓库改。
@@ -82,7 +82,7 @@ uv sync
 CLI 调用方式（任选）：
 
 ```bash
-uv run forge ...      # 推荐
+uv run sf ...      # 推荐
 ./lab ...           # macOS / Linux
 ```
 
@@ -91,14 +91,14 @@ uv run forge ...      # 推荐
 **确保 VPN 已连接**：
 
 ```bash
-forge login --server https://starforge.gcoreinc.com
+sf login --server https://starforge.gcoreinc.com
 ```
 
-SSH / 无浏览器：`forge login --device-flow`
+SSH / 无浏览器：`sf login --device-flow`
 
 ```bash
-forge status    # 确认已登录、服务可达、配额
-forge status    # 查看 GPU 配额与活跃作业
+sf status    # 确认已登录、服务可达、配额
+sf status    # 查看 GPU 配额与活跃作业
 ```
 
 ---
@@ -139,8 +139,8 @@ forge status    # 查看 GPU 配额与活跃作业
 ### 4.4 创建你的实验
 
 ```bash
-forge ls
-forge new grpo_qwen3.5-9b_qa-rl-agent_<你的名字> --from agent-grpo_qwen3.5-9b_sliding-puzzle_v1
+sf ls
+sf new grpo_qwen3.5-9b_qa-rl-agent_<你的名字> --from agent-grpo_qwen3.5-9b_sliding-puzzle_v1
 ```
 
 在你的 Fork 里完成实验代码后，**push 到 GitHub**：
@@ -160,16 +160,16 @@ git push origin main
 ### 5.1 提交
 
 ```bash
-forge validate <你的实验名>    # 提交前校验 config
-forge submit <你的实验名>
+sf validate <你的实验名>    # 提交前校验 config
+sf submit <你的实验名>
 ```
 
 成功后会打印 **作业 ID**（如 `raysubmit_xxx`）。
 
 ```bash
-forge job logs [job_id]   # 查看日志
-forge job ls              # 作业列表
-forge job stop <job_id>   # 停止作业、释放 GPU
+sf job logs [job_id]   # 查看日志
+sf job ls              # 作业列表
+sf job stop <job_id>   # 停止作业、释放 GPU
 ```
 
 ### 5.2 控制台监控
@@ -180,7 +180,7 @@ forge job stop <job_id>   # 停止作业、释放 GPU
 - **验证样本**：查看模型检索与作答轨迹
 - **日志 / 系统 / 诊断**：排查失败与 OOM
 
-48 小时内可多次 submit 调参；及时 `forge job stop` 释放不用的作业。
+48 小时内可多次 submit 调参；及时 `sf job stop` 释放不用的作业。
 
 ---
 
@@ -209,22 +209,22 @@ forge job stop <job_id>   # 停止作业、释放 GPU
 | 问题 | 处理 |
 | --- | --- |
 | 打不开 starforge | 确认 VPN；切换张江双链路 |
-| `forge login` 无浏览器 | `forge login --device-flow` |
-| 配额不足 | `forge status`；`forge job stop` 释放卡 |
-| 作业 FAILED | 控制台看日志 / 诊断；`forge job logs <id> -n 0` |
+| `sf login` 无浏览器 | `sf login --device-flow` |
+| 配额不足 | `sf status`；`sf job stop` 释放卡 |
+| 作业 FAILED | 控制台看日志 / 诊断；`sf job logs <id> -n 0` |
 | validate 失败 | 按终端报错改 config |
 
 ---
 
 ## 八、操作流程 Checklist
 
-- [ ] GitHub Fork `wccdev/starforge`
+- [ ] GitHub Fork `wccdev/starforge-cli`
 - [ ] 克隆自己的 Fork，`uv sync`
 - [ ] 连 VPN，登录 [starforge.gcoreinc.com](https://starforge.gcoreinc.com/)
-- [ ] `forge login` + `forge status`
+- [ ] `sf login` + `sf status`
 - [ ] 研究两个示例实验，创建并实现自己的 QA 多轮检索实验
 - [ ] 代码 push 到 GitHub Fork
-- [ ] `forge validate` → `forge submit`
+- [ ] `sf validate` → `sf submit`
 - [ ] 监控曲线，迭代调参
 - [ ] 向 HR 提交：Fork 地址 + 作业 ID + 截图 + 简要说明
 
@@ -234,14 +234,14 @@ forge job stop <job_id>   # 停止作业、释放 GPU
 
 ```bash
 uv sync
-forge login --server https://starforge.gcoreinc.com
-forge status
-forge ls
-forge new <实验名> --from agent-grpo_qwen3.5-9b_sliding-puzzle_v1
-forge validate <实验名>
-forge submit <实验名>
-forge job logs [job_id]
-forge job stop <job_id>
+sf login --server https://starforge.gcoreinc.com
+sf status
+sf ls
+sf new <实验名> --from agent-grpo_qwen3.5-9b_sliding-puzzle_v1
+sf validate <实验名>
+sf submit <实验名>
+sf job logs [job_id]
+sf job stop <job_id>
 ```
 
 ---

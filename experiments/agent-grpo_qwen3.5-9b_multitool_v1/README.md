@@ -54,7 +54,7 @@ Agent / 自定义环境 / 多工具链路。
 ## 运行
 
 ```bash
-forge submit agent-grpo_qwen3.5-9b_multitool_v1
+sf submit agent-grpo_qwen3.5-9b_multitool_v1
 ```
 
 > ⚠️ `python` 工具会执行模型生成的代码，请只在隔离的 NeMo-RL 训练容器内运行。

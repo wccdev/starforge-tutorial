@@ -60,7 +60,7 @@ def status() -> None:
             f"（占用 {gpu.get('gpu_used', 0):g}）"
         )
         typer.echo(f"  活跃作业 : {cluster.get('active_count', 0)}")
-    typer.echo("\n查看日志：forge job logs [作业 ID]")
+    typer.echo("\n查看日志：sf job logs [作业 ID]")
 
 
 def _server_jobs_table(jobs: list[dict]) -> None:
@@ -94,7 +94,7 @@ def job_ls(
 
 @job_app.command("logs", help="跟随作业日志（省略作业 ID 则跟最近一个）")
 def job_logs(
-    job_id: Optional[str] = typer.Argument(None, help="作业 ID（见 forge job ls）；省略=最近一个"),
+    job_id: Optional[str] = typer.Argument(None, help="作业 ID（见 sf job ls）；省略=最近一个"),
     tail: Optional[int] = typer.Option(
         2000, "-n", "--tail", help="只回放最后 N 行历史日志再跟随（默认 2000；-n 0 看全量）"
     ),
@@ -102,7 +102,7 @@ def job_logs(
     gate()
     jid = job_id or api_client.latest_job_via_server()
     if not jid:
-        cli_ui.emit_warning("还没有作业", hint="运行 forge submit 提交训练")
+        cli_ui.emit_warning("还没有作业", hint="运行 sf submit 提交训练")
         raise typer.Exit(1)
     api_client.stream_logs_via_server(jid, tail=tail)
 
@@ -121,7 +121,7 @@ def job_status(
 
 @job_app.command("samples", help="查看某次验证的多轮对话轨迹（默认最近一次验证）")
 def job_samples(
-    job_id: str = typer.Argument(..., help="作业 ID（见 forge job ls）"),
+    job_id: str = typer.Argument(..., help="作业 ID（见 sf job ls）"),
     vidx: int = typer.Option(-1, "--vidx", help="验证轮次下标（默认 -1=最近一次）"),
     n: int = typer.Option(6, "-n", "--limit", help="显示样本条数"),
 ) -> None:
@@ -211,7 +211,7 @@ def job_clean() -> None:
 
 @job_app.command("stop-sweep", help="一键停止一个超参 sweep 的全部活跃作业")
 def job_stop_sweep(
-    sweep_id: str = typer.Argument(..., help="sweep 标识（forge sweep 提交时打印）"),
+    sweep_id: str = typer.Argument(..., help="sweep 标识（sf sweep 提交时打印）"),
     yes: bool = typer.Option(False, "-y", "--yes", help="跳过确认"),
 ) -> None:
     gate()

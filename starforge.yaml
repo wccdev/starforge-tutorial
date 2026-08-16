@@ -1,0 +1,7 @@
+# StarForge 项目标记：`sf` 命令以此发现项目根，勿删除。
+# 本仓库既是 starforge-cli 的源码仓，也是平台团队的 dogfood 项目
+# （experiments/ 下的示例实验、common/ 下的环境与奖励示例）。
+# 普通用户不需要 clone 本仓库：pip install starforge-cli && sf init <项目>。
+apiVersion: forge/project/v1
+name: starforge-dogfood
+created_by: starforge-cli dev

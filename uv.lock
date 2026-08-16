@@ -853,7 +853,7 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
-name = "starforge"
+name = "starforge-cli"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

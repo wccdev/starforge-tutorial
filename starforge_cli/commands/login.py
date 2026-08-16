@@ -27,7 +27,7 @@ def login(
             who = auth._api(srv, "GET", "/api/whoami", token=token)
             creds["user"] = who.get("user")
         except urllib.error.HTTPError:
-            cli_ui.fail("登录令牌无效，请重新登录。", hint="运行 forge login 重新登录")
+            cli_ui.fail("登录令牌无效，请重新登录。", hint="运行 sf login 重新登录")
         auth._save_creds(srv, creds)
     else:
         creds = auth._interactive_login(srv, device_flow=device_flow, no_browser=no_browser)

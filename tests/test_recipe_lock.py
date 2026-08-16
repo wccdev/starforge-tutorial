@@ -23,7 +23,7 @@ def _v2_lock(recipe_name: str, framework_version: str = "") -> dict:
     recipe = get_recipe(recipe_name)
     selected = framework_version or recipe.runtime.default_version
     return {
-        "apiVersion": "lab/recipe-lock/v2",
+        "apiVersion": "forge/recipe-lock/v2",
         "sdk_version": "2.1.0",
         "recipe": {
             "name": recipe.id,
@@ -49,7 +49,7 @@ def test_v2_lock_is_stale_and_can_upgrade(tmp_path):
     manager = RecipeLockManager()
     inspection = manager.inspect(tmp_path, "nemo-rl/grpo")
     assert inspection.state is LockState.RECIPE_STALE
-    with pytest.raises(RecipeLockError, match="forge recipe upgrade"):
+    with pytest.raises(RecipeLockError, match="sf recipe upgrade"):
         manager.require_current(tmp_path, "nemo-rl/grpo")
     upgraded = manager.upgrade(tmp_path, recipe_name="nemo-rl/grpo")
     assert upgraded.is_current

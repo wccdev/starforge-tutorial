@@ -10,7 +10,7 @@ defaults:
 
 # ══════════════════════════════════════════════════════════════════════════
 #  调参速查 —— 你主要动【① 调参区】这几行。硬件/分布式由服务端 profile 注册表下发，不在这。
-#  本实验目标集群：提交时 forge submit --profile 指定（推荐值见 README）；下列数值按该卡显存调，换卡 forge submit --profile 覆盖（通常要重调）。
+#  本实验目标集群：提交时 sf submit --profile 指定（推荐值见 README）；下列数值按该卡显存调，换卡 sf submit --profile 覆盖（通常要重调）。
 # ──────────────────────────────────────────────────────────────────────────
 #  lr / dim / alpha                       默认来自 grpo_lora 基底(lr 1e-4 / dim8 / alpha16)；
 #    (本文件未覆盖)                         要调就在 policy.megatron_cfg.optimizer / .peft 下加同名键

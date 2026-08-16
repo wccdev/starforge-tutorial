@@ -1,6 +1,7 @@
-"""命令层共享：仓库根定位、实验/profile 解析、Tab 补全回调。"""
+"""命令层共享：项目根定位、实验/profile 解析、Tab 补全回调。"""
 from __future__ import annotations
 
+import os
 from enum import Enum
 from pathlib import Path
 from typing import Optional
@@ -9,8 +10,48 @@ import typer
 
 from starforge_cli import cli_ui
 
-# 包位于 <repo>/starforge_cli/commands/，仓库根是上两级（editable 安装下 __file__ 指向源码）。
-ROOT = Path(__file__).resolve().parent.parent.parent
+#: StarForge 项目标记文件：`sf init` 生成，项目发现的唯一依据。
+#: CLI 已 pip 化分发（starforge-cli），不再假设自己被 clone 在项目仓库里。
+PROJECT_MARKER = "starforge.yaml"
+
+
+def project_root() -> Path:
+    """从 cwd 向上定位含 starforge.yaml 的项目根（类比 git 的仓库发现）。
+
+    找不到即失败并给出可执行指引——所有需要项目上下文的命令都经此收口；
+    login / status 等全局命令不触碰它。SF_PROJECT_ROOT 环境变量可显式覆盖
+    （CI / 脚本场景免 cd）。
+    """
+    if env := os.environ.get("SF_PROJECT_ROOT"):
+        p = Path(env).resolve()
+        if (p / PROJECT_MARKER).is_file():
+            return p
+        cli_ui.fail(f"SF_PROJECT_ROOT={env} 不是 StarForge 项目（缺 {PROJECT_MARKER}）")
+    cur = Path.cwd().resolve()
+    for cand in (cur, *cur.parents):
+        if (cand / PROJECT_MARKER).is_file():
+            return cand
+    cli_ui.fail(
+        "当前目录不在 StarForge 项目内",
+        hint="sf init <项目名> 创建新项目，或 cd 进已有项目目录（含 starforge.yaml）",
+    )
+
+
+def __getattr__(name: str):
+    """PEP 562：`common.ROOT` 惰性解析为当前项目根。
+
+    保持属性形态是刻意的——测试用 monkeypatch.setattr(common, "ROOT", tmp)
+    注入后，真实属性优先于 __getattr__，注入语义不变。
+    """
+    if name == "ROOT":
+        return project_root()
+    raise AttributeError(name)
+
+
+def _root() -> Path:
+    """模块内部取项目根：优先被注入的 ROOT 属性（测试），否则实时发现。"""
+    injected = globals().get("ROOT")
+    return injected if isinstance(injected, Path) else project_root()
 
 
 class Kind(str, Enum):
@@ -22,15 +63,15 @@ def resolve_exp(name: str) -> str:
     """把实验名解析为相对仓库根的路径，接受 'experiments/x' / 'projects/x' / 'x'。"""
     cands = [name] if "/" in name else [f"experiments/{name}", f"projects/{name}"]
     for c in cands:
-        if (ROOT / c).is_dir():
+        if (_root() / c).is_dir():
             return c
-    cli_ui.fail(f"找不到实验「{name}」", hint="运行 forge ls 查看可用实验")
+    cli_ui.fail(f"找不到实验「{name}」", hint="运行 sf ls 查看可用实验")
 
 
 def list_exps() -> list[str]:
     out: list[str] = []
     for kind in ("experiments", "projects"):
-        base = ROOT / kind
+        base = _root() / kind
         if base.is_dir():
             out += [p.name for p in base.iterdir() if p.is_dir()]
     return sorted(set(out))
@@ -65,7 +106,7 @@ def profile_registry() -> dict[str, dict]:
     except Exception as e:  # noqa: BLE001
         cli_ui.fail(
             "无法从服务端获取 profile 注册表",
-            hint=f"提交需要在线解析 --profile 的卡型与默认形状；请先 forge login 或检查服务可达性（{e}）",
+            hint=f"提交需要在线解析 --profile 的卡型与默认形状；请先 sf login 或检查服务可达性（{e}）",
         )
     return {
         str(p.get("name")): p
@@ -82,7 +123,7 @@ def resolve_profile(exp_path: str, profile: Optional[str]) -> str:
     """
     p = (profile or "").strip()
     if not p:
-        legacy = ROOT / exp_path / "cluster"
+        legacy = _root() / exp_path / "cluster"
         if legacy.is_file():
             p = legacy.read_text(encoding="utf-8").strip()
     if not p:
@@ -116,7 +157,7 @@ def complete_method(incomplete: str) -> list[str]:
 # 共享的 profile 选项（export/eval 用：资源形状由 recipe 固定，只选卡型/环境）。
 PROF_OPT = typer.Option(
     None, "--profile", autocompletion=complete_profile,
-    help="硬件 profile（服务端注册表管理；`forge status` 可查看可用值）",
+    help="硬件 profile（服务端注册表管理；`sf status` 可查看可用值）",
 )
 
 # submit 用的统一资源参数：profile 即资源入口，形状用 :总卡数 修饰。

@@ -12,7 +12,7 @@ export SWANFORGE_API_KEY=xxxxxxxx
 ```
 
 > 在本仓库工作流里，`SWANFORGE_API_KEY`（以及 `HF_TOKEN` / `HF_ENDPOINT` 国内镜像等）由**中心化 Lab 服务**
-> 持有，并在集群侧注入到作业进程，本机不入库、也无需任何 `submit.env`。`forge submit` 时服务端自动转发。
+> 持有，并在集群侧注入到作业进程，本机不入库、也无需任何 `submit.env`。`sf submit` 时服务端自动转发。
 > 上面的 `swanlab login` / `export SWANFORGE_API_KEY` 仅用于本机临时调试。
 
 ## 2. 在配置 / override 里启用

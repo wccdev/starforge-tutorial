@@ -12,7 +12,7 @@ defaults:
 
 # ══════════════════════════════════════════════════════════════════════════
 #  调参速查 —— 你主要动下面【① 调参区】这几行。硬件/分布式由服务端 profile 注册表下发，不在这。
-#  本实验目标集群：提交时 forge submit --profile 指定（推荐值见 README）（h100 单机单卡）；下列数值按 1×H100 80GB 调，换卡用 --profile 覆盖。
+#  本实验目标集群：提交时 sf submit --profile 指定（推荐值见 README）（h100 单机单卡）；下列数值按 1×H100 80GB 调，换卡用 --profile 覆盖。
 # ──────────────────────────────────────────────────────────────────────────
 #  旋钮 (在哪)                                    作用 / 典型范围 / 调过头会怎样
 #  lr / dim / alpha (grpo_lora 基底)              LoRA 容量与步长。默认 lr1e-4 / dim8 / alpha16
@@ -67,4 +67,4 @@ logger:
   tensorboard_enabled: false
   swanlab_enabled: false
   monitor_gpus: true
-  num_val_samples_to_print: 3 # 每次验证把 3 条完整多轮对话打印到作业日志（lab logs / forge job logs）
+  num_val_samples_to_print: 3 # 每次验证把 3 条完整多轮对话打印到作业日志（lab logs / sf job logs）

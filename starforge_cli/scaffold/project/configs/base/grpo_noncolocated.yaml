@@ -1,0 +1,18 @@
+# 非 colocated 生成 overlay：训练与 vLLM 生成各占独立 GPU/节点（实测 9B 用法）。
+# 2 卡场景：1 卡专跑生成、1 卡训练 → 训练侧 TP=PP=1。
+# 删此行即回 colocated（生成与训练共用 GPU）。
+#
+# 为什么显存紧张时 9B 选非 colocated：
+#   - colocated 单卡要在“训练态↔vLLM 生成态”间反复 offload/refit，模型一大(9B)
+#     又紧张又易出问题；非 colocated 让两张卡角色隔离、各自常驻，更稳（代价是每步把权重
+#     经网络同步给生成卡）。colocated 更省卡，适合小模型（如 4B 的 colocated+PP=2）。
+#
+# 注意：非 colocated 把 cluster 里一部分卡划给生成，剩下的才给训练。
+# 在 2 卡集群上训练只剩 1 卡，所以无法再 PP=2（PP=2 需 2 张训练卡，要用就回 colocated）。
+policy:
+  generation:
+    colocated:
+      enabled: false
+      resources:
+        gpus_per_node: 1   # 专给生成的卡数（每节点）
+        num_nodes: 1       # 专给生成的节点数

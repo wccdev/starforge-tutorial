@@ -119,7 +119,7 @@ def install_deferred(name: str, params: Mapping[str, Any] | None = None, **ctx: 
     """训练入口调用：在拿到 tokenizer / 配置后装载 DEFERRED 插件。
 
     插件包优先：launcher 若已把同名 deferred 插件（平台注入、digest 锁定的
-    lab_plugins 包）登记到 SDK 表，这里透明切换过去 —— 训练入口零改动，
+    forge_plugins 包）登记到 SDK 表，这里透明切换过去 —— 训练入口零改动，
     params 采用 launcher 登记时的 spec 超参（与 eager 插件同一口径）。
     """
     try:

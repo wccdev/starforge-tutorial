@@ -20,7 +20,7 @@ r"""把题库 RL 数据整理成单轮 GRPO（QARewardEnv）可用的干净 json
     python common/data/prepare_qa_rl.py                 # 用默认路径
     python common/data/prepare_qa_rl.py --no-merge-short # 简答不并入 train（只写 short.jsonl）
 之后上传为平台数据集版本（实验 config 用 data.train.dataset 引用，提交时自动分发）：
-    forge dataset push qa-rl <新版本> <输出目录>
+    sf dataset push qa-rl <新版本> <输出目录>
 本地干跑才需要 export QA_RL_DATA_DIR=<repo>/datasets/qa_rl。
 """
 import json
@@ -120,7 +120,7 @@ def main(
     if short:
         print(f"short.jsonl : {len(short)} 条（简答题，备查/评估）")
     print("\n完成。上传为平台数据集新版本（版本不可变，更新数据请递增版本号）：")
-    print(f"  uv run forge dataset push qa-rl <新版本> {out}")
+    print(f"  uv run sf dataset push qa-rl <新版本> {out}")
     print("然后把实验 config 的 data.train.dataset 指到新版本；本地干跑才需要：")
     print(f"  export QA_RL_DATA_DIR={out}")
 

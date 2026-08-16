@@ -85,7 +85,7 @@ grep -rinI --include="*.md" -C2 "随便挑一道题里的关键词" /data/docs |
 ```bash
 # 1) 确保题库在集群、资料 markdown 已放到容器内 DOCS_DIR；服务端已注入 QA_RL_DATA_DIR / JUDGE_* / DOCS_*
 # 2) 提交
-forge submit maxrl_qwen3.5-9b_qa-rl-agent_v2
+sf submit maxrl_qwen3.5-9b_qa-rl-agent_v2
 ```
 
 > 想和 GRPO 版同图对比：v1 与本实验共用 SwanLab project `qa-rl-compare`（曲线名 `grpo-*` vs `maxrl-multiturn-kb`），各自提交即可叠在一张图上看 GRPO vs MaxRL。
@@ -111,7 +111,7 @@ forge submit maxrl_qwen3.5-9b_qa-rl-agent_v2
 验证时每次会把若干条完整多轮对话（含 `<search>` 与 grep 检索结果）打印到作业日志，直接看日志即可：
 
 ```bash
-uv run forge logs <JOB_ID>      # 不给 JOB_ID 则跟随最近一个作业
+uv run sf logs <JOB_ID>      # 不给 JOB_ID 则跟随最近一个作业
 ```
 
 ## 结论 / 记录

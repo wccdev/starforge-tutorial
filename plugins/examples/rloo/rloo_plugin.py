@@ -2,7 +2,7 @@
 
 与官方 maxrl/opsd 插件包不同 —— 那两个只是 common/algorithms/ 的薄适配层，
 本示例把算法实现**整个装进插件包**：不依赖上传包里的任何用户代码，发布后
-任何人 `forge plugin install` 即可在自己的实验里使用。
+任何人 `sf plugin install` 即可在自己的实验里使用。
 
 RLOO（REINFORCE Leave-One-Out）：
     Â_i = r_i − mean(r_j, j≠i)

@@ -33,8 +33,11 @@ app = typer.Typer(
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 
-# ----------------------------- 身份 -----------------------------
-app.command(help="登录 Lab")(login.login)
+# ----------------------------- 项目与身份 -----------------------------
+from starforge_cli.commands import init as init_cmd  # noqa: E402
+
+app.command(help="创建 StarForge 微调项目（experiments/ + 官方基底 + common 骨架）")(init_cmd.init)
+app.command(help="登录 StarForge")(login.login)
 app.command(help="登出")(login.logout)
 
 # ----------------------------- 实验资产（纯本地）-----------------------------

@@ -1,0 +1,11 @@
+# StarForge 项目
+outputs/
+datasets/
+forge_plugins/
+__pycache__/
+*.pyc
+.venv/
+.env
+*.pem
+id_rsa*
+.DS_Store

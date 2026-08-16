@@ -80,7 +80,7 @@ def submit(
     upgrade_recipe: bool = typer.Option(
         False,
         "--upgrade-recipe",
-        help="提交前把本实验锁升级到当前 catalog，复用 forge recipe upgrade",
+        help="提交前把本实验锁升级到当前 catalog，复用 sf recipe upgrade",
     ),
     allow_dirty: bool = typer.Option(
         False, "--allow-dirty", help="允许工作区有未提交改动（默认拒绝，保证可追溯）"
@@ -176,7 +176,7 @@ def _materialize_profile_or_exit(exprs: list[str]) -> tuple[str, list[str], list
         return spec_builder.materialize_pools(exprs, common.profile_registry())
     except SpecError as e:
         cli_ui.emit_error("--profile 解析未通过", items=[str(e)],
-                          hint="格式：[role=]名称[:总卡数]，如 h200、h200:4；`forge status` 查看可用 profile")
+                          hint="格式：[role=]名称[:总卡数]，如 h200、h200:4；`sf status` 查看可用 profile")
         raise typer.Exit(1) from e
 
 
@@ -194,7 +194,7 @@ def _upgrade_recipe_or_exit(exp_path: str, *, method, framework_version) -> None
     if not recipe:
         cli_ui.emit_error(
             "实验没有声明 recipe",
-            hint="加 --method <framework>/<method>；`forge methods` 查看可用值",
+            hint="加 --method <framework>/<method>；`sf methods` 查看可用值",
         )
         raise typer.Exit(1)
     try:
@@ -231,7 +231,7 @@ def _build_spec_or_exit(exp_path: str, *, method, project, sets, pools, roles,
     if not recipe:
         cli_ui.emit_error(
             "实验没有声明 recipe",
-            hint="加 --method <framework>/<method>，或用 `forge new` 生成 recipe.lock.json；`forge methods` 查看可用值",
+            hint="加 --method <framework>/<method>，或用 `sf new` 生成 recipe.lock.json；`sf methods` 查看可用值",
         )
         raise typer.Exit(1)
     try:
@@ -247,7 +247,7 @@ def _build_spec_or_exit(exp_path: str, *, method, project, sets, pools, roles,
                 raise ValueError(
                     f"锁内 framework version 是 {inspection.framework_version or '∅'}，"
                     f"与 --framework-version {selected} 不一致；"
-                    f"请执行 `forge recipe upgrade {exp_path} --framework-version {selected}`"
+                    f"请执行 `sf recipe upgrade {exp_path} --framework-version {selected}`"
                     " 或提交时加 --upgrade-recipe"
                 )
         selected_version = manager.require_current(exp_dir, recipe)
@@ -277,9 +277,9 @@ def _build_spec_or_exit(exp_path: str, *, method, project, sets, pools, roles,
         from starforge_cli.recipe_lock import RecipeLockError
 
         hint = (
-            f"执行 `forge recipe upgrade {exp_path}` 或提交时加 --upgrade-recipe"
+            f"执行 `sf recipe upgrade {exp_path}` 或提交时加 --upgrade-recipe"
             if isinstance(e, RecipeLockError)
-            else "用 `forge methods` 查看可用方法与超参"
+            else "用 `sf methods` 查看可用方法与超参"
         )
         cli_ui.emit_error("作业规格校验未通过", items=[str(e)], hint=hint)
         raise typer.Exit(1) from e
@@ -296,7 +296,7 @@ def _echo_submit_result(res: dict, label: str = "") -> None:
         if res.get("message"):
             typer.secho(f"  {res['message']}", fg=typer.colors.BRIGHT_BLACK)
         _echo_upload_summary(res)
-        typer.echo("  满足条件后自动提交；查看状态：forge job ls")
+        typer.echo("  满足条件后自动提交；查看状态：sf job ls")
         _echo_submit_warnings(res)
         return
     msg = f"✓ 已提交{label}  作业 {res.get('job_id')}"
@@ -306,7 +306,7 @@ def _echo_submit_result(res: dict, label: str = "") -> None:
         msg += "  ·  预演"
     typer.secho(msg, fg=typer.colors.GREEN)
     _echo_upload_summary(res)
-    typer.echo(f"  查看日志：forge job logs {res.get('job_id')}")
+    typer.echo(f"  查看日志：sf job logs {res.get('job_id')}")
     _echo_submit_warnings(res)
 
 
@@ -345,7 +345,7 @@ def _submit_post(action: str, exp_path: str, profile: Optional[str], flags: list
     if not recipe_name:
         cli_ui.emit_error(
             "实验没有声明 recipe",
-            hint="实验缺少 recipe.lock.json；用 `forge new` 重建或 `forge recipe upgrade` 生成",
+            hint="实验缺少 recipe.lock.json；用 `sf new` 重建或 `sf recipe upgrade` 生成",
         )
         return 1
     recipe = get_recipe(recipe_name)
@@ -464,4 +464,4 @@ def clean(
         )
     res = api_client.clean_via_server(exp_path)
     typer.secho(f"✓ 已提交清理  作业 {res.get('job_id')}", fg=typer.colors.GREEN)
-    typer.echo(f"  查看进度：forge job logs {res.get('job_id')}")
+    typer.echo(f"  查看进度：sf job logs {res.get('job_id')}")

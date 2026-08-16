@@ -77,7 +77,7 @@ def main():
     data_dir = bootstrap.resolve_data_dir(
         data_cfg, "QA_RL_DATA_DIR",
         "config 需声明 data.train.dataset（平台引用，提交时注入 QA_RL_DATA_DIR）；"
-        "本地跑请先 `forge dataset prepare qa_rl` 再 `export QA_RL_DATA_DIR=<repo>/datasets/qa_rl`。",
+        "本地跑请先 `sf dataset prepare qa_rl` 再 `export QA_RL_DATA_DIR=<repo>/datasets/qa_rl`。",
     )
     input_key = data_cfg.get("input_key", "query")
     output_key = data_cfg.get("output_key", "expected_answer")

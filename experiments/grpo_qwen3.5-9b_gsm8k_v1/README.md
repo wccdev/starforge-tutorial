@@ -17,7 +17,7 @@ GSM8K 的答案是「推理 + #### 数字」，需抽取干净金标准答案：
 lab prepare gsm8k                              # 写到 datasets/gsm8k/{train,val}.jsonl
 ```
 
-- **`forge submit`（经服务端到集群）**：`datasets/gsm8k/` 随作业上传，统一 launcher 校验并准备 dataset manifest。
+- **`sf submit`（经服务端到集群）**：`datasets/gsm8k/` 随作业上传，统一 launcher 校验并准备 dataset manifest。
 
 ## 组成
 
@@ -38,7 +38,7 @@ lab prepare gsm8k                              # 写到 datasets/gsm8k/{train,va
 ## 运行
 
 ```bash
-forge submit grpo_qwen3.5-9b_gsm8k_v1
+sf submit grpo_qwen3.5-9b_gsm8k_v1
 ```
 
 产物落到本目录 `outputs/`（已 .gitignore）。

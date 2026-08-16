@@ -1,7 +1,7 @@
 """超参 sweep 批量提交：网格展开 → N 个变体逐个走标准提交链路。
 
 设计取舍：
-  - **不造第二条提交路径**：每个变体就是一次普通 `forge submit`（同一份 spec 构建、
+  - **不造第二条提交路径**：每个变体就是一次普通 `sf submit`（同一份 spec 构建、
     校验、打包、配额准入、容量排队），服务端零特殊逻辑。sweep 只是「展开 + 循环 +
     分组标识」。
   - 分组复用现成机制：统一 --project（web 实验分组页天然聚合）+
@@ -154,5 +154,5 @@ def sweep(
         f"sweep {sweep_id} 完成：直接提交 {submitted} 个，入队 {queued} 个。",
         fg=typer.colors.GREEN, bold=True,
     )
-    typer.echo(f"  查看进度：forge job ls --all（分组名 {group}）")
-    typer.echo(f"  一键停止：forge job stop-sweep {sweep_id}")
+    typer.echo(f"  查看进度：sf job ls --all（分组名 {group}）")
+    typer.echo(f"  一键停止：sf job stop-sweep {sweep_id}")

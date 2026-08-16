@@ -1,6 +1,6 @@
 # <method>_<model>_<dataset>_<tag>
 
-> 复制本模板新建实验：`forge new <新实验名> --method <framework>/<method>`
+> 复制本模板新建实验：`sf new <新实验名> --method <framework>/<method>`
 > 实验名遵循 `docs/naming-convention.md`。
 
 ## 目标
@@ -13,7 +13,7 @@
   **只写本实验差异**；不断调参就改 `config.yaml` 的「本实验差异」部分。
 - 训练入口、指标与产物契约由 SDK 中的版本化 recipe 声明；实验目录不写 `framework`
   标记，也不按 `run.py`/`train.sh` 是否存在猜测框架。
-- 硬件与资源：提交时 `forge submit --profile 名称[:总卡数]` 一个参数说清（如 `h200`、`h200:4`）；
+- 硬件与资源：提交时 `sf submit --profile 名称[:总卡数]` 一个参数说清（如 `h200`、`h200:4`）；
   卡型、默认形状、env/overrides 均由 Console 服务端注册表下发。
 
 ## 监控
@@ -25,7 +25,7 @@
 ## 运行
 
 ```bash
-uv run forge submit <实验名> --profile h100
+uv run sf submit <实验名> --profile h100
 ```
 
 产物（checkpoint / 日志）落到本目录 `outputs/`（已 .gitignore）。

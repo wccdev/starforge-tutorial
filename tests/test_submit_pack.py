@@ -65,6 +65,32 @@ def test_empty_payload_fails_loud(monkeypatch):
         packing.list_working_files(Path("/repo"), exp_rel="experiments/e", profile="h100")
 
 
+def test_pack_injects_launch_sh_from_cli_package(tmp_path):
+    """用户项目不落地 launch.sh：打包时从 CLI 包资源注入（单一事实来源）。"""
+    exp = tmp_path / "experiments" / "e"
+    exp.mkdir(parents=True)
+    (exp / "config.yaml").write_text("a: 1\n", encoding="utf-8")
+    blob = packing.pack_working_dir(tmp_path, ["experiments/e/config.yaml"])
+    with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as tar:
+        names = set(tar.getnames())
+        data = tar.extractfile("scripts/launch.sh").read()
+    assert "scripts/launch.sh" in names
+    assert b"starforge_sdk.launcher" in data
+    assert b"\r" not in data
+
+
+def test_pack_respects_project_launch_sh(tmp_path):
+    """项目若显式提供 scripts/launch.sh，尊重项目版本、不重复注入。"""
+    launch = tmp_path / "scripts" / "launch.sh"
+    launch.parent.mkdir(parents=True)
+    launch.write_bytes(b"#!/bin/bash\necho project-owned\n")
+    (tmp_path / "keep.txt").write_text("x\n", encoding="utf-8")
+    blob = packing.pack_working_dir(tmp_path, ["scripts/launch.sh", "keep.txt"])
+    with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as tar:
+        data = tar.extractfile("scripts/launch.sh").read()
+    assert data == b"#!/bin/bash\necho project-owned\n"
+
+
 def test_pack_missing_file_fails_loud(tmp_path):
     """fail-loud：清单里的文件磁盘上不存在 → 报错，不静默跳过。"""
     with pytest.raises(typer.Exit):
@@ -109,6 +135,7 @@ def test_pack_respects_gitignore(tmp_path):
     [
         ("scripts/launch.sh", True),
         ("cluster/h100/overrides.conf", True),
+        ("sf", True),
         ("lab", True),
         ("starforge_cli/cli.py", False),
         ("lab.cmd", False),
@@ -152,9 +179,10 @@ def test_repo_shell_scripts_use_lf_only():
     """门禁：仓库内 .sh / lab 须 LF，配合 .gitattributes 防 Windows checkout 污染。"""
     repo = Path(__file__).resolve().parents[1]
     paths = sorted(repo.rglob("*.sh"))
-    lab = repo / "lab"
-    if lab.is_file():
-        paths.append(lab)
+    for name in ("sf", "lab"):
+        p = repo / name
+        if p.is_file():
+            paths.append(p)
     assert paths, "expected at least one shell entry in repo"
     bad = [p.relative_to(repo) for p in paths if b"\r" in p.read_bytes()]
     assert not bad, f"CRLF in Unix scripts (use LF): {', '.join(str(p) for p in bad)}"
@@ -236,7 +264,7 @@ def test_pipeline_reporter_stages_and_timing():
     with console.capture() as capture:
         console.print(panel)
     rendered = capture.get()
-    assert "forge submit" in rendered
+    assert "sf submit" in rendered
     assert "服务端受理" in rendered
 
 
