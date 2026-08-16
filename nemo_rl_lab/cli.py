@@ -11,7 +11,19 @@ from __future__ import annotations
 
 import typer
 
-from nemo_rl_lab.commands import admin, dataset, exp, jobs, login, plugin, recipe, submit
+from nemo_rl_lab.commands import (
+    admin,
+    bench,
+    dataset,
+    exp,
+    jobs,
+    login,
+    plugin,
+    recipe,
+    serve,
+    submit,
+    sweep,
+)
 
 app = typer.Typer(
     add_completion=True,
@@ -33,6 +45,8 @@ app.command(help="校验实验 config（提交前本地检查）")(exp.validate)
 
 # ----------------------------- 作业契约（经 Console）-----------------------------
 app.command(help="提交训练作业（提交前自动校验 config 与超参）")(submit.submit)
+app.command(help="超参 sweep：网格展开批量提交（每变体一次标准提交，配额/排队照常生效）")(sweep.sweep)
+app.command(help="标准基准评测（lm-eval / evalscope），分数入库平台看板")(bench.bench)
 app.command(name="export", help="将 checkpoint 转为 HuggingFace 格式（可推 Hub）")(submit.export_ckpt)
 app.command(
     name="eval",
@@ -47,6 +61,7 @@ app.add_typer(jobs.job_app, name="job")
 
 # ----------------------------- 数据集 / 插件 / 管理员 -----------------------------
 app.add_typer(recipe.recipe_app, name="recipe")
+app.add_typer(serve.serve_app, name="serve")
 app.add_typer(dataset.dataset_app, name="dataset")
 app.add_typer(plugin.plugin_app, name="plugin")
 app.add_typer(admin.admin_app, name="admin")

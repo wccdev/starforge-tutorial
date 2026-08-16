@@ -73,7 +73,10 @@ def _clean(row: dict) -> dict | None:
     solution = (row.get("solution") or "").strip()
     if not problem or len(solution) < MIN_SOLUTION_CHARS:
         return None
-    answer = (row.get("answer") or row.get("Answer") or "").strip() or (extract_boxed(solution) or "")
+    # 与文件头文档一致：优先从本条 solution 抽 \boxed{}（与参考解必然一致），
+    # 列值只作回退 —— 官方训练集的 `Answer` 按数据卡属另一路 COT 数据，
+    # 可能与本条 solution 不一致，优先取列会引入错误金标准、验证判分静默失真。
+    answer = (extract_boxed(solution) or "").strip() or (row.get("answer") or row.get("Answer") or "").strip()
     if not answer:
         return None
     return {"problem": problem, "solution": solution, "answer": answer}

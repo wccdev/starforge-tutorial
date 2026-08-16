@@ -207,3 +207,17 @@ def job_clean() -> None:
     gate()
     res = api_client.batch_via_server("clean")
     typer.secho(f"✓ 已清理 {res.get('deleted', 0)} 个终态作业记录", fg=typer.colors.GREEN)
+
+
+@job_app.command("stop-sweep", help="一键停止一个超参 sweep 的全部活跃作业")
+def job_stop_sweep(
+    sweep_id: str = typer.Argument(..., help="sweep 标识（lab sweep 提交时打印）"),
+    yes: bool = typer.Option(False, "-y", "--yes", help="跳过确认"),
+) -> None:
+    gate()
+    if not yes:
+        typer.confirm(f"将停止 sweep {sweep_id} 的全部活跃作业，确认？", abort=True)
+    res = api_client.stop_sweep_via_server(sweep_id)
+    typer.secho(f"✓ 已停止 {res.get('stopped', 0)} 个作业", fg=typer.colors.GREEN)
+    for item in res.get("failed") or []:
+        cli_ui.emit_warning(f"停止失败：{item.get('id')}（{item.get('error')}）")

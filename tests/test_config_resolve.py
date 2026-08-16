@@ -60,6 +60,20 @@ def test_validate_batch_product_mismatch_is_error():
     assert "train_global_batch_size" in errors[0]
 
 
+def test_validate_divisible_offpolicy_batch_is_warn_not_error():
+    """rollout 批是 tgbs 整数倍（off-policy 多次更新）是 NeMo-RL 合法配置，只 warn。"""
+    issues = validate_config(_grpo_cfg(32, 16, 256))  # rollout=512 = 2×256
+    assert [m for lvl, m in issues if lvl == "error"] == []
+    assert any("off-policy" in m for lvl, m in issues if lvl == "warn")
+
+
+def test_validate_force_on_policy_requires_equality():
+    cfg = _grpo_cfg(32, 16, 256)
+    cfg["loss_fn"] = {"force_on_policy_ratio": True}
+    errors = [m for lvl, m in validate_config(cfg) if lvl == "error"]
+    assert any("force_on_policy_ratio" in m for m in errors)
+
+
 def test_validate_val_batch_exceeds_samples():
     issues = validate_config(_grpo_cfg(4, 4, 16, vbs=64, mvs=8))
     errors = [m for lvl, m in issues if lvl == "error"]

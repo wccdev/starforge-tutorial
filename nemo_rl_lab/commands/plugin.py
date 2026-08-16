@@ -90,13 +90,22 @@ def plugin_publish(
     ),
 ) -> None:
     gate()
-    from nemo_lab_sdk.plugins import PluginError, digest_files, directory_digest, load_manifest
+    from nemo_lab_sdk.plugins import (
+        PluginError,
+        digest_files,
+        directory_digest,
+        load_manifest,
+        validate_package_layout,
+    )
 
     src = Path(path)
     if not src.is_dir():
         cli_ui.fail(f"不是目录: {path}")
     try:
         manifest = load_manifest(src)
+        # 与服务端同一份结构校验：拼错的 entrypoint / 遮蔽保留模块名的顶层文件
+        # 在上传前就报出来，不必等服务端往返。
+        validate_package_layout(src, manifest)
     except PluginError as e:
         cli_ui.fail(f"插件包非法：{e}", hint="检查 plugin.yaml（schema: lab-plugin/v1）")
     digest = directory_digest(src)
@@ -150,9 +159,11 @@ def plugin_install(
         shutil.rmtree(dest)
     dest.mkdir(parents=True)
     with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as tar:
+        dest_root = dest.resolve()
         for m in tar.getmembers():
             target = (dest / m.name).resolve()
-            if not str(target).startswith(str(dest.resolve())):
+            # is_relative_to 而非字符串前缀：startswith 有 /a/b 匹配 /a/bc 的绕过。
+            if not target.is_relative_to(dest_root):
                 cli_ui.fail(f"插件包含非法归档成员路径: {m.name}")
         tar.extractall(dest, filter="data")
     local_digest = directory_digest(dest)

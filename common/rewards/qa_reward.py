@@ -107,6 +107,22 @@ def _letters(s: str) -> set[str]:
     return set(re.findall(r"[A-Z]", s.upper()))
 
 
+_LEADING_OPTION = re.compile(r"^\s*([A-Ha-h])\b")
+
+
+def _single_choice_letters(s: str) -> set[str]:
+    """单选/判断题的作答字母。
+
+    模型常抄选项全文（\\boxed{B. TCP协议}），全字母提取会把 TCP 也算进去
+    （{B,T,C,P} ≠ {B} → 答对判 0），对 RL 是系统性的噪声惩罚。
+    先按「行首独立的单个选项字母」解析；取不到再退回全字母集合。
+    """
+    m = _LEADING_OPTION.match(s.strip())
+    if m:
+        return {m.group(1).upper()}
+    return _letters(s)
+
+
 def _grade_multiple(pred: set[str], gold: set[str]) -> float:
     if MULTI_MODE == "exact":
         return 1.0 if pred == gold else 0.0
@@ -139,7 +155,7 @@ def _grade_one(expected: str, completion: str, groups: list[set[str]]) -> float:
     qtype, gold = m.group(1), m.group(2).strip()
 
     if qtype in ("single", "bool"):
-        return 1.0 if _letters(boxed) == _letters(gold) else 0.0
+        return 1.0 if _single_choice_letters(boxed) == _letters(gold) else 0.0
 
     if qtype == "multiple":
         return _grade_multiple(_letters(boxed), _letters(gold))

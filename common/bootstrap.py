@@ -142,6 +142,18 @@ def run_grpo(config, tokenizer, train_dataset, val_dataset, task_to_env: dict,
     if before_train is not None:
         before_train()
 
+    if val_task_to_env is None:
+        # 显著警告而不是静默回退：验证若复用带 reward shaping 的训练环境，
+        # validation/accuracy = mean(total_reward) 会把检索奖励/加成算进去，
+        # 验证分虚高且无法与无工具 baseline 同尺度对比（带 shaping 的环境应
+        # 用 make_eval_cfg 派生全零 shaping 的验证实例，见 qa_docs_agent_env）。
+        print(
+            "[bootstrap] ⚠ 未提供 val_task_to_env，验证将复用训练环境。"
+            "若训练环境带 reward shaping（检索奖励/加成/罚分），validation/accuracy 将失真；"
+            "请为验证传入 shaping 全零的环境实例。",
+            flush=True,
+        )
+
     grpo_train(
         policy,
         policy_generation,

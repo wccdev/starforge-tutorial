@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import io
 import subprocess
@@ -50,6 +51,28 @@ _UPLOAD_EXCLUDE_SUFFIXES = (".pdf",)
 def _is_upload_excluded(rel: str) -> bool:
     """该相对路径是否属于「不随作业上传」的非运行时产物。"""
     return rel.replace("\\", "/").lower().endswith(_UPLOAD_EXCLUDE_SUFFIXES)
+
+
+# 疑似密钥/凭据文件：命中即拒绝打包（fail-closed）。
+# 清单用 `git ls-files --others` 收集未跟踪文件，.gitignore 覆盖不到的命名
+# （hf_token.txt / credentials.json / *.pem …）会随 --allow-dirty 静默出网。
+# 注意别用过宽的 "token*"：会误伤 tokenizer_config.json 这类训练必需文件。
+_SENSITIVE_EXACT = frozenset({
+    ".env", ".envrc", ".netrc",
+    "credentials.json", "token.txt", "api_key.txt",
+})
+_SENSITIVE_GLOBS = (
+    ".env.*", "*.pem", "*.key", "*.p12", "*.pfx",
+    "id_rsa*", "id_ed25519*", "id_ecdsa*", "id_dsa*",
+    "secrets.*", "*.secret", "hf_token*", "*_credentials.json",
+)
+
+
+def _is_sensitive(rel: str) -> bool:
+    base = rel.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    if base in _SENSITIVE_EXACT:
+        return True
+    return any(fnmatch.fnmatch(base, pat) for pat in _SENSITIVE_GLOBS)
 
 
 # 集群 Linux 侧会 source/读取；Windows 工作区可能是 CRLF，上传前须规范为 LF。
@@ -104,10 +127,25 @@ def list_working_files(repo_root: Path, *, exp_rel: str, profile: str,
         f for f in raw
         if (f.startswith(prefixes) or f in exact) and not _is_upload_excluded(f)
     ]
+    if sensitive := [f for f in files if _is_sensitive(f)]:
+        cli_ui.fail(
+            "作业包中发现疑似密钥/凭据文件，拒绝打包上传",
+            title="作业包中发现疑似密钥/凭据文件，拒绝打包上传",
+            items=sensitive,
+            hint="移出上传目录或加入 .gitignore；确属训练必需请改名并确认其中不含密钥",
+        )
     if not files:
         cli_ui.fail(
             "作业包为空：清单内没有可上传的文件。",
             hint=f"确认实验目录 {exp_rel}/ 存在且已入 git",
+        )
+    # 未跟踪文件只会在 --allow-dirty 时走到这里（clean-tree 检查把 dirty 拦在前面）。
+    # 它们不受 commit 溯源约束，必须让用户看见都上传了什么。
+    tracked = {f.strip() for f in _git_out(["ls-files"], repo_root).splitlines() if f.strip()}
+    if untracked := [f for f in files if f not in tracked]:
+        cli_ui.emit_warning(
+            f"{len(untracked)} 个未跟踪文件将随作业上传（不受 commit 溯源约束）",
+            body="\n".join(untracked[:20]) + ("\n…" if len(untracked) > 20 else ""),
         )
     return (files, len(raw) - len(files)) if with_stats else files
 

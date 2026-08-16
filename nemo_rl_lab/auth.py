@@ -62,12 +62,16 @@ def _read_json(path: Path) -> dict:
 
 
 def _write_json(path: Path, data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # 凭据文件必须在创建瞬间就是 0600：先 write_text 再 chmod 会留下一个
+    # 按默认 umask（常为 0644，世界可读）写入完整 token 的窗口。
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(json.dumps(data, ensure_ascii=False, indent=2))
     try:
-        path.chmod(0o600)
-    except OSError:
-        pass
+        path.chmod(0o600)  # 收紧历史版本以 0644 创建的旧文件
+    except OSError as e:
+        print(f"[lab] 警告：无法收紧本地状态文件权限 {path}: {e}", file=sys.stderr)
 
 
 def current_server(explicit: Optional[str] = None) -> Optional[str]:

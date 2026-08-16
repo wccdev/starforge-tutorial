@@ -9,10 +9,10 @@
     "version": "0.7.0"
   },
   "recipe": {
-    "digest": "sha256:185928661768362892882a64a63be914a1a99680eeaa8a5b7faa183a2c65b402",
-    "manifest_digest": "sha256:906bfece0a8f7e84c74995c7a638774270a0bc2338e30a84c61bf2d34c906064",
+    "digest": "sha256:68998ab38284176337a0c7649ffee5aaf0d9955b431a38c5fef032ff4f2d70f9",
+    "manifest_digest": "sha256:48a31e734989cda0e5125ff1fe9c49184692616d19f7ac22bd973ed352836939",
     "name": "nemo-rl/grpo",
-    "template_digest": "sha256:ff4f89b5c4b3926e6ed9f424b7e5f95c25ef56854eb7617052ad9bf6cf196bf1",
+    "template_digest": "sha256:e67384f170368f31369bdd543c52c48b3b5611149e2d2a2437515ed59bb59fe1",
     "version": "0.7.0"
   },
   "requires": {

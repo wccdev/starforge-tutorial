@@ -78,8 +78,14 @@ def verify_catalog_compatibility(spec, payload: dict) -> None:
     runtime = selected.get("runtime") or {}
     variants = runtime.get("versions") if isinstance(runtime, dict) else None
     variant = variants.get(framework_version) if isinstance(variants, dict) else None
-    server_runtime_id = variant.get("runtime_id") if isinstance(variant, dict) else None
-    if server_runtime_id != spec.spec.framework.runtime_id:
+    if not isinstance(variant, dict):
+        raise CatalogCompatibilityError(
+            f"Console catalog 缺少 {spec.spec.framework.kind}@{framework_version} 的 runtime 变体"
+        )
+    # runtime_id 为空是合法状态（custom/user-managed 没有部署执行工件）；
+    # 序列化会省略空字段，两侧都归一化成 "" 再比，避免 None != "" 假阳性。
+    server_runtime_id = str(variant.get("runtime_id") or "").strip()
+    if server_runtime_id != (spec.spec.framework.runtime_id or "").strip():
         raise CatalogCompatibilityError(
             f"Console runtime_id 不兼容：server={server_runtime_id!r}, "
             f"cli={spec.spec.framework.runtime_id!r}"

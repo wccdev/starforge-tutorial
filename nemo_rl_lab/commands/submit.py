@@ -95,6 +95,13 @@ def submit(
     if not exprs:
         exprs = [common.resolve_profile(exp_path, None)]
     resolved_profile, pools, roles = _materialize_profile_or_exit(exprs)
+    # --upgrade-recipe 必须发生在 provenance / clean-tree / 校验之前：
+    # ① 校验环节要求锁与当前 catalog 一致，锁过期时「先校验后升级」会让本参数永远执行不到；
+    # ② 升级会改写 recipe.lock.json，若发生在 clean-tree 检查与 provenance 计算之后，
+    #    spec 记录 git_dirty=False 而上传 meta 重算出 git_dirty=True，溯源自相矛盾，
+    #    打包内容也与记录的 commit 不符。
+    if upgrade_recipe:
+        _upgrade_recipe_or_exit(exp_path, method=method, framework_version=framework_version)
     prov = packing.git_provenance(common.ROOT, exp_path)
     _require_clean_tree(allow_dirty, prov)
     if not no_validate:
@@ -119,7 +126,6 @@ def submit(
         image=image,
         provenance=prov,
         validate=not no_validate,
-        upgrade_recipe=upgrade_recipe,
     )
     # 清单式打包 → 上传到中心化服务 → 服务端注入密钥/路径后代理提交（密钥/地址不外泄）。
     with cli_ui.submit_progress() as reporter:
@@ -174,12 +180,48 @@ def _materialize_profile_or_exit(exprs: list[str]) -> tuple[str, list[str], list
         raise typer.Exit(1) from e
 
 
+def _upgrade_recipe_or_exit(exp_path: str, *, method, framework_version) -> None:
+    """执行 --upgrade-recipe（提交主流程的前置步骤，见 submit() 中的顺序说明）。
+
+    升级改写了锁文件时打印明确提示：随后的 clean-tree 检查会要求 commit
+    （或 --allow-dirty 显式确认），锁变更与代码变更一样纳入溯源。
+    """
+    from nemo_rl_lab import spec_builder
+    from nemo_rl_lab.commands.exp import validate_exp_config
+    from nemo_rl_lab.recipe_lock import RecipeLockManager
+
+    recipe = (method or "").strip() or spec_builder.infer_recipe(common.ROOT / exp_path)
+    if not recipe:
+        cli_ui.emit_error(
+            "实验没有声明 recipe",
+            hint="加 --method <framework>/<method>；`lab methods` 查看可用值",
+        )
+        raise typer.Exit(1)
+    try:
+        result = RecipeLockManager().upgrade(
+            common.ROOT / exp_path,
+            recipe_name=recipe,
+            framework_version=(framework_version or "").strip(),
+            validate_config=lambda path, rec: validate_exp_config(
+                path, rec, repo_root=common.ROOT
+            ),
+        )
+    except ValueError as e:  # 含 RecipeLockError
+        cli_ui.emit_error("recipe 锁升级失败", items=[str(e)])
+        raise typer.Exit(1) from e
+    if result.diffs:
+        typer.secho(
+            f"✓ 已升级 {result.path}（{len(result.diffs)} 处变更）",
+            fg=typer.colors.GREEN,
+        )
+
+
 def _build_spec_or_exit(exp_path: str, *, method, project, sets, pools, roles,
                         init_from, then, observability_url=None, model=None,
                         train_data=None, validation_data=None,
                         train_dataset=None, validation_dataset=None,
                         framework_version=None, image=None, provenance=None,
-                        validate: bool, upgrade_recipe: bool = False):
+                        validate: bool):
     """构建强 JobSpec；缺少显式 recipe 时立即退出。"""
     from nemo_lab_sdk.contract import SpecError
 
@@ -193,23 +235,13 @@ def _build_spec_or_exit(exp_path: str, *, method, project, sets, pools, roles,
         )
         raise typer.Exit(1)
     try:
-        from nemo_rl_lab.commands.exp import validate_exp_config
         from nemo_rl_lab.plugins_lock import read_plugin_lock
         from nemo_rl_lab.recipe_lock import RecipeLockManager
 
         manager = RecipeLockManager()
         exp_dir = common.ROOT / exp_path
         selected = (framework_version or "").strip()
-        if upgrade_recipe:
-            manager.upgrade(
-                exp_dir,
-                recipe_name=recipe,
-                framework_version=selected,
-                validate_config=lambda path, rec: validate_exp_config(
-                    path, rec, repo_root=common.ROOT
-                ),
-            )
-        elif selected:
+        if selected:
             inspection = manager.inspect(exp_dir, recipe)
             if inspection.framework_version != selected:
                 raise ValueError(

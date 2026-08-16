@@ -49,7 +49,9 @@ def test_list_profiles_reads_server_registry(monkeypatch):
 
 def test_method_completion_is_sdk_catalog_driven():
     # 叶子名前缀也能补出完整两段式标识
-    assert set(common.complete_method("g")) == {"nemo-rl/grpo", "verl/grpo", "trl/grpo"}
+    assert set(common.complete_method("g")) == {
+        "nemo-rl/grpo", "nemo-rl/grpo-lora", "verl/grpo", "trl/grpo",
+    }
     assert "verl/grpo" in common.complete_method("verl/")
     assert "trl/grpo" in common.complete_method("trl/")
     assert "agent" not in common.complete_method("")
@@ -155,10 +157,10 @@ def test_format_user_label_with_email():
 EXPECTED_COMMANDS = {
     "login", "logout",
     "ls", "new", "methods", "validate",
-    "submit", "export", "eval", "clean",
+    "submit", "sweep", "bench", "export", "eval", "clean",
     "status",
 }
-EXPECTED_GROUPS = {"job", "dataset", "admin", "plugin", "recipe"}
+EXPECTED_GROUPS = {"job", "dataset", "admin", "plugin", "recipe", "serve"}
 
 
 def test_command_surface_is_closed():
@@ -198,6 +200,7 @@ def test_dataset_push_puts_with_server_signed_headers(monkeypatch, tmp_path):
 
     from nemo_rl_lab import api_client
 
+    monkeypatch.setenv("LAB_HOME", str(tmp_path / ".lab"))  # 断点状态不落到真实 ~/.lab
     (tmp_path / "train.jsonl").write_text('{"q":1}\n', encoding="utf-8")
 
     signed = {"Content-Type": "application/octet-stream"}
@@ -219,6 +222,61 @@ def test_dataset_push_puts_with_server_signed_headers(monkeypatch, tmp_path):
     assert len(puts) == 2  # train.jsonl + index.json
     for headers in puts:
         assert headers.get("Content-type") == "application/octet-stream"
+
+
+def test_dataset_push_resumes_skipping_uploaded_files(monkeypatch, tmp_path):
+    """断点续传：文件 PUT 成功后中断（index 没写成），重跑跳过已传文件本体。
+
+    跳过判定必须绑定 sha256：本地文件改过就重传，否则 index.json 记录的新
+    校验和与对象存储里的旧内容不符，作业侧下载校验必炸。
+    """
+    import urllib.error
+    import urllib.request
+
+    import typer
+
+    from nemo_rl_lab import api_client
+
+    monkeypatch.setenv("LAB_HOME", str(tmp_path / ".lab"))
+    data = tmp_path / "ds"
+    data.mkdir()
+    (data / "train.jsonl").write_text('{"q":1}\n', encoding="utf-8")
+
+    monkeypatch.setattr(api_client, "current_server", lambda *a, **k: "http://srv")
+    monkeypatch.setattr(
+        api_client, "api_post",
+        lambda path, body, server=None: {
+            "dataset": "alice/qa-rl", "upload_url": "http://s3/put",
+            "headers": {"Content-Type": "application/octet-stream"},
+        },
+    )
+    monkeypatch.setattr(api_client.time, "sleep", lambda *_: None)
+
+    calls: list[str] = []
+    phase = {"fail_index": True}
+
+    def flaky_urlopen(req, timeout=0):
+        calls.append(req.get_full_url())
+        if len(calls) >= 2 and phase["fail_index"]:
+            raise urllib.error.URLError("boom")  # index.json 一直挂 → 版本没封存
+        return None
+
+    monkeypatch.setattr(urllib.request, "urlopen", flaky_urlopen)
+    with pytest.raises(typer.Exit):
+        api_client.dataset_push("qa-rl", "v1", data, [data / "train.jsonl"])
+    assert len(calls) >= 2  # 文件传成功 + index 重试若干次
+
+    # 重跑：文件本体跳过，只补 index.json。
+    phase["fail_index"] = False
+    calls.clear()
+    api_client.dataset_push("qa-rl", "v1", data, [data / "train.jsonl"])
+    assert len(calls) == 1
+
+    # 内容变了 → sha 不匹配 → 必须重传（不能拿旧对象配新校验和）。
+    (data / "train.jsonl").write_text('{"q":2}\n', encoding="utf-8")
+    calls.clear()
+    api_client.dataset_push("qa-rl", "v1", data, [data / "train.jsonl"])
+    assert len(calls) == 2
 
 
 def test_dataset_refs_read_from_experiment_config(monkeypatch, tmp_path):

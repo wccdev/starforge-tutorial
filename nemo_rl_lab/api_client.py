@@ -186,10 +186,11 @@ def _upload_and_submit(srv: str, path: str, meta: dict, repo_root: Path, *,
 
 def submit_via_server(exp_rel: str, profile: str, repo_root: Path,
                       server: Optional[str] = None, project: Optional[str] = None,
-                      reporter=None, spec=None) -> dict:
+                      reporter=None, spec=None, extra_meta: Optional[dict] = None) -> dict:
     """server 模式提交：清单式打包上传 + 服务端注入密钥后代理提交。
 
     spec：必填的 lab/v2 JobSpec；profile：必填（--profile 或旧实验遗留 cluster 标注解析而来）。
+    extra_meta：附加的 client_meta 键（如 sweep_id/sweep_params），不得覆盖平台保留键。
     上传前先与 Console 做精确 catalog 握手，握手不过一个字节都不上传。
     返回值附带 upload_files / upload_skipped / upload_bytes 便于 CLI 展示。
     """
@@ -202,6 +203,12 @@ def submit_via_server(exp_rel: str, profile: str, repo_root: Path,
     meta = {"exp": exp_rel, "profile": profile, **git_provenance(repo_root, exp_rel)}
     if project:
         meta["project"] = project
+    if extra_meta:
+        reserved = set(meta) | {"spec"}
+        clash = reserved & set(extra_meta)
+        if clash:
+            raise ValueError(f"extra_meta 不得覆盖平台保留键: {sorted(clash)}")
+        meta.update(extra_meta)
     meta["spec"] = spec.to_dict()
     return _upload_and_submit(
         srv, "/api/jobs", meta, repo_root,
@@ -340,7 +347,57 @@ def batch_via_server(action: str, server: Optional[str] = None) -> dict:
         cli_ui.fail_http(e, fallback="操作失败，请稍后重试。")
 
 
+def stop_sweep_via_server(sweep_id: str, server: Optional[str] = None) -> dict:
+    """一键停止一个超参 sweep 的全部活跃作业。"""
+    srv = current_server(server)
+    path = f"/api/sweeps/{urllib.parse.quote(sweep_id, safe='')}/stop"
+    try:
+        with _bearer_request(srv, "POST", path) as r:
+            return json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        cli_ui.fail_http(e, fallback="停止 sweep 失败，请稍后重试。")
+
+
 # ----------------------------- 数据集上传 -----------------------------
+def _sha256_file(path: Path) -> tuple[str, int]:
+    """分块计算文件 sha256 与大小 —— 不把整个文件读进内存（parquet 动辄几 GB）。"""
+    import hashlib
+
+    digest = hashlib.sha256()
+    size = 0
+    with open(path, "rb") as fh:
+        while chunk := fh.read(1 << 20):
+            digest.update(chunk)
+            size += len(chunk)
+    return digest.hexdigest(), size
+
+
+def _push_state_paths():
+    import os
+
+    from nemo_rl_lab.auth import LAB_DIR, _read_json, _write_json
+
+    # 调用时读 LAB_HOME（而不是沿用 import 时固化的 LAB_DIR）：测试与多环境切换友好。
+    base = Path(os.environ.get("LAB_HOME") or LAB_DIR)
+    return base / "dataset-push-state.json", _read_json, _write_json
+
+
+def _put_streaming(url: str, payload, size: int, headers: dict, timeout: float) -> None:
+    """预签名 PUT。文件走流式（http.client 分块发送文件对象），不整份进内存。
+
+    必须显式带 Content-Length：S3 预签名 PUT 不接受 chunked 传输编码，
+    urllib 对无长度的 body 会自动切到 chunked。
+    """
+    h = {**headers, "Content-Length": str(size)}
+    if isinstance(payload, (bytes, bytearray)):
+        req = urllib.request.Request(url, data=bytes(payload), method="PUT", headers=h)
+        urllib.request.urlopen(req, timeout=timeout)
+        return
+    with open(payload, "rb") as fh:
+        req = urllib.request.Request(url, data=fh, method="PUT", headers=h)
+        urllib.request.urlopen(req, timeout=timeout)
+
+
 def dataset_push(
     dataset: str,
     version: str,
@@ -354,11 +411,15 @@ def dataset_push(
     dataset 可以是 `<owner>/<name>`，也可以是裸 `<name>`（服务端归到当前用户命名空间）。
     visibility 只在数据集首次创建时生效（public|private，默认 private）。
 
-    直连对象存储，不经过 console —— 数据集动辄几 GB，穿过 API 进程内存是没道理的。
+    直连对象存储，不经过 console —— 数据集动辄几 GB，穿过 API 进程内存是没道理的；
+    同理文件本体也不整份读进 CLI 内存（流式 PUT + 分块 sha256）。
     客户端全程不持有对象存储凭据，只拿一次性预签名 URL。
-    """
-    import hashlib
 
+    断点续传：每个文件 PUT 成功后把 (rel → sha256) 记进本地状态文件；重跑同一
+    dataset@version 时内容未变的文件直接跳过。键含 sha256，本地文件改过就会重传
+    —— 不会把旧内容的记录当成已上传（否则 index.json 的校验和会与对象不符，
+    作业侧下载校验必炸）。版本完整上传（index.json 落位）后清除状态。
+    """
     srv = current_server(server)
 
     def _upload_url(filename: str) -> dict:
@@ -367,41 +428,56 @@ def dataset_push(
             body["visibility"] = visibility
         return api_post("/api/datasets/upload-url", body, server=srv)
 
-    def _put_headers(up: dict) -> dict:
-        # Content-Type 已纳入预签名，PUT 的头必须与服务端签的逐字一致，
-        # 否则对象存储回 403 SignatureDoesNotMatch —— 照抄下发的 headers，
-        # 仅对旧版服务端（不下发 headers）回退到历史默认值。
-        return dict(up.get("headers") or {"Content-Type": "application/octet-stream"})
+    def _put_with_retry(rel: str, payload, size: int, *, timeout: float, attempts: int = 3) -> dict:
+        """取预签名 URL → PUT，瞬时失败退避重试（每轮重新取 URL：403 常为过期）。"""
+        for attempt in range(attempts):
+            up = _upload_url(rel)
+            headers = dict(up.get("headers") or {"Content-Type": "application/octet-stream"})
+            try:
+                _put_streaming(up["upload_url"], payload, size, headers, timeout)
+                return up
+            except urllib.error.HTTPError as e:
+                # 403 多为预签名过期（重取 URL 后重试）；5xx 视为瞬时；其余 4xx 是
+                # 确定性错误（409 版本已封存等），重试只会重复同一个失败。
+                if not (e.code == 403 or e.code >= 500) or attempt == attempts - 1:
+                    cli_ui.fail(f"上传 {rel} 失败: HTTP {e.code}")
+            except (urllib.error.URLError, TimeoutError, OSError) as e:
+                if attempt == attempts - 1:
+                    cli_ui.fail(
+                        f"上传 {rel} 失败: {e}",
+                        hint="网络恢复后直接重跑同一命令，已上传的文件会自动跳过",
+                    )
+            time.sleep(1.5 * (attempt + 1))
+        raise AssertionError("unreachable")
+
+    state_path, read_state, write_state = _push_state_paths()
+    state_key = f"{srv}|{dataset}@{version}"
+    state = read_state(state_path)
+    done: dict = dict(state.get(state_key) or {})
 
     ds_id = dataset
     index_files = []
     for f in files:
         rel = f.relative_to(root).as_posix()
-        blob = f.read_bytes()
-        up = _upload_url(rel)
+        sha, size = _sha256_file(f)
+        index_files.append({"name": rel, "size": size, "sha256": sha})
+        if done.get(rel) == sha:
+            print(f"  = {rel}  上次已传完，跳过")
+            continue
+        up = _put_with_retry(rel, f, size, timeout=600)
         ds_id = up.get("dataset") or ds_id
-        req = urllib.request.Request(
-            up["upload_url"], data=blob, method="PUT", headers=_put_headers(up),
-        )
-        try:
-            urllib.request.urlopen(req, timeout=600)
-        except urllib.error.HTTPError as e:
-            cli_ui.fail(f"上传 {rel} 失败: HTTP {e.code}")
-        index_files.append(
-            {"name": rel, "size": len(blob), "sha256": hashlib.sha256(blob).hexdigest()}
-        )
-        print(f"  ↑ {rel}  {cli_ui.human_bytes(len(blob))}")
+        done[rel] = sha
+        state[state_key] = done
+        write_state(state_path, state)
+        print(f"  ↑ {rel}  {cli_ui.human_bytes(size)}")
 
     # index.json 最后写：它的存在即「这个版本已完整上传」的标记（此后版本不可变）。
-    up = _upload_url("index.json")
     body = json.dumps({"files": index_files}, ensure_ascii=False).encode("utf-8")
-    req = urllib.request.Request(
-        up["upload_url"], data=body, method="PUT", headers=_put_headers(up),
-    )
-    try:
-        urllib.request.urlopen(req, timeout=60)
-    except urllib.error.HTTPError as e:
-        cli_ui.fail(f"写入 index.json 失败: HTTP {e.code}")
+    up = _put_with_retry("index.json", body, len(body), timeout=60)
+    ds_id = up.get("dataset") or ds_id
+    # 版本已封存：清掉断点状态，避免状态文件随历史版本无限增长。
+    if state.pop(state_key, None) is not None:
+        write_state(state_path, state)
     return ds_id
 
 

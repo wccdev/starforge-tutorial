@@ -17,10 +17,6 @@ env 解析模型上一轮输出 → 分发工具 / 校验答案 / 纠正格式 /
 """
 from __future__ import annotations
 
-import ast
-import operator
-import subprocess
-import sys
 from typing import Any, Optional, TypedDict
 
 import ray
@@ -29,89 +25,15 @@ from nemo_rl.data.interfaces import LLMMessageLogType
 from nemo_rl.distributed.batched_data_dict import BatchedDataDict
 from nemo_rl.environments.interfaces import EnvironmentInterface, EnvironmentReturn
 
-# ============================ 工具实现 ============================
-_BIN_OPS = {
-    ast.Add: operator.add,
-    ast.Sub: operator.sub,
-    ast.Mult: operator.mul,
-    ast.Div: operator.truediv,
-    ast.FloorDiv: operator.floordiv,
-    ast.Mod: operator.mod,
-    ast.Pow: operator.pow,
-}
-_UNARY_OPS = {ast.USub: operator.neg, ast.UAdd: operator.pos}
-
-
-def safe_eval(expr: str) -> float:
-    """安全地计算一个纯算术表达式（只允许数字与 + - * / // % ** 和括号）。"""
-
-    def _ev(node: ast.AST) -> float:
-        if isinstance(node, ast.Expression):
-            return _ev(node.body)
-        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
-            return float(node.value)
-        if isinstance(node, ast.BinOp) and type(node.op) in _BIN_OPS:
-            return _BIN_OPS[type(node.op)](_ev(node.left), _ev(node.right))
-        if isinstance(node, ast.UnaryOp) and type(node.op) in _UNARY_OPS:
-            return _UNARY_OPS[type(node.op)](_ev(node.operand))
-        raise ValueError("不支持的表达式")
-
-    return _ev(ast.parse(expr, mode="eval"))
-
-
-def _tool_calc(arg: str, ctx: dict[str, Any]) -> str:
-    try:
-        return f"{safe_eval(arg):g}"
-    except Exception as e:  # noqa: BLE001
-        return f"calc 错误: {e}"
-
-
-def _tool_search(arg: str, ctx: dict[str, Any]) -> str:
-    """在本题知识库（ctx['kb']: dict[str, str]）里按相关度检索，返回最相关条目。"""
-    kb: dict[str, str] = ctx.get("kb", {}) or {}
-    query = arg.strip().lower()
-    if not query:
-        return "search 错误: 查询为空"
-    terms = [t for t in query.replace("，", " ").split() if t]
-    # 按匹配词数打分；整串命中 key 额外加权
-    scored: list[tuple[int, str]] = []
-    for k, v in kb.items():
-        text = f"{k} {v}".lower()
-        score = sum(1 for t in terms if t in text)
-        if query in k.lower():
-            score += 2
-        if score > 0:
-            scored.append((score, v))
-    if not scored:
-        return "未检索到相关信息"
-    top = max(s for s, _ in scored)
-    hits = [v for s, v in scored if s == top]
-    return " | ".join(dict.fromkeys(hits))[:500]
-
-
-def _tool_python(arg: str, ctx: dict[str, Any]) -> str:
-    """在子进程里执行一段 Python 代码，返回 stdout（带超时）。"""
-    timeout = float(ctx.get("code_timeout", 5))
-    try:
-        proc = subprocess.run(
-            [sys.executable, "-c", arg],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        out = proc.stdout.strip()
-        if out:
-            return out[:500]
-        err = proc.stderr.strip()
-        return f"(无 stdout) 报错: {err[:300]}" if err else "(无输出)"
-    except subprocess.TimeoutExpired:
-        return f"python 执行超时（>{timeout}s）"
-    except Exception as e:  # noqa: BLE001
-        return f"python 错误: {e}"
-
-
-# 工具注册表：要加工具就往这里加 name -> callable(arg:str, ctx:dict)->str
-TOOLS = {"calc": _tool_calc, "search": _tool_search, "python": _tool_python}
+# ============================ 工具实现（envkit 内核） ============================
+# 工具与算术求值收口到 common/envkit（与 Gym server 腿共用同一实现）；
+# python 工具经 nemo_lab_sdk.sandbox.SandboxProvider 分派（本地子进程 / 外部沙箱）。
+# 保留原模块级名字：实验 run.py 与测试按旧名引用。
+from common.envkit.tools import TOOLS as TOOLS  # noqa: E402
+from common.envkit.tools import safe_eval as safe_eval  # noqa: E402
+from common.envkit.tools import tool_calc as _tool_calc  # noqa: E402, F401
+from common.envkit.tools import tool_python as _tool_python  # noqa: E402, F401
+from common.envkit.tools import tool_search as _tool_search  # noqa: E402, F401
 
 
 # ============================ 环境状态 / 元数据 ============================
@@ -126,15 +48,10 @@ class ToolAgentMetadata(TypedDict, total=False):
 
 
 def _extract_tag(text: str, tag: str) -> Optional[str]:
-    """取最后一个 <tag>...</tag> 的内容；没有则返回 None。"""
-    open_t, close_t = f"<{tag}>", f"</{tag}>"
-    s = text.rfind(open_t)
-    if s == -1:
-        return None
-    e = text.find(close_t, s + len(open_t))
-    if e == -1:
-        return None
-    return text[s + len(open_t) : e].strip()
+    """标签解析收口到 envkit（闭标签缺失仍取全文的语义，全环境唯一实现）。"""
+    from common.envkit.tags import extract_tag
+
+    return extract_tag(text, tag)
 
 
 class ToolAgentRunner:

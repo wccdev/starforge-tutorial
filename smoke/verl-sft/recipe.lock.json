@@ -9,8 +9,8 @@
     "version": "0.8.0"
   },
   "recipe": {
-    "digest": "sha256:057f2a353b0bda4dbce93f9b8f5c587a293b01b7140301767bcd280094fb0568",
-    "manifest_digest": "sha256:ca0c04d2f37143be340e06c8d6a06b5e1de5620e5079a0890fa19d27eaf81a35",
+    "digest": "sha256:e2fe88f81b41d06d4f731eb6ceeaa2c00e5225286a1a5899cbdcb31cb5f4d6a5",
+    "manifest_digest": "sha256:79d099e5a3e966f97817742f0d6b0f5b3fcfa0ce3ea092960ffc3aad383f82d0",
     "name": "verl/sft",
     "template_digest": "sha256:774e18a5391bb5e22c21b78e7316c5a6239562677a6278dbaf41d09b6cfbbbe8",
     "version": "0.8.0"

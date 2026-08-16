@@ -81,7 +81,18 @@ def build_qa_docs_datasets(config, tokenizer, *, preamble: str, data_dir_hint: s
     system_prompt = data_cfg.get("system_prompt") or None
 
     env_cfg = dict(config.env[TASK_NAME]["cfg"])
-    max_turns = int(env_cfg.get("max_turns", config.grpo["max_rollout_turns"]))
+    max_rollout_turns = int(config.grpo["max_rollout_turns"])
+    # 默认必须留出「最后一轮只能作答」的余量：max_turns == max_rollout_turns 时
+    # 环境的超轮判负分支**永远不可达**（NeMo-RL rollout 循环跑满即退出、不再调 step），
+    # 「搜满 N 轮不作答」净收益为 +N×search_step_reward 的正数，成为零风险刷分策略
+    # —— 详见 qa_docs_agent_env 超轮分支处的可达性注释。曾经的默认值恰好复现该坏配置。
+    max_turns = int(env_cfg.get("max_turns", max(1, max_rollout_turns - 1)))
+    if max_turns >= max_rollout_turns:
+        raise ValueError(
+            f"env.{TASK_NAME}.cfg.max_turns({max_turns}) 必须 ≤ grpo.max_rollout_turns"
+            f"({max_rollout_turns}) - 1，否则超轮判负永远不会触发，"
+            "「只检索不作答」成为零风险刷分策略。"
+        )
 
     train_dataset = QADocsJsonlDataset(
         os.path.join(data_dir, "train.jsonl"), tokenizer, input_key, output_key,
