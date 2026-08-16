@@ -2,8 +2,8 @@
 from pathlib import Path
 
 import pytest
-from starforge_sdk.frameworks import CompileRequest, compile_launch_plan
-from starforge_sdk.recipes import get_recipe
+from starforge_core.frameworks import CompileRequest, compile_launch_plan
+from starforge_core.recipes import get_recipe
 
 from starforge_cli.recipe_lock import validate_recipe_lock
 from starforge_cli.spec_builder import build_spec

@@ -6,4 +6,4 @@ load: eager
 summary: 优势估计改按组内平均奖励（通过率）归一化，学习信号集中到低通过率难题
 entrypoint: maxrl_plugin:install
 requires:
-  sdk: ">=2.1,<3"
+  core: ">=2.1,<3"

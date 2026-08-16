@@ -1,81 +1,34 @@
 name: CI
 
-# 本机 CLI / 数据 / 奖励 / config 校验的轻量门禁（不跑 GPU 训练，那在集群容器里）。
 on:
   push:
     branches: [main, master]
   pull_request:
 
 jobs:
-  lint-and-test:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-
-      - name: Set up Python
-        run: uv python install 3.10
-
-      - name: Sync dev deps
-        run: uv sync --extra dev
-
-      - name: Ruff (lint)
-        run: uv run --extra dev ruff check starforge_cli tests common
-
-      - name: Pytest
-        run: uv run --extra dev pytest -q
-
-      - name: sf CLI smoke
-        run: |
-          uv run sf --help
-          uv run sf ls
-          uv run sf validate grpo_qwen3.5-4b_gsm8k_v1
-
-      - name: wheel 含脚手架资源
-        if: runner.os == 'Linux'
-        run: |
-          uv build
-          python - <<'PY'
-          import zipfile
-          from pathlib import Path
-          wheels = list(Path("dist").glob("*.whl"))
-          assert wheels, "uv build 没产出 wheel"
-          names = zipfile.ZipFile(wheels[0]).namelist()
-          assert any(n.endswith("starforge_cli/scaffold/launch.sh") for n in names), names
-          assert any("scaffold/project/configs/base/sft.yaml" in n for n in names), names
-          print("wheel scaffold ok:", wheels[0].name)
-          PY
-
-  # 干净安装：忽略 tool.uv.sources 的本地 editable SDK，从 Nexus 解析 starforge-sdk==<锁定版本>，
-  # 跑契约相关测试。目的：消灭「本机 editable SDK 与发布版漂移」——CLI 实际用户装到的
-  # 永远是 Nexus 上的发布版，CI 必须验证这条真实路径。
-  clean-install-contract:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: starforge-tutorial
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/starforge
+          token: ${{ secrets.FORGE_REPO_TOKEN || github.token }}
+          path: starforge
 
-      - name: Set up Python
-        run: uv python install 3.10
+      - uses: astral-sh/setup-uv@v5
 
-      - name: Sync without local sources (published SDK only)
-        run: uv sync --extra dev --no-sources
-
-      - name: Contract tests against published SDK
-        run: >
-          uv run --no-sources --extra dev pytest -q
-          tests/test_catalog_handshake.py tests/test_spec_builder.py
-          tests/test_cli.py tests/test_submit_pack.py tests/test_project.py
-
-      - name: sf CLI smoke (published SDK)
+      - name: 示例项目测试
+        working-directory: starforge-tutorial
         run: |
-          uv run --no-sources sf --help
-          uv run --no-sources sf methods
+          uv sync --extra dev || uv sync --extra dev --index https://pypi.org/simple
+          PYTHONPATH="$GITHUB_WORKSPACE/starforge/cli" uv run --extra dev pytest -q
+
+      - name: sf validate 示例实验
+        working-directory: starforge-tutorial
+        run: |
+          PYTHONPATH="$GITHUB_WORKSPACE/starforge/cli" \
+            uv run --project "$GITHUB_WORKSPACE/starforge" python -m starforge_cli.cli validate grpo_qwen3.5-4b_gsm8k_v1

@@ -93,7 +93,7 @@ digest 是插件目录内容的 sha256（`__pycache__`/`.pyc` 等不参与），
 发布前本地自检：
 
 ```python
-from starforge_sdk.plugins import load_manifest, directory_digest
+from starforge_core.plugins import load_manifest, directory_digest
 m = load_manifest(Path("plugins/examples/rloo"))   # manifest 不合法这里就会抛
 print(m, directory_digest(Path("plugins/examples/rloo")))
 ```
@@ -103,4 +103,4 @@ print(m, directory_digest(Path("plugins/examples/rloo")))
 - 包大小 ≤ 32 MB（插件是代码，不是数据/权重 —— 那些走 dataset/artifact 通道）
 - 版本不可变；管理员可禁用插件（只拦新提交，不影响已在跑的作业）
 - 只能发布到自己的命名空间（admin 可用 `--owner` 跨）
-- `requires.sdk` 不满足时 launcher 拒跑，写清楚它能省一次白排队
+- `requires.core` 不满足时 launcher 拒跑，写清楚它能省一次白排队

@@ -77,7 +77,7 @@ def test_install_deferred_prefers_packaged_plugin():
 
     这是 opsd 等官方插件迁移到插件包链路的兼容桥：实验入口不改一行。
     """
-    from starforge_sdk import plugins as sdk_plugins
+    from starforge_core import plugins as sdk_plugins
 
     calls = []
     sdk_plugins.register_deferred(
@@ -95,7 +95,7 @@ def test_official_plugin_packages_are_valid():
     """plugins/ 下的官方插件包必须过 manifest 校验，且与本地注册表同名同 kind 语义。"""
     from pathlib import Path
 
-    from starforge_sdk.plugins import LOAD_DEFERRED, LOAD_EAGER, load_manifest
+    from starforge_core.plugins import LOAD_DEFERRED, LOAD_EAGER, load_manifest
 
     root = Path(__file__).resolve().parent.parent / "plugins"
     expected_load = {"maxrl": LOAD_EAGER, "opsd": LOAD_DEFERRED}
@@ -104,7 +104,7 @@ def test_official_plugin_packages_are_valid():
         assert m.name == name
         assert m.kind == "algorithm"
         assert m.load == load
-        assert m.requires_sdk
+        assert m.requires_core
 
 
 def test_all_plugin_packages_in_repo_pass_validation():
@@ -114,7 +114,7 @@ def test_all_plugin_packages_in_repo_pass_validation():
     """
     from pathlib import Path
 
-    from starforge_sdk.plugins import directory_digest, load_manifest
+    from starforge_core.plugins import directory_digest, load_manifest
 
     root = Path(__file__).resolve().parent.parent / "plugins"
     manifests = sorted(root.rglob("plugin.yaml"))
@@ -128,7 +128,7 @@ def test_all_plugin_packages_in_repo_pass_validation():
 
 def test_recipe_declared_plugins_all_exist():
     """recipe 声明的 plugin 必须在注册表里，否则作业到集群才炸。"""
-    from starforge_sdk.recipes import all_recipes
+    from starforge_core.recipes import all_recipes
 
     known = set(registry.all_plugins())
     for name, r in all_recipes().items():
