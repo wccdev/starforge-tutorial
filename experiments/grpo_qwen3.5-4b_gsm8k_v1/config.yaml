@@ -51,8 +51,8 @@ loss_fn:
   reference_policy_kl_penalty: 0.01 # 贴原模型力度；0=纯追奖励易退化，过大学不动
 
 # ────────────────────────── ② 一般不动（数据接法 / 日志）──────────────────────────
-# 用 ResponseDataset 接预处理好的 GSM8K jsonl（与 9B 实验共用 datasets/gsm8k）。
-# 先 `lab prepare gsm8k`；数据 manifest 由统一 launcher 校验并准备。
+# 用 ResponseDataset 接平台数据集 aiden_lu/gsm8k。提交时 Console 生成 manifest，
+# runner 拉到共享缓存并注入 GSM8K_DATA_DIR；无需在宿主机手工准备数据目录。
 data:
   _override_: true
   max_input_seq_length: ${policy.max_total_sequence_length}
@@ -60,10 +60,12 @@ data:
   num_workers: 1
   use_multiple_dataloader: false
   train:
+    dataset: aiden_lu/gsm8k
     data_path: ${oc.env:GSM8K_DATA_DIR}/train.jsonl
     input_key: question
     output_key: answer
   validation:
+    dataset: aiden_lu/gsm8k
     data_path: ${oc.env:GSM8K_DATA_DIR}/val.jsonl
     input_key: question
     output_key: answer
@@ -71,7 +73,8 @@ data:
     dataset_name: ResponseDataset
     input_key: question
     output_key: answer
-    prompt_file: "examples/prompts/cot.txt"
+    # 固定到 NeMo-RL runtime 源码树；避免平台/本地从不同 cwd 启动时相对路径失效。
+    prompt_file: "/opt/nemo-rl/examples/prompts/cot.txt"
     system_prompt_file: null
     processor: "math_hf_data_processor"
     env_name: "math"
