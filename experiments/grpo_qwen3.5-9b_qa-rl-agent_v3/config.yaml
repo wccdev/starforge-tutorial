@@ -160,6 +160,14 @@ data:
   # ⚠️ 与基线 qa-rl_v1 必须引用同一版本，题库不一致则 A/B 失效。
   train:
     dataset: aiden_lu/qa-rl@v1
+    data_path: ${oc.env:QA_RL_DATA_DIR}/train.jsonl
+    input_key: query
+    output_key: expected_answer
+  validation:
+    dataset: aiden_lu/qa-rl@v1
+    data_path: ${oc.env:QA_RL_DATA_DIR}/val.jsonl
+    input_key: query
+    output_key: expected_answer
 
 # 自定义多轮检索判分环境；_override_ 整段替换基底的 env（math）。
 env:

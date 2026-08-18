@@ -25,6 +25,10 @@ data:
   max_response_length: 3072
   # Agent Loop 从原始 chat 消息构造轨迹，必须开。
   return_raw_chat: true
+  train:
+    dataset: aiden_lu/qa-rl@v1   # 平台数据集：作业侧自动拉取并解析路径
+  validation:
+    dataset: aiden_lu/qa-rl@v1
 
 actor_rollout_ref:
   actor:

@@ -5,7 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 # The cluster must provide these two tiny parquet fixtures explicitly.
-uv run sf submit smoke/verl-grpo \
+sf submit smoke/verl-grpo \
   --profile h200-2g \
   --model Qwen/Qwen2.5-0.5B-Instruct \
   --train-data /data/starforge/smoke/gsm8k/train.parquet \

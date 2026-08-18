@@ -120,7 +120,7 @@ def main(
     if short:
         print(f"short.jsonl : {len(short)} 条（简答题，备查/评估）")
     print("\n完成。上传为平台数据集新版本（版本不可变，更新数据请递增版本号）：")
-    print(f"  uv run sf dataset push qa-rl <新版本> {out}")
+    print(f"  sf dataset push qa-rl <新版本> {out}")
     print("然后把实验 config 的 data.train.dataset 指到新版本；本地干跑才需要：")
     print(f"  export QA_RL_DATA_DIR={out}")
 

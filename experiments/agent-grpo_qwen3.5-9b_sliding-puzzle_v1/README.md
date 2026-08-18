@@ -47,8 +47,8 @@
 
 ```bash
 # 提交到集群（经中心化服务，全程在本机；先 sf login 接入服务）
-uv run sf submit agent-grpo_qwen3.5-9b_sliding-puzzle_v1
-uv run sf logs <job_id>               # 实时日志（不给 job_id 跟随最近一个）
+sf submit agent-grpo_qwen3.5-9b_sliding-puzzle_v1
+sf logs <job_id>               # 实时日志（不给 job_id 跟随最近一个）
 ```
 
 > 前提：H100 容器里已装 NeMo-RL 0.6.0，且 `Qwen/Qwen3.5-9B-Base` 已缓存到 `HF_HOME`（或集群能直连 huggingface.co）。

@@ -111,7 +111,7 @@ sf submit maxrl_qwen3.5-9b_qa-rl-agent_v2
 验证时每次会把若干条完整多轮对话（含 `<search>` 与 grep 检索结果）打印到作业日志，直接看日志即可：
 
 ```bash
-uv run sf logs <JOB_ID>      # 不给 JOB_ID 则跟随最近一个作业
+sf logs <JOB_ID>      # 不给 JOB_ID 则跟随最近一个作业
 ```
 
 ## 结论 / 记录

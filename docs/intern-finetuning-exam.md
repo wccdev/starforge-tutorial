@@ -79,11 +79,10 @@ uv sync
 
 本机只是提交客户端，**不需要 GPU**。NeMo-RL / CUDA 等在远程集群容器内。
 
-CLI 调用方式（任选）：
+CLI 调用方式：
 
 ```bash
-uv run sf ...      # 推荐
-./lab ...           # macOS / Linux
+sf ...
 ```
 
 ### 3.3 登录微调平台
