@@ -50,10 +50,15 @@ rm_qwen3.5-4b_hh-rlhf_v1
 agent-grpo_qwen3.5-9b_toolbench_v1
 ```
 
-## 放在 experiments/ 还是 projects/
+## 实验目录一律放 experiments/
 
-- 练习、调参、复现 → `experiments/`
-- 正式、需交付、需长期维护 → `projects/`
+练习、调参、复现，以及正式交付、需长期维护的方向，都放 `experiments/`。
+（早期分出的 `projects/` 已并入 `experiments/`，不再区分两套布局。）
+
+## 实验目录 ≠ 项目
+
+`experiments/<名字>/` 是一次可提交的**实验**；**项目**是 `starforge.yaml` 的
+`name`，控制台按 `@<用户名>/<项目名>` 把提交聚合成项目。别把两者混称。
 
 ## SwanLab 命名对齐
 

@@ -30,7 +30,7 @@ CLI 与控制平面源码在 [starforge](https://github.com/wccdev/starforge) �
 
 ```
 starforge-tutorial/
-├── starforge.yaml      # 项目标记
+├── starforge.yaml      # 仓库标记，并声明项目名
 ├── experiments/        # 示例实验
 ├── configs/            # 官方基底 + 模型片段
 ├── common/             # 共享代码
