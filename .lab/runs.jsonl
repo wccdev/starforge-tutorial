@@ -1,1 +1,0 @@
-{"run_id": "agent-grpo_qwen3.5-9b_sliding-puzzle_v1-20260623-171525", "time": "2026-06-23 17:15:25", "action": "submit", "user": "aiden", "exp": "experiments/agent-grpo_qwen3.5-9b_sliding-puzzle_v1", "profile": "h100", "git_commit": "d117614", "git_dirty": true, "config_sha": "12e91c921737", "address": "http://172.19.12.24:8265"}
