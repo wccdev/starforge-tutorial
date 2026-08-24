@@ -153,6 +153,51 @@ def test_terminal_proxy_posts_logs(monkeypatch):
     assert any("train-start" in c for p in log_posts for c in p.get("chunks", []))
 
 
+def test_terminal_proxy_defers_to_log_forwarder(monkeypatch):
+    """LogForwarder 在岗时不重复上报：同一份 stdout 报两遍会在库里出现两次。"""
+    monkeypatch.setenv("STARFORGE_ENDPOINT", "http://host/api/ingest")
+    monkeypatch.setenv("STARFORGE_RUN_ID", "run-1")
+    monkeypatch.setenv("STARFORGE_TOKEN", "tok")
+    monkeypatch.setenv("STARFORGE_LOG_FORWARD", "1")
+
+    posted = []
+
+    def _post(url, json=None, headers=None, timeout=None):
+        posted.append((url, json))
+        return _resp_ok()
+
+    with patch("requests.post", _post):
+        from common.observability.session import start_observability, stop_observability
+
+        start_observability()
+        import sys
+
+        print("train-start", file=sys.stdout)
+        stop_observability()
+
+    assert not [b for url, b in posted if url.endswith("/logs")]
+
+
+def test_terminal_proxy_holds_partial_line_until_newline():
+    """半行不上报：平台按行补时间戳，跨请求切在半行上会把时间戳插到行中间。"""
+    from common.observability.terminal_proxy import TerminalProxy
+
+    proxy = TerminalProxy.__new__(TerminalProxy)
+    proxy._max_chunk_chars = 8192
+    proxy._tail = ""
+
+    assert proxy._split_on_line_boundary("Total training ", final=False) == ("", "Total training ")
+    proxy._tail = "Total training "
+    assert proxy._split_on_line_boundary(proxy._tail + "steps: 797\n", final=False) == (
+        "Total training steps: 797\n",
+        "",
+    )
+    # 收尾时不能再等下一行，否则最后一行永远发不出去。
+    assert proxy._split_on_line_boundary("crashed here", final=True) == ("crashed here", "")
+    # 进度条只写 \r，它也算行边界。
+    assert proxy._split_on_line_boundary("50%\r", final=False) == ("50%\r", "")
+
+
 def test_logger_requires_credentials(monkeypatch):
     for var in ("STARFORGE_ENDPOINT", "STARFORGE_RUN_ID", "STARFORGE_TOKEN", "NRL_RUN_ID"):
         monkeypatch.delenv(var, raising=False)
