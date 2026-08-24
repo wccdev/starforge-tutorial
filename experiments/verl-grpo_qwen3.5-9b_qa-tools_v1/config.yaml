@@ -15,6 +15,10 @@
 #      --model                                     基座模型
 #      --train-dataset / --validation-dataset      平台数据集引用 <owner>/<name>@vN
 #      --train-data / --validation-data            数据集内的相对文件名（train.parquet）
+#      --corpus                                    检索语料引用 <owner>/<name>@vN
+#    ★ 检索资料也不写在这里：平台校权后按版本只读挂进容器并注入 DOCS_DIR，
+#      资料不进作业包、不签发下载直链。写死路径等于绕开这套访问控制。
+#      漏写 --corpus 不会报错，只会让检索永远空手 → reward 怎么调都上不去（见 README）。
 #    ★ verl 路线【绝对不能】在本文件写 data.train.dataset：verl adapter 是
 #      config_mode=hydra-overrides，会把整个 YAML 扁平化成 key=value 传给
 #      verl.trainer.main_ppo，只排除模型/数据/topology 那几个权威键。

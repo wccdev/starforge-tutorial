@@ -1,7 +1,7 @@
 # verl Agent Loop 工具调用示例：题库 GRPO + 本地文档检索
 
 与 nemo-rl 的 `grpo_qwen3.5-9b_qa-rl-agent_v3` 是**同一场景的 verl 官方实现对照**：
-模型答题前可多轮调用检索工具查本地资料（`DOCS_DIR`，默认 `/data/docs`）再作答。
+模型答题前可多轮调用检索工具查内部资料（挂载点由平台注入到 `DOCS_DIR`）再作答。
 展示 verl 做「自定义环境 + Agent 多轮」的全部三个官方机制，**不需要自定义入口**。
 
 ## 两条路线的对照
@@ -60,8 +60,24 @@ sf validate verl-grpo_qwen3.5-9b_qa-tools_v1
 sf submit verl-grpo_qwen3.5-9b_qa-tools_v1 --profile h200:1 \
     --model Qwen/Qwen3.5-9B-Base \
     --train-dataset aiden_lu/qa-rl-verl@v1 --train-data train.parquet \
-    --validation-dataset aiden_lu/qa-rl-verl@v1 --validation-data val.parquet
+    --validation-dataset aiden_lu/qa-rl-verl@v1 --validation-data val.parquet \
+    --corpus aiden_lu/qa-docs@v1
 ```
+
+### 检索资料（`--corpus`）
+
+资料是**内部资料，不是数据集**：不进作业包、不签发下载直链，平台校权后把指定版本
+以只读方式挂进容器，并注入 `DOCS_DIR` / `DOCS_TOP_K` / `DOCS_MAX_CHARS`。
+`sf corpus ls` 看能引用哪些；平台侧只提供列举，没有 preview / pull。
+
+- **不要在 config 或 `tools.py` 里写死资料路径**：路径由平台给这件事本身就是访问控制的
+  一部分，写死等于绕开校权。本目录 `tools.py` 读 `DOCS_DIR`，未注入时回落 `/data/docs`
+  便于本机开发。
+- **不写 `--corpus` 就没有资料**：`tools.py` 在目录不存在时返回占位提示、不抛异常
+  （刻意的，流水线仍可跑通），代价是**训练照跑但检索永远空手**，表现为 reward 怎么调都
+  上不去。A/B 对照跑之前先确认这个参数在命令里。
+- 语料带版本且版本不可变：A/B 两侧必须引用**同一个** `<owner>/<name>@<version>`，
+  否则「多轮+检索」这个唯一变量里混进了资料差异。
 
 ## 常见坑
 
