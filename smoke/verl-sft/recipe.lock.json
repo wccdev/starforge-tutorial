@@ -1,19 +1,19 @@
 {
   "apiVersion": "forge/recipe-lock/v3",
   "created_by": {
-    "core_version": "0.1.6"
+    "core_version": "0.2.0"
   },
   "framework": {
     "kind": "verl",
-    "runtime_id": "verl-0.8.0",
-    "version": "0.8.0"
+    "runtime_id": "verl-0.9.0",
+    "version": "0.9.0"
   },
   "recipe": {
-    "digest": "sha256:d64994ba2e8c906ac8a10087c6b85dabfc4fd58ef7f84abb2aff8e7c0907b32c",
-    "manifest_digest": "sha256:6f4db36dd3a0f31f37accb81ec8413e31c1ddc8dd5df369cdb663757b2eaee55",
+    "digest": "sha256:6739a8b05c8bb245ffb1a89676daf3e6f5393df55ab9e1994a8e7cafab8ab596",
+    "manifest_digest": "sha256:f926ae38cc6f4727588e278e6af5d1ff6f6200e3d8173700d7f13b9cbd6659ba",
     "name": "verl/sft",
     "template_digest": "sha256:6da0caacfcb3a829ab74b04f516a3f85f871803e0a59a655a009cdad264694f4",
-    "version": "0.8.0"
+    "version": "0.9.0"
   },
   "requires": {
     "core": ">=0.1,<1"

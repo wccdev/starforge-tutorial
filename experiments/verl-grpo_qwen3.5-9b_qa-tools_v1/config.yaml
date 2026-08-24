@@ -11,24 +11,29 @@
 #
 # ⚠️ 数据集要求（见 prepare_data.py）：每行必须带 agent_name="tool_agent"，
 #    否则异步模式静默回落 single_turn_agent、工具永远不触发（verl issue #2986）。
-# ⚠️ 模型不写在这里：提交时 --model 绑定（平台权威键）。数据两种接法：
-#    a) 平台数据集（推荐）：此处声明 data.train.dataset: <owner>/<name>@v1，
-#       提交时 --train-data/--validation-data 写数据集内的相对文件名（如 train.parquet），
-#       作业侧自动拉到共享缓存并解析为绝对路径；
-#    b) 集群路径：--train-data/--validation-data 直接写共享盘绝对路径。
+# ⚠️ 模型与数据都不写在这里，提交时用 CLI 绑定（平台权威键）：
+#      --model                                     基座模型
+#      --train-dataset / --validation-dataset      平台数据集引用 <owner>/<name>@vN
+#      --train-data / --validation-data            数据集内的相对文件名（train.parquet）
+#    ★ verl 路线【绝对不能】在本文件写 data.train.dataset：verl adapter 是
+#      config_mode=hydra-overrides，会把整个 YAML 扁平化成 key=value 传给
+#      verl.trainer.main_ppo_sync，只排除模型/数据/topology 那几个权威键。
+#      data.train.dataset 不在排除表里，会原样变成 `data.train.dataset=...`——
+#      verl 的 data 配置没有 train 子节点，Hydra struct 模式启动即报错。
+#      （nemo-rl 路线写在 config 里是对的，那边整份 YAML 就是训练配置。）
 #    hermes 工具格式要求模型 chat template 支持工具调用，请用 Instruct 模型（如 Qwen/Qwen3.5-9B）。
 
 data:
   train_batch_size: 32
-  max_prompt_length: 1024
+  # 题库最长题面 ~1359 字符，再加 system prompt 与 hermes 注入的工具 JSON schema，
+  # 1024 会超预算；verl 默认 truncation=error，超长 prompt 直接抛异常中断训练。
+  max_prompt_length: 2048
   # 多轮预算：所有轮生成 + 工具回灌都算 response。单轮 1024 不够「搜一次 + 作答」。
   max_response_length: 3072
+  # 兜底：仍然超长的离群题在建数据集时丢掉，而不是训练中途炸掉。
+  filter_overlong_prompts: true
   # Agent Loop 从原始 chat 消息构造轨迹，必须开。
   return_raw_chat: true
-  train:
-    dataset: aiden_lu/qa-rl@v1   # 平台数据集：作业侧自动拉取并解析路径
-  validation:
-    dataset: aiden_lu/qa-rl@v1
 
 actor_rollout_ref:
   actor:

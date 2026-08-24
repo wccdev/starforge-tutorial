@@ -4,38 +4,28 @@
   compute_score(data_source, solution_str, ground_truth, extra_info=None) -> float
 
 config 的 custom_reward_function.path 指向本文件即可，官方入口动态加载，无需自定义 main。
-判分口径与 nemo-rl 对照实验（grpo_qwen3.5-9b_qa-rl-agent_v3）保持一致：
-只看 \boxed{} 内的最终答案，工具调用本身不给分——保证 A/B 可比。
+
+判分口径与 nemo-rl 对照实验（grpo_qwen3.5-9b_qa-rl-agent_v3）严格一致：直接复用
+common/rewards 的规则判分（common/ 随作业包上传，见 sf 打包白名单）。
+★ 不要在这里重写一份简化判分：题库的 ground_truth 带 [type] 前缀
+  （"[single] A" / "[multiple] A,B" / "[fill] a ||| b" / "[short] kw1 ||| kw2"），
+  自己写的精确匹配会把前缀当答案比对 → 全样本判 0，GRPO 组内奖励恒等、优势全为 0，
+  训练照跑但学不到任何东西。前缀分派与填空/简答口径都在 qa_reward 里。
+
+SHORT_SCOPE 必须是 boxed：检索工具会把资料原文回灌进上下文，若简答题按整段回答统计
+关键词覆盖率，模型只要复述检索片段就能刷满分——这是单轮无工具 baseline 不存在的通道，
+会同时抬高验证分、让 A/B 失真。nemo-rl 对照实验的 short_answer_scope 同为 boxed。
 """
 from __future__ import annotations
 
-import re
+from common.rewards import qa_reward
 
-_BOXED = re.compile(r"\\boxed\{([^{}]*)\}")
-FORMAT_PENALTY = -0.5  # 写不出 \boxed{} 的重罚，与 nemo-rl 版 qa_reward 同值
+qa_reward.SHORT_SCOPE = "boxed"
 
-
-def _normalize(text: str) -> str:
-    return re.sub(r"[\s,，、]+", "", text.strip().lower())
+FORMAT_PENALTY = qa_reward.FORMAT_PENALTY
 
 
 def compute_score(data_source, solution_str, ground_truth, extra_info=None) -> float:
-    """答案在 \\boxed{} 内则按精确匹配判分；多选题按选项集合比对。"""
-    matches = _BOXED.findall(solution_str or "")
-    if not matches:
-        return FORMAT_PENALTY
-    answer = _normalize(matches[-1])
-    truth = _normalize(str(ground_truth))
-    if not truth:
-        return 0.0
-    # 多选题（如 "A,C"）：集合相等满分，部分命中给部分分、有错选扣成 0。
-    if re.fullmatch(r"[a-h](?:[a-h])+", truth):
-        got, want = set(answer), set(truth)
-        if not got:
-            return 0.0
-        if got == want:
-            return 1.0
-        if got <= want:
-            return len(got) / len(want) * 0.5
-        return 0.0
-    return 1.0 if answer == truth else 0.0
+    """按 ground_truth 的 [type] 前缀分派规则判分；无 \\boxed{} 则 FORMAT_PENALTY。"""
+    scores = qa_reward.qa_rule_reward_fn([""], [solution_str or ""], [str(ground_truth)])
+    return scores[0]

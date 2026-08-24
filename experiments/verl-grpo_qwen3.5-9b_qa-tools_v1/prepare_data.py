@@ -10,9 +10,11 @@
   - prompt        chat 消息列表（config 已开 data.return_raw_chat）
   - agent_name    ★必须 = "tool_agent"：异步模式按它路由 Agent Loop，
                   缺了会静默回落 single_turn_agent、工具永远不触发（issue #2986）
-  - reward_model.ground_truth  喂给 reward.py compute_score 的标准答案
+  - reward_model.ground_truth  ★带 [type] 前缀原样透传（"[single] A" / "[multiple] A,B"
+                  / "[fill] a ||| b" / "[short] kw1 ||| kw2"）。reward.py 复用
+                  common/rewards 按前缀分派判分，前缀【不能】在这里剥掉
   - data_source   奖励路由用的数据集名
-输入 jsonl 每行 {"query": ..., "expected_answer": ...}，与 nemo-rl 对照实验同源。
+输入 jsonl 每行 {"query": ..., "expected_answer": "[type] ..."}，与 nemo-rl 对照实验同源。
 """
 from __future__ import annotations
 
@@ -22,10 +24,12 @@ from pathlib import Path
 
 import pandas as pd
 
+# 只讲工具用法。答案格式不在这里说——题面（query）已按题型自带 \boxed{} 指令
+# （单选填字母、填空按空用 ; 分隔、简答列要点），system 里再写一套会互相矛盾。
 SYSTEM_PROMPT = (
     "回答前可调用 search_docs 工具在公司技术资料库检索依据；"
     "检索词只保留核心术语，通常一次定向检索后就应作答。"
-    "最终答案必须放入 \\boxed{...}（单选/多选题填选项字母，如 \\boxed{B} 或 \\boxed{A,C}）。"
+    "最终答案必须按题目要求的格式放入 \\boxed{...}。"
 )
 
 
