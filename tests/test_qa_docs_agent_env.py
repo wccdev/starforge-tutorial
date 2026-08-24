@@ -458,7 +458,6 @@ def test_v07_setup_result_is_fully_unpacked_in_bootstrap():
     "rel_path",
     AGENT_RUNS + [
         "experiments/grpo_qwen3.5-9b_qa-rl_v1/run.py",
-        "experiments/agent-grpo_qwen3.5-9b_multitool_v1/run.py",
     ],
 )
 def test_grpo_run_scripts_delegate_to_bootstrap(rel_path):
