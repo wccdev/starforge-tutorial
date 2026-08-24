@@ -34,7 +34,7 @@ KL 恒等于 0，整个训练白跑。本脚本因此把「有没有参考解」
     <out>/train.jsonl   {"problem": ..., "solution": <参考解全文>, "answer": <最终答案>}
     <out>/val.jsonl     同上
 
-用法（建议经 CLI：`lab prepare opsd_math`）：
+用法（建议经 CLI：`sf dataset prepare opsd_math`）：
     python common/data/prepare_opsd_math.py                  # 默认取 8000 条
     python common/data/prepare_opsd_math.py --max-train 0     # 全量 29k
 

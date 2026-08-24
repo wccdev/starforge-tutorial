@@ -4,7 +4,7 @@
 输出 {"input": <指令(可含输入上下文)>, "output": <目标回复>}，
 配 ResponseDataset(input_key=input, output_key=output) + sft_processor。
 
-用法（建议经 CLI：`lab prepare alpaca`，在项目 uv 环境里跑）：
+用法（建议经 CLI：`sf dataset prepare alpaca`，在项目 uv 环境里跑）：
     python common/data/prepare_alpaca.py            # 写到 <repo>/datasets/alpaca/
     python common/data/prepare_alpaca.py --val-size 1000
 

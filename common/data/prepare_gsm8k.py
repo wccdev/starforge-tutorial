@@ -4,7 +4,7 @@
 GSM8K 的 answer 字段是「推理过程 + #### 最终数字」，math 环境需要干净的金标准答案，
 所以这里抽取 #### 后的数字作为 answer，写成 {"question": ..., "answer": "<数字>"}。
 
-用法（建议经 CLI：`lab prepare gsm8k`，在项目 uv 环境里跑）：
+用法（建议经 CLI：`sf dataset prepare gsm8k`，在项目 uv 环境里跑）：
     python common/data/prepare_gsm8k.py            # 写到 <repo>/datasets/gsm8k/
     python common/data/prepare_gsm8k.py --out /abs/dir
 

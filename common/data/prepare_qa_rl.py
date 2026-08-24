@@ -16,7 +16,7 @@ r"""把题库 RL 数据整理成单轮 GRPO（QARewardEnv）可用的干净 json
     val.jsonl    —— 客观题 val（不含简答，验证更快、无裁判开销）
     short.jsonl  —— 单独的简答题（备查 / 离线评估用）
 
-用法（建议经 CLI：`lab prepare qa_rl`，在项目 uv 环境里跑）：
+用法（建议经 CLI：`sf dataset prepare qa_rl`，在项目 uv 环境里跑）：
     python common/data/prepare_qa_rl.py                 # 用默认路径
     python common/data/prepare_qa_rl.py --no-merge-short # 简答不并入 train（只写 short.jsonl）
 之后上传为平台数据集版本（实验 config 用 data.train.dataset 引用，提交时自动分发）：
