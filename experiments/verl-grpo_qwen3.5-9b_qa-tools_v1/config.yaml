@@ -25,12 +25,14 @@
 #
 # ★ 本实验跑在【1 张 H200】上：提交时 `--profile h200:1`（单写 h200 = 整节点 8 张）。
 #   卡数不写在本文件里（topology 是平台权威键，会被 adapter 排除），但下面这些值
-#   是按单卡定的，换卡数要一起重算：lora.rank/alpha、optim、batch、TP、显存占比。
+#   是按单卡定的，换卡数要一起重算：lora_rank/alpha、optim、batch、TP、显存占比。
 #
 # ★ A/B 对照契约：与 nemo-rl 的 grpo_qwen3.5-9b_qa-rl-agent_v3 严格同口径
 #   （那边注释写明「batch/模型/LoRA/裁判须一致，核心变量只有多轮+检索」）。
 #   下表左侧是 nemo-rl 侧的权威值，改本文件前先看那边：
-#     LoRA dim 32 / alpha 64 / dropout 0      → model.lora.*
+#     LoRA dim 32 / alpha 64                  → model.lora_rank / lora_alpha
+#                                               （扁平键！嵌套 model.lora.* 只给
+#                                                 Megatron 读，见下方 ⚠️）
 #     lr 1e-4, min_lr 1e-5, wd 0, cosine, warmup 50/1000
 #                                             → actor.optim.*
 #     num_prompts_per_step 8                  → data.train_batch_size
