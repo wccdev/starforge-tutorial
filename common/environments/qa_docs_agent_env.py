@@ -47,13 +47,24 @@ if _REPO_ROOT not in sys.path:
 
 # ============================ 本地文档检索工具（BM25 / grep）============================
 # 在集群容器内对本地资料目录检索。默认 BM25（带排序的相关度召回，比 grep「命中即返回」更准、抗 OCR 噪声）；
-# 也可切回 grep。全部通过环境变量配置（由中心化服务在集群侧注入到作业）：
+# 也可切回 grep。全部通过环境变量配置。
+#
+# ★ 其中 DOCS_DIR / DOCS_TOP_K / DOCS_MAX_CHARS 由【平台注入】，实验不要自己设：
+#   作业在 spec.data.corpus 里声明语料引用（`<owner>/<name>[@version]`），平台校权后把
+#   对应版本以只读方式挂进容器，并注入这三个值。资料本身不进作业包、不签发下载直链 ——
+#   路径由平台决定这件事本身就是访问控制的一部分，写死路径等于绕开它。
+#   其余变量是检索行为的调参，仍由实验/部署自行决定。
+#   未声明语料时 DOCS_DIR 回落到下面的默认值，便于本机开发。
+#   ⚠️ 片段上限（TOP_K / MAX_CHARS）目前靠本工具自觉遵守；等检索改成服务化，
+#      它们会变成服务端强制配额，本文件无需改动。
+#
 #   DOCS_RETRIEVER       检索后端：bm25（默认）| grep。bm25 纯 Python 自实现，零外部依赖、结果可解释。
-#   DOCS_DIR             资料根目录（含子目录），默认 /data/docs。目录不存在 → 返回占位提示（不抛异常）。
+#   DOCS_DIR             [平台注入] 资料根目录（含子目录），默认 /data/docs。
+#                        目录不存在 → 返回占位提示（不抛异常）。
 #   DOCS_GLOB            只搜哪些文件，默认 *.md（只搜 markdown）。
-#   DOCS_TOP_K           最多回灌几个命中片段（grep 按文件聚合 / bm25 按 chunk），默认 3。
+#   DOCS_TOP_K           [平台注入] 最多回灌几个命中片段（grep 按文件聚合 / bm25 按 chunk），默认 3。
 #   DOCS_CONTEXT_LINES   [grep] 每个命中额外带几行上下文（grep -C），默认 2。
-#   DOCS_MAX_CHARS       单次检索回灌进上下文的总字符上限，默认 500（短 seq 多轮防 host RAM OOM）。
+#   DOCS_MAX_CHARS       [平台注入] 单次检索回灌进上下文的总字符上限，默认 500（短 seq 多轮防 host RAM OOM）。
 #   DOCS_MAX_PER_FILE    [grep] 单个文件最多取几处命中（grep -m），默认 3，避免一个文件刷屏。
 #   DOCS_TIMEOUT         [grep] 单次 grep 子进程超时（秒），默认 15。
 #   DOCS_OR_FALLBACK     [grep] 整句精确匹配查不到时，是否再做「关键词分词 OR 召回」（默认 1 开；0 关）。
