@@ -10,6 +10,9 @@ from starforge_cli.spec_builder import build_spec
 
 ROOT = Path(__file__).resolve().parents[1]
 MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
+# qa-tools 实验的基座：必须与 nemo-rl 对照侧 grpo_qwen3.5-9b_qa-rl-agent_v3 同一个
+# （A/B 契约），且其 chat template 需支持 tools —— 该 Base 模型自带的模板支持。
+QA_TOOLS_MODEL = "Qwen/Qwen3.5-9B-Base"
 TRAIN = "/data/starforge/smoke/gsm8k/train.parquet"
 VALIDATION = "/data/starforge/smoke/gsm8k/test.parquet"
 
@@ -81,7 +84,7 @@ def test_qa_tools_config_compiles_to_legal_hydra_overrides():
         recipe="verl/grpo",
         # 本实验实际跑在 1 张 H200 上，按真实形状编译。
         pools=["all:h200:1:1"],
-        base_model="Qwen/Qwen3.5-9B",
+        base_model=QA_TOOLS_MODEL,
         train_data="train.parquet",
         validation_data="val.parquet",
         train_dataset=dataset,
@@ -125,7 +128,7 @@ def test_qa_tools_lora_lands_on_the_key_fsdp_actually_reads():
         "experiments/verl-grpo_qwen3.5-9b_qa-tools_v1",
         recipe="verl/grpo",
         pools=["all:h200:1:1"],
-        base_model="Qwen/Qwen3.5-9B",
+        base_model=QA_TOOLS_MODEL,
         train_data="train.parquet",
         validation_data="val.parquet",
         train_dataset=dataset,

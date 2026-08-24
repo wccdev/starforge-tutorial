@@ -21,7 +21,10 @@
 #      data.train.dataset 不在排除表里，会原样变成 `data.train.dataset=...`——
 #      verl 的 data 配置没有 train 子节点，Hydra struct 模式启动即报错。
 #      （nemo-rl 路线写在 config 里是对的，那边整份 YAML 就是训练配置。）
-#    hermes 工具格式要求模型 chat template 支持工具调用，请用 Instruct 模型（如 Qwen/Qwen3.5-9B）。
+#    模型固定用 Qwen/Qwen3.5-9B-Base：A/B 契约要求与 nemo-rl 对照侧同一个模型，
+#    且它已在共享缓存里完整落盘。hermes 需要 tokenizer 的 chat template 支持 tools
+#    （verl 用 apply_chat_template(..., tools=...) 注入工具 schema）——这一点先验证
+#    再换模型，别按「Base 一定不支持」想当然：本模型自带的模板就带 tools/tool_call。
 #
 # ★ 本实验跑在【1 张 H200】上：提交时 `--profile h200:1`（单写 h200 = 整节点 8 张）。
 #   卡数不写在本文件里（topology 是平台权威键，会被 adapter 排除），但下面这些值

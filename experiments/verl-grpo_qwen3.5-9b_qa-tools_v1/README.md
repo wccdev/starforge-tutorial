@@ -22,6 +22,7 @@ nemo-rl 侧注释写明「batch/模型/LoRA/裁判须严格一致，核心变量
 
 | nemo-rl（qa-rl-agent_v3） | verl（本实验 `config.yaml`） |
 |---|---|
+| `policy.model_name: Qwen/Qwen3.5-9B-Base` | 提交时 `--model Qwen/Qwen3.5-9B-Base`（不写在 config 里） |
 | `megatron_cfg.peft` dim 32 / alpha 64 | `actor_rollout_ref.model.{lora_rank,lora_alpha}`（扁平键，见坑 17） |
 | `dropout: 0` | FSDP 路径无此键，PEFT 默认即 0 |
 | `target_modules` 四个 Megatron 融合层名 | 换算成 7 个 HF 名（`q/k/v/o/gate/up/down_proj`） |
@@ -54,10 +55,10 @@ python experiments/verl-grpo_qwen3.5-9b_qa-tools_v1/prepare_data.py \
     --data-dir datasets/qa_rl --out-dir /tmp/qa_rl_verl
 sf dataset push aiden_lu/qa-rl-verl v1 /tmp/qa_rl_verl --public
 
-# 2. 校验 + 提交（模型须用支持工具调用 chat template 的 Instruct 版）
+# 2. 校验 + 提交（模型须与 nemo-rl 对照侧一致，且模板要支持 tools —— 见坑 7）
 sf validate verl-grpo_qwen3.5-9b_qa-tools_v1
 sf submit verl-grpo_qwen3.5-9b_qa-tools_v1 --profile h200:1 \
-    --model Qwen/Qwen3.5-9B \
+    --model Qwen/Qwen3.5-9B-Base \
     --train-dataset aiden_lu/qa-rl-verl@v1 --train-data train.parquet \
     --validation-dataset aiden_lu/qa-rl-verl@v1 --validation-data val.parquet
 ```
@@ -88,8 +89,22 @@ sf submit verl-grpo_qwen3.5-9b_qa-tools_v1 --profile h200:1 \
 5. **数据集行缺 `agent_name: "tool_agent"`** → 异步模式静默回落单轮、工具永不触发
    （issue #2986）。`prepare_data.py` 已注入；`config.yaml` 也设了 `default_agent_loop` 兜底。
 6. **`rollout.mode` 不是 `async`** → Agent Loop 不生效。
-7. **Base 模型 + hermes 格式** → chat template 不支持工具调用，全程不出 `<tool_call>`；
-   用 Instruct 模型，或换 `format` 为模型模板支持的格式。
+7. **换模型时没验证 chat template 支持 `tools`** → hermes 的工具 schema 是靠
+   `tokenizer.apply_chat_template(messages, tools=...)` 注入的（`workers/rollout/schemas.py`），
+   模板不认 `tools` 就等于从没告诉模型有哪些工具，全程不出 `<tool_call>`，
+   而训练照跑、只是 reward 平着——很难归因。
+   注意**不能**按「Base 模型一定不支持」筛选：本实验用的
+   `Qwen/Qwen3.5-9B-Base` 自带的模板就含 `tools` / `tool_call`。
+   换模型前直接查一眼 `tokenizer_config.json` 的 `chat_template`：
+
+```bash
+curl -s https://huggingface.co/<repo>/raw/main/tokenizer_config.json \
+  | python3 -c "import json,sys; t=json.load(sys.stdin).get('chat_template') or ''; print('tools:', 'tools' in t, '| tool_call:', 'tool_call' in t)"
+```
+
+   模板确实不支持时，才需要换 `format` 为模型模板支持的格式。
+   （对照：nemo-rl 路线用自定义 Environment 从裸文本解析 `<search>`，
+   完全不经过 chat template，所以那边换模型没有这个约束。）
 8. **`max_prompt_length` 按题面裸长度估** → hermes 会把工具 JSON schema 注入 system，
    本题库最长题面 1359 字符，1024 装不下；verl 默认 `truncation=error` 会直接抛异常。
    本实验给 2048 并开 `filter_overlong_prompts` 兜住离群题。
