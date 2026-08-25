@@ -70,6 +70,23 @@ _PENDING_BATCH: Any = None
 # 完整 batch」；与其各自去猴子补丁同一个函数（互相覆盖、顺序敏感），不如只补一次、多方旁听。
 _ROLLOUT_LISTENERS: list = []
 
+# 老师侧本 step 的指标，等 Logger 把它们并进 train 批次（见 install_opsd 的第 ④ 步）。
+# 必须走 driver 里的 Logger：老师包装器活在 driver，而损失函数里的 metrics 字典在
+# worker 进程，模块级变量传不过去。
+_TEACHER_METRICS: dict[str, float] = {}
+
+
+def publish_teacher_metrics(metrics: dict[str, float]) -> None:
+    _TEACHER_METRICS.clear()
+    _TEACHER_METRICS.update(metrics)
+
+
+def take_teacher_metrics() -> dict[str, float]:
+    """取出并清空老师侧指标：没跑老师的 step 不该重复上报上一步的值。"""
+    out = dict(_TEACHER_METRICS)
+    _TEACHER_METRICS.clear()
+    return out
+
 
 def add_rollout_listener(fn) -> None:
     """注册 rollout 旁听者：每次 rollout 结束时以完成后的 batch 调用一次。
@@ -290,7 +307,6 @@ class OPSDTeacher:
         self.max_seq_len = max_seq_len
         self.make_divisible_by = make_divisible_by
         self.teacher_mode = teacher_mode
-        self.last_metrics: dict[str, float] = {}
 
     def bind(self, inner: Any) -> None:
         """self 模式下把学生 policy 回填进来当老师。"""
@@ -357,11 +373,11 @@ class OPSDTeacher:
             response_lens=response_lens,
             student_seq_len=data["input_ids"].shape[1],
         )
-        self.last_metrics = {
+        publish_teacher_metrics({
             "opsd_hint_len_mean": float(hint_prompt_lens.float().mean()),
             "opsd_response_len_mean": float(response_lens.float().mean()),
             "opsd_teacher_seq_len": float(hint_ids.shape[1]),
-        }
+        })
         return BatchedDataDict({"topk_logits": logits, "topk_indices": indices})
 
     def _inner(self) -> Any:
@@ -511,12 +527,13 @@ def install_opsd(
 ) -> None:
     """把 OPSD 装进 NeMo-RL 的 distillation 主循环。必须在 `distillation.setup()` 之前调用。
 
-    做三件事：
+    做四件事：
       ① 劫持 rollout 函数 —— 每个 step 的 batch 暂存下来，老师从里面取参考解。
       ② 劫持 `Policy` 构造 —— 主循环写死了「先建老师、再建学生」，这里在建老师时返回
          一个 `OPSDTeacher` 壳；teacher_mode="self" 时壳内为空，等学生建好后回填
          （于是全程只有一份模型权重）；"fixed" 时壳内包着真正加载出来的老师。
       ③ 修补 `check_vocab_equality` —— 兼容 Qwen3.5 等把 vocab_size 放在 text_config 的模型。
+      ④ 劫持 `Logger` 构造 —— 把老师侧指标并进每 step 的 train 指标批次。
     """
     from nemo_rl.algorithms import distillation
 
@@ -597,5 +614,31 @@ def install_opsd(
         )
 
     distillation.check_vocab_equality = check_vocab_equality
+
+    # ---- ④ 老师侧指标并入 train 批次 ---------------------------------------
+    # 老师算出的 hint/response 长度是判断「参考解条件化是否按预期生效」的唯一窗口，
+    # 但主循环的 metrics 字典里没有它们的位置。在 Logger 构造处包一层，让它们和其余
+    # train/* 走同一条上报链路（含平台指标桥），而不是再开一条上报通道。
+    if hasattr(distillation, "Logger"):
+        real_logger_cls = distillation.Logger
+
+        def logger_factory(*args: Any, **kwargs: Any):
+            logger = real_logger_cls(*args, **kwargs)
+            original = logger.log_metrics
+
+            def log_metrics(metrics: dict, step: int, *a: Any, **kw: Any):
+                # prefix 位置参数/关键字都可能，原样透传；只认 train 那一批。
+                prefix = kw.get("prefix", a[0] if a else "")
+                if prefix == "train":
+                    teacher = take_teacher_metrics()
+                    if teacher:
+                        metrics = {**metrics, **teacher}
+                return original(metrics, step, *a, **kw)
+
+            logger.log_metrics = log_metrics
+            return logger
+
+        distillation.Logger = logger_factory
+
     distillation._opsd_installed = True
     print(f"[OPSD] 已安装（teacher_mode={teacher_mode}, max_seq_len={max_seq_len}）", flush=True)

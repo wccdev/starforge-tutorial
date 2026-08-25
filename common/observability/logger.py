@@ -1,4 +1,12 @@
-"""StarForgeLogger：实现 NeMo-RL LoggerInterface 兼容接口，主动上报 console。"""
+"""StarForgeLogger：实现 NeMo-RL LoggerInterface 兼容接口，主动上报 console。
+
+指标上报只是**兜底**：平台侧 starforge_core 的框架桥装上后会设
+STARFORGE_METRICS_BRIDGE=1，本类据此让路 —— 两个生产端同时上报同一批指标就是双份
+数据，而且两端的嵌套键展平分隔符不同（平台用 "/"，这里用 "."），双写会把同一个
+指标裂成两条曲线。只有平台桥缺席的路径（离线跑 run.py、自定义镜像入口）才由这里报。
+
+硬件采集与超参上报没有第二个生产者，不受这个开关影响。
+"""
 from __future__ import annotations
 
 import os
@@ -8,6 +16,13 @@ from typing import Any, Mapping, Optional
 from common.observability.hardware_monitor import HardwareMonitor
 from common.observability.session import get_ingest
 from common.observability.util import flatten_dict, scalarize_metric
+
+#: 由 starforge_core.frameworks.observability.METRICS_BRIDGE_ENV 设置。
+METRICS_BRIDGE_ENV = "STARFORGE_METRICS_BRIDGE"
+
+
+def _platform_bridge_active() -> bool:
+    return os.environ.get(METRICS_BRIDGE_ENV) == "1"
 
 
 class StarForgeLogger:
@@ -71,6 +86,8 @@ class StarForgeLogger:
         step_finished: bool = False,
     ) -> None:
         del step_metric, step_finished
+        if _platform_bridge_active():
+            return
         flat = flatten_dict(metrics)
         if prefix:
             flat = {

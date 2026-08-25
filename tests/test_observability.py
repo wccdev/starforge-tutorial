@@ -128,6 +128,43 @@ def test_logger_enqueues_metrics(monkeypatch):
     assert "validation/accuracy" in keys
 
 
+def test_logger_defers_metrics_to_platform_bridge(monkeypatch):
+    """平台指标桥在岗时不重复上报。
+
+    两个生产端同时报同一批指标就是双份写入，而且两端的嵌套键展平分隔符不同
+    （平台用 "/"，这里用 "."），双写会把同一个指标裂成两条曲线。
+    """
+    monkeypatch.setenv("STARFORGE_ENDPOINT", "http://host/api/ingest")
+    monkeypatch.setenv("STARFORGE_RUN_ID", "run-1")
+    monkeypatch.setenv("STARFORGE_TOKEN", "tok")
+    monkeypatch.setenv("STARFORGE_MONITOR_HARDWARE", "0")
+    monkeypatch.setenv("STARFORGE_METRICS_BRIDGE", "1")
+
+    posted = []
+
+    def _post(url, json=None, headers=None, timeout=None):
+        posted.append((url, json))
+        return _resp_ok()
+
+    with patch("requests.post", _post):
+        from common.observability.logger import StarForgeLogger
+        from common.observability.session import start_observability, stop_observability
+
+        start_observability()
+        try:
+            nl = StarForgeLogger({})
+            nl.log_metrics({"reward": 0.6}, step=1, prefix="train")
+            # 超参没有第二个生产者，不受这个开关影响。
+            nl.log_hyperparams({"lr": 1e-6})
+            nl._ingest.flush()
+            nl.finish()
+        finally:
+            stop_observability()
+
+    assert not [b for _, b in posted if b.get("points")]
+    assert [b for url, b in posted if url.endswith("/hparams")]
+
+
 def test_terminal_proxy_posts_logs(monkeypatch):
     monkeypatch.setenv("STARFORGE_ENDPOINT", "http://host/api/ingest")
     monkeypatch.setenv("STARFORGE_RUN_ID", "run-1")

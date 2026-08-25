@@ -15,9 +15,19 @@ from types import SimpleNamespace  # noqa: E402
 from common.algorithms.opsd import (  # noqa: E402
     build_hint_inputs,
     config_vocab_size,
+    publish_teacher_metrics,
     realign_topk,
     split_prompt_response,
+    take_teacher_metrics,
 )
+
+
+# ------------------------------------------------------------- 老师侧指标
+def test_teacher_metrics_are_drained_on_read():
+    """取走即清空：老师没跑的 step 不该把上一步的长度再报一遍。"""
+    publish_teacher_metrics({"opsd_hint_len_mean": 12.0})
+    assert take_teacher_metrics() == {"opsd_hint_len_mean": 12.0}
+    assert take_teacher_metrics() == {}
 
 
 # ---------------------------------------------------------------- split

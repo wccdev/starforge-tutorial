@@ -1,7 +1,7 @@
 {
   "apiVersion": "forge/recipe-lock/v3",
   "created_by": {
-    "core_version": "0.2.1"
+    "core_version": "0.2.4"
   },
   "framework": {
     "kind": "verl",
@@ -9,8 +9,8 @@
     "version": "0.9.0"
   },
   "recipe": {
-    "digest": "sha256:982863ea522aec0af986e184632e0e83b08d0b6e9028c15b023da4e6c987d8a0",
-    "manifest_digest": "sha256:a421ea09afa5f93490c7fa1d146c4e71048b18ee0a470c364b85ccdea7ce7990",
+    "digest": "sha256:7386c9abec00e078e2ad211a4293a9033571b326b68b993358c5f782545a06cd",
+    "manifest_digest": "sha256:96c549da4f99df079f01eb53065de48091cd1aa819b6796448354ec7bed27143",
     "name": "verl/grpo",
     "template_digest": "sha256:94d43860a77588be3079e8f8d077939009bfbd118bfeac7bbbfe473b15e938bb",
     "version": "0.9.0"
