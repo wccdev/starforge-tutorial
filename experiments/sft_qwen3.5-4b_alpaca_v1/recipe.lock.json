@@ -1,7 +1,7 @@
 {
   "apiVersion": "forge/recipe-lock/v3",
   "created_by": {
-    "core_version": "0.2.4"
+    "core_version": "0.2.5"
   },
   "framework": {
     "kind": "nemo-rl",
