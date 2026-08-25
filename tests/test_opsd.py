@@ -7,7 +7,7 @@ token 完全一样，但绝对下标差了 (Lq - Lp)。所以这里把对齐当�
 
 import pytest
 
-# 本机 lab CLI venv 刻意不装 torch（客户端无需 GPU 依赖）；这些用例在训练容器 / CI 里跑。
+# 本机 sf CLI venv 刻意不装 torch（客户端无需 GPU 依赖）；这些用例在训练容器 / CI 里跑。
 torch = pytest.importorskip("torch", reason="需要 torch，在训练容器内运行")
 
 from types import SimpleNamespace  # noqa: E402

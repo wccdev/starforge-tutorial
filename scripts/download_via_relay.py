@@ -51,7 +51,7 @@ MS_ENDPOINT = "https://www.modelscope.cn"
 
 DEFAULT_IGNORE = ["*.gguf", "*.msgpack", "*.h5", "*.onnx", "*.onnx_data", "original/*", "consolidated*"]
 
-MARKER = ".lab_download_complete"
+MARKER = ".starforge_download_complete"
 
 _LOG_LOCK = threading.Lock()
 _LOG_FH = None

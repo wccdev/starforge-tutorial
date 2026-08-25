@@ -66,7 +66,7 @@ DEFAULT_IGNORE = [
 ]
 
 # 完成标记放在 models--*/ 下而不是 snapshots/ 里，免得污染模型目录。
-MARKER = ".lab_download_complete"
+MARKER = ".starforge_download_complete"
 
 # 魔搭文件条目：(相对路径, 字节数, sha256)
 MsFile = tuple[str, int, "str | None"]

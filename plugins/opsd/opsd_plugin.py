@@ -6,7 +6,7 @@ starforge_core.plugins 的 deferred 表，训练入口拿到 tokenizer 后统一
 common.algorithms.registry.install_deferred("opsd", ...) 装载（registry
 会优先取插件包版本）。发布：
 
-    sf plugin publish plugins/opsd --owner lab
+    sf plugin publish plugins/opsd --owner <你的账号>
 """
 from __future__ import annotations
 

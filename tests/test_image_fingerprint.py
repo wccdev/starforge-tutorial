@@ -20,7 +20,7 @@ def _clean_env(monkeypatch):
     monkeypatch.setattr(env_probe, "IMAGE_FINGERPRINT_FILE", "/nonexistent/starforge-image")
 
 
-def test_prefers_lab_image_env(monkeypatch):
+def test_prefers_forge_image_env(monkeypatch):
     """统一 launcher 已经算好并导出了，Python 侧不该再自己算一遍。"""
     monkeypatch.setenv("FORGE_IMAGE", "registry/starforge:0.7.0-20260805@abc123")
     assert env_probe.collect_image_id() == "registry/starforge:0.7.0-20260805@abc123"
