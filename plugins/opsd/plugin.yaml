@@ -1,4 +1,4 @@
-schema: lab-plugin/v1
+schema: forge/plugin/v1
 name: opsd
 version: 0.1.0
 kind: algorithm

@@ -21,7 +21,7 @@ my-plugin/
 `plugin.yaml` 全部字段：
 
 ```yaml
-schema: lab-plugin/v1
+schema: forge/plugin/v1
 name: my-plugin           # 叶子名（字母数字开头，仅含字母/数字/. _ -）；
                           # 对外 ID = <owner>/<name>，owner 由平台在发布时按你的账号盖章
 version: 0.1.0            # 不可变：改了内容必须换版本号，同版本重发会被 409 拒绝
