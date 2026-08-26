@@ -3,7 +3,8 @@
 签名与 verl 内置 reward_score 一致（docs/preparation/reward_function）：
   compute_score(data_source, solution_str, ground_truth, extra_info=None) -> float
 
-config 的 custom_reward_function.path 指向本文件即可，官方入口动态加载，无需自定义 main。
+config 的 reward.custom_reward_function.path（以及顶层旧键 custom_reward_function.path）
+指向本文件即可，官方入口动态加载，无需自定义 main。verl 0.9 V1 只读前者。
 
 判分口径与 nemo-rl 对照实验（grpo_qwen3.5-9b_qa-rl-agent_v3）严格一致：直接复用
 common/rewards 的规则判分（common/ 随作业包上传，见 sf 打包白名单）。

@@ -154,3 +154,46 @@ def test_qa_tools_lora_lands_on_the_key_fsdp_actually_reads():
     assert not nested, f"嵌套 LoRA 键只有 Megatron 读，fsdp2 下会静默失效: {nested}"
     # 单卡：vLLM 的 TP 默认是 2，不显式写 1 会去要第二张卡。
     assert "actor_rollout_ref.rollout.tensor_model_parallel_size=1" in overrides
+
+
+def test_qa_tools_reward_lands_on_the_key_v1_actually_reads():
+    """自定义奖励必须落到 reward.custom_reward_function.path。
+
+    现场（作业 20260825-111511）：只写了顶层 custom_reward_function.path，
+    hydra 传进去了，但 verl 0.9 V1 的 get_custom_reward_fn 只读
+    config.reward.custom_reward_function；main_ppo 又没调用后来才加的
+    migrate_legacy_reward_impl。于是走内置 default_compute_score，碰到
+    data_source='qa_rl' 抛 NotImplementedError，验证集全部打分失败，
+    _validate 再 kv_batch_get([]) → Received an empty list as keys。
+    顶层旧键留给平台校验（认 custom_reward_function.path），两套必须同文件。
+    """
+    dataset = "aiden_lu/qa-rl-verl@v1"
+    spec = build_spec(
+        "experiments/verl-grpo_qwen3.5-9b_qa-tools_v1",
+        recipe="verl/grpo",
+        pools=["all:h200:1:1"],
+        base_model=QA_TOOLS_MODEL,
+        train_data="train.parquet",
+        validation_data="val.parquet",
+        train_dataset=dataset,
+        validation_dataset=dataset,
+    )
+    plan = compile_launch_plan(CompileRequest(
+        operation="train",
+        spec=spec,
+        recipe=get_recipe("verl/grpo"),
+        work_dir=ROOT,
+        env={
+            "STARFORGE_ENABLED": "0",
+            "FORGE_CLUSTER_NUM_NODES": "1",
+            "FORGE_CLUSTER_GPUS_PER_NODE": "1",
+            "QA_RL_VERL_DATA_DIR": "/data/starforge/datasets/aiden_lu/qa-rl-verl/v1",
+        },
+    ))
+    overrides = _hydra_overrides(plan.argv)
+    path = 'experiments/verl-grpo_qwen3.5-9b_qa-tools_v1/reward.py'
+    assert f'reward.custom_reward_function.path="{path}"' in overrides
+    assert 'reward.custom_reward_function.name="compute_score"' in overrides
+    assert f'custom_reward_function.path="{path}"' in overrides
+    leaked = [o for o in overrides if o.startswith("_REWARD_FN.")]
+    assert not leaked, f"YAML anchor 顶层键会被扁平化成非法 hydra override: {leaked}"

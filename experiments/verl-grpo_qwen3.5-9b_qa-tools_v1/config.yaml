@@ -7,7 +7,9 @@
 # 三个官方机制（见 recipe 模板 README 与 verl docs/advance/agent_loop）：
 #   1. rollout.mode=async + multi_turn.enable + agent.default_agent_loop=tool_agent → ReAct 式多轮
 #   2. multi_turn.function_tool_path → tools.py 里 @function_tool 注册的检索工具
-#   3. custom_reward_function.path → reward.py 的 compute_score 最终判分
+#   3. reward.custom_reward_function.path → reward.py 的 compute_score 最终判分
+#      （顶层 custom_reward_function 是文档旧键，平台校验认它；verl 0.9 V1
+#       只读 reward.custom_reward_function，两套必须同文件，见 README 坑 18）
 #
 # ⚠️ 数据集要求（见 prepare_data.py）：每行必须带 agent_name="tool_agent"，
 #    否则异步模式静默回落 single_turn_agent、工具永远不触发（verl issue #2986）。
@@ -145,9 +147,24 @@ actor_rollout_ref:
 
 # verl 官方自定义奖励（docs/preparation/reward_function）：最终判分与工具无关，
 # 只看 \boxed{} 答案是否命中 ground_truth（与 nemo-rl 对照实验同口径）。
+#
+# ⚠️ 必须两套键都写、且指向同一文件（见 README 坑 18）：
+#    - 顶层 custom_reward_function：文档旧键；平台 sf validate 认这个路径。
+#    - reward.custom_reward_function：verl 0.9 V1 RewardLoop 实际读取的键。
+#    只写顶层时 hydra 看起来传进去了，V1 仍走内置 default_compute_score，
+#    碰到 data_source=qa_rl 抛 NotImplementedError，验证集打分全失败，
+#    最后表现为 kv_batch_get 空 keys。verl 0.9 的 main_ppo 没有
+#    migrate_legacy_reward_impl，旧键不会被自动搬过来。
+#    不要用 YAML anchor 抽一层：adapter 会把顶层键扁平化成 hydra override，
+#    `_REWARD_FN.path=...` 会让 Hydra struct 模式启动即报错。
 custom_reward_function:
   path: experiments/verl-grpo_qwen3.5-9b_qa-tools_v1/reward.py
   name: compute_score
+
+reward:
+  custom_reward_function:
+    path: experiments/verl-grpo_qwen3.5-9b_qa-tools_v1/reward.py
+    name: compute_score
 
 algorithm:
   use_kl_in_reward: false

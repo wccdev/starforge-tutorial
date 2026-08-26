@@ -99,6 +99,10 @@ def test_config_declares_official_agent_loop_contract():
         assert (ROOT / rel).is_file(), f"{key} 指向的文件必须存在于仓库内: {rel}"
     reward_rel = cfg["custom_reward_function"]["path"]
     assert (ROOT / reward_rel).is_file()
+    # verl 0.9 V1 只读 reward.custom_reward_function；顶层旧键不够。
+    v1 = cfg["reward"]["custom_reward_function"]
+    assert v1["path"] == reward_rel
+    assert v1["name"] == cfg["custom_reward_function"]["name"] == "compute_score"
 
 
 def test_config_keeps_dataset_refs_out_of_hydra_overrides():

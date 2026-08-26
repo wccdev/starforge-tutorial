@@ -10,7 +10,7 @@
 |---|---|---|
 | 多轮循环 | 自定义 Environment 类 + `max_rollout_turns` | 官方 Agent Loop（`tool_agent`），config 声明 |
 | 环境交互 | `QADocsAgentEnv.step()` 解析 `<search>` | `tools.py` 里 `@function_tool` 的 `search_docs` |
-| 判分 | Environment 内调 `common/rewards` | `reward.py` 的 `compute_score`（`custom_reward_function`） |
+| 判分 | Environment 内调 `common/rewards` | `reward.py` 的 `compute_score`（`reward.custom_reward_function`，见坑 18） |
 | 入口 | 实验自带 `run.py` | 官方 `verl.trainer.main_ppo`，无自定义入口 |
 
 ## 硬件与 A/B 契约
@@ -166,3 +166,9 @@ curl -s https://huggingface.co/<repo>/raw/main/tokenizer_config.json \
     `ppo_trainer.yaml` 的 `model` 段两套都列着、都不报错，所以写错不会有任何提示：
     单卡上表现为 OOM，多卡上则是安静地跑出一个全参数结果、和 LoRA 的 A/B 不可比。
     vLLM 侧（`vllm_async_server.py`）先读嵌套再回落扁平，所以只设扁平键就能贯通 rollout。
+18. ★ **自定义奖励只写顶层 `custom_reward_function.path`** → verl 0.9 V1 的
+    `get_custom_reward_fn` 只读 `reward.custom_reward_function.path`；`main_ppo`
+    没有调用后来才加的 `migrate_legacy_reward_impl`，旧键不会被搬过去。
+    表现：训练前验证打出 `Reward function is not implemented for data_source='qa_rl'`，
+    随后 `_validate` 再报 `Received an empty list as keys`（验证轨迹全部打分失败，
+    TransferQueue 里没有 key）。顶层旧键留给平台 `sf validate`；两套必须同文件。
