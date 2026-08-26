@@ -25,10 +25,10 @@ jobs:
         working-directory: starforge-tutorial
         run: |
           uv sync --extra dev || uv sync --extra dev --index https://pypi.org/simple
-          PYTHONPATH="$GITHUB_WORKSPACE/starforge/cli" uv run --extra dev pytest -q
+          PYTHONPATH="$GITHUB_WORKSPACE/starforge/core" uv run --extra dev pytest -q
 
       - name: sf validate 示例实验
         working-directory: starforge-tutorial
         run: |
-          PYTHONPATH="$GITHUB_WORKSPACE/starforge/cli" \
-            uv run --project "$GITHUB_WORKSPACE/starforge" python -m starforge_cli.cli validate grpo_qwen3.5-4b_gsm8k_v1
+          PYTHONPATH="$GITHUB_WORKSPACE/starforge/core" \
+            uv run --project "$GITHUB_WORKSPACE/starforge" sf validate grpo_qwen3.5-4b_gsm8k_v1

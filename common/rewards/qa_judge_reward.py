@@ -147,11 +147,11 @@ def qa_judge_reward_fn(queries, completions, expected_answers, **kwargs):
         # 而不是等训完才发现「LLM 裁判实验」实际在用关键词覆盖率训练。
         if judge_jobs:
             try:
-                from common.telemetry import report_metrics
+                from starforge.report import log
 
                 global _JUDGE_BATCHES
                 _JUDGE_BATCHES += 1
-                report_metrics(
+                log(
                     {"env/judge_fallback_rate": fallbacks / len(judge_jobs)},
                     step=_JUDGE_BATCHES,
                 )

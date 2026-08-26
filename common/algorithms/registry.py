@@ -123,7 +123,7 @@ def install_deferred(name: str, params: Mapping[str, Any] | None = None, **ctx: 
     params 采用 launcher 登记时的 spec 超参（与 eager 插件同一口径）。
     """
     try:
-        from starforge_core import plugins as sdk_plugins
+        from starforge import plugins as sdk_plugins
     except ImportError:
         sdk_plugins = None
     if sdk_plugins is not None and name in sdk_plugins.deferred_names():

@@ -1,6 +1,8 @@
-# SwanLab 接入（NeMo-RL 0.6.0）
+# SwanLab（可选第三方）
 
-NeMo-RL 0.6.0 **原生支持 SwanLab** logger（与 WandB / TensorBoard / MLflow 并列），无需自己写日志代码。所有训练日志统一上传云端 SwanLab，便于跨实验、跨硬件对比。
+StarForge console 上的训练曲线 / 硬件来自平台 runner 与 `starforge.report`，
+不依赖 SwanLab。下面只在你**另外**要把日志打到 SwanLab 云时才需要。
+
 
 ## 1. 登录
 

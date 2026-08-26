@@ -3,7 +3,7 @@
 StarForge（星锻）**官方示例项目**。布局与 `sf init` 生成的用户项目相同：这是给人读、给人 fork 的完整微调仓库，不是 CLI 工具源码。
 
 ```bash
-pip install starforge-cli
+pip install starforge
 sf login --server https://<你的 StarForge 域名>
 sf ls
 sf validate grpo_qwen3.5-4b_gsm8k_v1
@@ -11,7 +11,8 @@ sf validate grpo_qwen3.5-4b_gsm8k_v1
 #   sf init my-lab --yes
 ```
 
-CLI 与控制平面源码在 [starforge](https://github.com/wccdev/starforge) 仓的 `cli/` 与 `server/`。
+CLI 与控制平面源码在 [starforge](https://github.com/wccdev/starforge) 仓。
+`pip install starforge` 得到 `sf`；控制面是另一只包 `starforge-server`。
 
 ## 示例实验
 

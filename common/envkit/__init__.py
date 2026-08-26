@@ -10,7 +10,7 @@
                     （/seed_session + /verify + 类型化工具路由），供
                     NeMo Gym / 任意 rollout 框架接入
 
-工具中的代码执行统一走 starforge_core.sandbox.SandboxProvider 分派
+工具中的代码执行统一走 starforge.sandbox.SandboxProvider 分派
 （本地子进程 / 外部 E2B 兼容沙箱，由平台注入的环境变量决定）。
 """
 from __future__ import annotations

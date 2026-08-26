@@ -71,7 +71,7 @@ def tool_python(arg: str, ctx: dict[str, Any]) -> str:
     """执行一段 Python 代码，返回 stdout（经 SandboxProvider 分派，带超时）。"""
     timeout = float(ctx.get("code_timeout", 5))
     try:
-        from starforge_core.sandbox import get_sandbox_provider
+        from starforge.sandbox import get_sandbox_provider
 
         result = get_sandbox_provider().run_code(arg, timeout=timeout)
     except Exception as e:  # noqa: BLE001 — 沙箱层失败给模型可读反馈，不炸训练

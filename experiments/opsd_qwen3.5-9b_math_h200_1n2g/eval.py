@@ -90,9 +90,9 @@ def main() -> int:
     )
 
     # 上报到 console：跑不通也不该让评测失败（本地直跑时本就没有 STARFORGE_* 凭据）。
-    from common.observability import report
+    from starforge.report import finish, init, log
 
-    report.init(
+    init(
         hparams={
             "eval_model": args.model, "eval_n": spec.n,
             "eval_temperature": spec.temperature, "eval_max_tokens": spec.max_tokens,
@@ -123,7 +123,7 @@ def main() -> int:
         results[name] = metrics
         print("[eval] " + format_report(name, metrics), flush=True)
         # 每个评测集一个 step，指标在 console 上按数据集分开看
-        report.log(metrics, step=len(results), prefix=f"eval/{name}")
+        log(metrics, step=len(results), prefix=f"eval/{name}")
 
     print("\n" + "=" * 72)
     print("最终结果（可与论文表格逐项对照）")
@@ -132,7 +132,7 @@ def main() -> int:
         print(format_report(name, metrics))
     print("=" * 72)
 
-    report.finish()
+    finish()
     return 0
 
 

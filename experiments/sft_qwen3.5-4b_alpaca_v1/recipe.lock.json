@@ -1,7 +1,7 @@
 {
   "apiVersion": "forge/recipe-lock/v3",
   "created_by": {
-    "core_version": "0.2.7"
+    "core_version": "0.3.0"
   },
   "framework": {
     "kind": "nemo-rl",
@@ -9,8 +9,8 @@
     "version": "0.7.0"
   },
   "recipe": {
-    "digest": "sha256:a5d800661ea2ef5a8cb50c64bf9e51ae010386123e1cc20d17243613a6494f2a",
-    "manifest_digest": "sha256:8499884b17dcad5f05a0b7d4941fbfbd3fcbf515ea9dc0512a74154b1c9c247d",
+    "digest": "sha256:19bfd13bad516ebbbc76184c9ff4395326dc9a483f070c1e69a0fce679258d3c",
+    "manifest_digest": "sha256:b5d523ac651d12c579c519a16acdc3b856336161781aa43ad67480a106b5bdd9",
     "name": "nemo-rl/sft",
     "template_digest": "sha256:13879d4a25dd0f8c73979200fff54750cc35d87982e15512e17c36697a682b1d",
     "version": "0.7.0"

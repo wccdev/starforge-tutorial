@@ -59,12 +59,12 @@
 
 ## 三、Fork 仓库与本机环境
 
-### 3.1 Fork 客户端仓库（第一步）
+### 3.1 Fork 示例仓库（第一步）
 
-在 GitHub 上 **Fork** 官方客户端仓库到你自己的账号：
+在 GitHub 上 **Fork** 官方示例仓库到你自己的账号：
 
 ```
-https://github.com/wccdev/starforge-cli
+https://github.com/wccdev/starforge-tutorial
 ```
 
 Fork 后你在自己的仓库里创建实验、改代码、提交 commit。**考试期间的所有改动都在你的 Fork 里完成**，不要直接在官方仓库改。
@@ -72,14 +72,12 @@ Fork 后你在自己的仓库里创建实验、改代码、提交 commit。**考
 ### 3.2 克隆你的 Fork 并安装 CLI
 
 ```bash
-git clone https://github.com/<你的GitHub用户名>/starforge.git
-cd starforge
-uv sync
+pip install starforge
+git clone https://github.com/<你的GitHub用户名>/starforge-tutorial.git
+cd starforge-tutorial
 ```
 
 本机只是提交客户端，**不需要 GPU**。NeMo-RL / CUDA 等在远程集群容器内。
-
-CLI 调用方式：
 
 ```bash
 sf ...
@@ -217,8 +215,8 @@ sf job stop <job_id>   # 停止作业、释放 GPU
 
 ## 八、操作流程 Checklist
 
-- [ ] GitHub Fork `wccdev/starforge-cli`
-- [ ] 克隆自己的 Fork，`uv sync`
+- [ ] GitHub Fork `wccdev/starforge-tutorial`
+- [ ] 克隆自己的 Fork，`pip install starforge`
 - [ ] 连 VPN，登录 [starforge.gcoreinc.com](https://starforge.gcoreinc.com/)
 - [ ] `sf login` + `sf status`
 - [ ] 研究两个示例实验，创建并实现自己的 QA 多轮检索实验
@@ -232,7 +230,7 @@ sf job stop <job_id>   # 停止作业、释放 GPU
 ## 附录：常用命令
 
 ```bash
-uv sync
+pip install starforge
 sf login --server https://starforge.gcoreinc.com
 sf status
 sf ls

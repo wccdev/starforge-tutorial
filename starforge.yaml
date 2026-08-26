@@ -1,7 +1,7 @@
 # StarForge 仓库标记：`sf` 命令以此发现仓库根，勿删除。
 # name 是本仓库的项目名——提交后控制台按 @<用户名>/<项目名> 聚合成一个项目。
 # 本仓库是官方示例仓库（starforge-tutorial），不是 CLI 工具仓。
-# 日常微调请：pip install starforge-cli && sf init <你的仓库>
+# 日常微调请：pip install starforge && sf init <你的仓库>
 apiVersion: forge/project/v1
 name: starforge-tutorial
-created_by: starforge-cli 0.1.0
+created_by: starforge 0.3.0

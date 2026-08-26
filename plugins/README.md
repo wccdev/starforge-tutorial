@@ -93,7 +93,7 @@ digest 是插件目录内容的 sha256（`__pycache__`/`.pyc` 等不参与），
 发布前本地自检：
 
 ```python
-from starforge_core.plugins import load_manifest, directory_digest
+from starforge.plugins import load_manifest, directory_digest
 m = load_manifest(Path("plugins/examples/rloo"))   # manifest 不合法这里就会抛
 print(m, directory_digest(Path("plugins/examples/rloo")))
 ```

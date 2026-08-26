@@ -2,11 +2,11 @@
 from pathlib import Path
 
 import pytest
-from starforge_core.frameworks import CompileRequest, compile_launch_plan
-from starforge_core.recipes import get_recipe
+from starforge.frameworks import CompileRequest, compile_launch_plan
+from starforge.recipes import get_recipe
 
-from starforge_cli.recipe_lock import validate_recipe_lock
-from starforge_cli.spec_builder import build_spec
+from starforge.cli.recipe_lock import validate_recipe_lock
+from starforge.cli.spec_builder import build_spec
 
 ROOT = Path(__file__).resolve().parents[1]
 MODEL = "Qwen/Qwen2.5-0.5B-Instruct"

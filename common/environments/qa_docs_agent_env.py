@@ -753,10 +753,10 @@ class QADocsAgentEnv(EnvironmentInterface[QADocsMetadata]):
         # reward-hacking 监控：同一批统计以 env/* 指标上报平台（best-effort），
         # 与训练主指标同看板，search_rate 掉 0 / 格式错误暴涨在 web 上直接可见。
         try:
-            from common.telemetry import report_metrics
+            from starforge.report import log
 
             self._stats_flushes = getattr(self, "_stats_flushes", 0) + 1
-            report_metrics({
+            log({
                 "env/search_rate": s["answers_with_search"] / ans,
                 "env/useful_retrieval_rate": s["useful_retrievals"] / att,
                 "env/answers": float(s["answers"]),
