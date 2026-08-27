@@ -3,7 +3,7 @@
 # （不接裁判 LLM / RAGFlow / 工具服务器），单机 1×H100 开箱即跑，最适合先把链路跑通。
 # 入口是 NeMo-RL 自带 examples/run_grpo_sliding_puzzle.py，由 recipe 明确声明。
 #
-# 继承官方多轮基底 + 模型 + 后端 + LoRA，只写差异（NeMo-RL 0.6.0 原生 defaults 机制）：
+# 继承官方多轮基底 + 模型 + 后端 + LoRA，只写差异（NeMo-RL 0.7.0 defaults）：
 defaults:
   - ../../configs/base/grpo_sliding_puzzle.yaml # 多轮拼图环境 + 多轮 rollout（自带，无外部依赖）
   - ../../configs/models/qwen3.5-9b.yaml # 9B 模型片段

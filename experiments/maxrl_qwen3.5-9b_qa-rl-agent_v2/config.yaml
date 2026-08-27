@@ -3,11 +3,11 @@
 # 奖励是自定义环境 QADocsAgentEnv（common/environments/qa_docs_agent_env.py），由本目录 run.py 实例化
 # （task_name=qa_docs，读取 env.qa_docs.cfg）。最终判分复用 common/rewards 的 qa 奖励（与单轮实验同源）。
 #
-# ★ 本实验 = grpo_qwen3.5-9b_qa-rl-agent_v1（GRPO 多轮检索）的【MaxRL 改版】：
+# ★ 本实验 = grpo_qwen3.5-9b_qa-rl-agent_v3（GRPO 多轮检索）的【MaxRL 改版】：
 #   唯一差异是 RL 优化目标 —— 把 GRPO 的优势归一化从「除以组内标准差 σ」换成 MaxRL 的「除以组内平均奖励 μ」
 #   （论文《Maximum Likelihood Reinforcement Learning》arXiv:2602.02710；实现 common/algorithms/maxrl.py）。
 #   由下方 grpo.adv_estimator.name=="maxrl" 触发，run.py 在训练前 install_maxrl_estimator() 打补丁。
-#   数据 / 模型 / LoRA / batch / seq / 裁判 / 多轮检索全部与 v1 一致，便于直接对比 GRPO vs MaxRL 两条曲线。
+#   数据 / 模型 / LoRA / batch / seq / 裁判 / 多轮检索全部与 qa-rl-agent_v3 一致，便于直接对比 GRPO vs MaxRL。
 #   ⚠️ 资料目录由 DOCS_DIR 控制（默认 /data/docs）；目录不存在时 <search> 返回占位提示，流程可跑通但拿不到资料。
 defaults:
   - ../../configs/base/grpo_math_1B.yaml

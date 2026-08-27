@@ -1,7 +1,7 @@
 [project]
 name = "starforge-tutorial"
 version = "0.1.0"
-description = "StarForge 官方示例项目：用 sf init 同款布局展示 SFT / GRPO / Agent / verl / TRL。"
+description = "Official StarForge example project: same layout as sf init (SFT / GRPO / Agent / verl / TRL)."
 requires-python = ">=3.10"
 dependencies = []
 

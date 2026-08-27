@@ -1,4 +1,4 @@
-"""单轮题库 QA 奖励环境（NeMo-RL 0.6.0）。
+"""单轮题库 QA 奖励环境（NeMo-RL 0.7.0）。
 
 把 common/rewards 里的判分逻辑包成一个 GRPO 环境：每个 prompt 是一道题，模型答一次
 （单轮，max_rollout_turns=1），环境据 `expected_answer` 算 reward 并立即结束。

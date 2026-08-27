@@ -1,40 +1,55 @@
 # starforge-tutorial
 
-StarForge（星锻）**官方示例项目**。布局与 `sf init` 生成的用户项目相同：这是给人读、给人 fork 的完整微调仓库，不是 CLI 工具源码。
+Official example project for [StarForge](https://github.com/wccdev/starforge). Same layout as `sf init`: experiments, configs, shared code. This is not the CLI source.
 
 ```bash
-pip install starforge
-sf login --server https://<你的 StarForge 域名>
+pip install starforge-core
+sf login --server https://<your console>
 sf ls
 sf validate grpo_qwen3.5-4b_gsm8k_v1
-# 日常请另开自己的项目：
-#   sf init my-lab --yes
 ```
 
-CLI 与控制平面源码在 [starforge](https://github.com/wccdev/starforge) 仓。
-`pip install starforge` 得到 `sf`；控制面是另一只包 `starforge-server`。
+Day-to-day work belongs in your own repo:
 
-## 示例实验
+```bash
+sf init my-lab --yes
+```
 
-| 实验 | 方法 |
-| --- | --- |
-| `experiments/sft_qwen3.5-4b_alpaca_v1` | SFT |
-| `experiments/grpo_qwen3.5-4b_gsm8k_v1` | GRPO |
-| `experiments/grpo_qwen3.5-9b_gsm8k_v1` | GRPO |
-| `experiments/agent-grpo_qwen3.5-9b_multitool_v1` | 多轮 Agent |
-| `experiments/verl-grpo_qwen3.5-9b_qa-tools_v1` | verl GRPO |
-| `experiments/trl-grpo_qwen3.5-9b_qa-tools_v1` | TRL GRPO |
+`starforge-core` is the client (`sf`). The control plane is a separate package, `starforge-server`.
 
-`common/` 是随作业包上传的共享代码（数据脚本 / 环境 / 奖励）。`plugins/` 是示例算法插件。
+## Experiments
 
-## 目录
+| Directory | Method | Notes |
+| --- | --- | --- |
+| `sft_qwen3.5-4b_alpaca_v1` | `nemo-rl/sft` | Local Alpaca jsonl |
+| `grpo_qwen3.5-4b_gsm8k_v1` | `nemo-rl/grpo` | GSM8K, Megatron + LoRA |
+| `agent-grpo_qwen3.5-9b_sliding-puzzle_v1` | `nemo-rl/grpo` | Built-in sliding-puzzle env, 1×H100 |
+| `grpo_qwen3.5-9b_qa-rl_v1` | `nemo-rl/grpo` | Internal QA, single turn, no tools |
+| `grpo_qwen3.5-9b_qa-rl-agent_v3` | `nemo-rl/grpo` | Same QA, multi-turn BM25 search |
+| `maxrl_qwen3.5-9b_qa-rl-agent_v2` | `nemo-rl/maxrl` | Same agent setup, MaxRL advantage |
+| `opsd_qwen3.5-9b_math_h200_1n2g` | `nemo-rl/opsd` | On-policy self-distillation |
+| `verl-grpo_qwen3.5-9b_qa-tools_v1` | `verl/grpo` | Same QA+tools scene, verl Agent Loop |
+| `trl-grpo_qwen3.5-9b_qa-tools_v1` | `trl/grpo` | Same scene, TRL `tools=` |
+
+`common/` ships with the job package (data scripts, environments, rewards). `plugins/` has example algorithm / data-prep plugins. `smoke/` is a tiny-GPU verl check.
+
+## Layout
 
 ```
-starforge-tutorial/
-├── starforge.yaml      # 仓库标记，并声明项目名
-├── experiments/        # 示例实验
-├── configs/            # 官方基底 + 模型片段
-├── common/             # 共享代码
-├── plugins/            # 示例插件
-└── smoke/              # 最小 GPU smoke
+starforge.yaml      repo marker + project name
+experiments/        one directory per submitable job
+configs/            NeMo-RL bases + model fragments
+common/             shared code uploaded with the job
+plugins/            example plugins
+datasets/           metadata / prepare scripts (large files gitignored)
+scripts/            HF cache download helpers, verl smoke
+smoke/              minimal verl SFT / GRPO
 ```
+
+New experiment:
+
+```bash
+sf new my-grpo --method nemo-rl/grpo
+```
+
+Hardware is `--profile` at submit time, not a `cluster/` tree in this repo.

@@ -2,7 +2,7 @@
 
 用 **MaxRL**（GRPO 的最大似然改版）在自有**技术培训考题题库**上强化训练 **Qwen 3.5 9B**。**多轮**：模型回答前可多次调用 `<search>`，由环境在**集群容器内**对本地资料目录做 **BM25** 检索 **markdown** 文件，拿到资料再作答。
 
-> **这是 [`grpo_qwen3.5-9b_qa-rl-agent_v1`](../grpo_qwen3.5-9b_qa-rl-agent_v1) 的 MaxRL 改版**：
+> **这是 [`grpo_qwen3.5-9b_qa-rl-agent_v3`](../grpo_qwen3.5-9b_qa-rl-agent_v3) 的 MaxRL 改版**：
 > 数据 / 模型 / LoRA / batch / seq / 裁判奖励 / 多轮检索**全部一致**，**唯一变量是 RL 优化目标**——
 > 把 GRPO 的优势归一化从「除以组内标准差 σ」换成 MaxRL 的「除以组内平均奖励 μ」。
 > 对比目标：在同样的多轮检索题库任务上，**MaxRL 能否比 GRPO 更准 / 更抗过拟合（pass@k 不退化）**。
@@ -111,7 +111,7 @@ sf submit maxrl_qwen3.5-9b_qa-rl-agent_v2
 验证时每次会把若干条完整多轮对话（含 `<search>` 与 grep 检索结果）打印到作业日志，直接看日志即可：
 
 ```bash
-sf logs <JOB_ID>      # 不给 JOB_ID 则跟随最近一个作业
+sf job logs <JOB_ID>      # 省略 ID 则跟最近一个作业
 ```
 
 ## 结论 / 记录

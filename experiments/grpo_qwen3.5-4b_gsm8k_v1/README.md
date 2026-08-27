@@ -20,22 +20,19 @@
 > 硬件/分布式（卡数、并行度、NCCL）不在这里调，由服务端 profile 注册表下发（FORGE_PROFILE_OVERRIDES）。
 > 奖励逻辑在 `env.math`（数学判分用 NeMo-RL 内置 `math_verify`），自定义奖励才动 `common/rewards/`。
 
-## 与 9B 版的区别
+| 项 | 4B（本实验） |
+| --- | --- |
+| LoRA | dim16 / alpha32 / **lr 2e-4** |
+| batch | num_prompts=4 / gen=4 / global=16 |
+| 序列 | 1024 |
+| 生成 | 非 colocated（1 卡生成 / 1 卡训练） |
 
-| 项 | 4B（本实验） | 9B（`grpo_qwen3.5-9b_gsm8k_v1`） |
-| --- | --- | --- |
-| LoRA | dim16 / alpha32 / **lr 2e-4** | dim8 / alpha16 / lr 1e-4 |
-| batch | num_prompts=4 / gen=4 / global=16 | num_prompts=4 / gen=8 / global=32 |
-| 序列 | 1024 | 1250 |
-| 生成 | **非 colocated**（1 卡生成 / 1 卡训练） | 非 colocated |
+非 colocated + 2 卡时训练侧只剩 1 卡，PP 只能是 1。并行度由服务端 `--profile` 下发。
 
-> **非 colocated + 2 卡 ⇒ PP=1**：2 张卡里 1 张专跑生成、1 张训练，训练侧只剩 1 卡，
-> 无法 PP=2（PP=2 需要 2 张训练卡，那要回 colocated）。并行度由服务端 profile 注册表下发。
-
-## 数据准备（与 9B 共用）
+## 数据准备
 
 ```bash
-lab prepare gsm8k                              # 写到 datasets/gsm8k/{train,val}.jsonl
+sf dataset prepare gsm8k                   # 写到 datasets/gsm8k/{train,val}.jsonl
 ```
 
 数据随作业上传，统一 launcher 会校验并准备 dataset manifest，提交时无需手动 export。
@@ -48,9 +45,8 @@ lab prepare gsm8k                              # 写到 datasets/gsm8k/{train,va
 ## 运行
 
 ```bash
-# 提交到集群（经中心化服务）
 sf submit grpo_qwen3.5-4b_gsm8k_v1
-lab logs                          # 跟随最近一个作业日志
+sf job logs                       # 省略 ID 则跟最近一个作业
 ```
 
 ## SwanLab

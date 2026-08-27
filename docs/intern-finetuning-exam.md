@@ -72,7 +72,7 @@ Fork 后你在自己的仓库里创建实验、改代码、提交 commit。**考
 ### 3.2 克隆你的 Fork 并安装 CLI
 
 ```bash
-pip install starforge
+pip install starforge-core
 git clone https://github.com/<你的GitHub用户名>/starforge-tutorial.git
 cd starforge-tutorial
 ```
@@ -216,7 +216,7 @@ sf job stop <job_id>   # 停止作业、释放 GPU
 ## 八、操作流程 Checklist
 
 - [ ] GitHub Fork `wccdev/starforge-tutorial`
-- [ ] 克隆自己的 Fork，`pip install starforge`
+- [ ] 克隆自己的 Fork，`pip install starforge-core-core`
 - [ ] 连 VPN，登录 [starforge.gcoreinc.com](https://starforge.gcoreinc.com/)
 - [ ] `sf login` + `sf status`
 - [ ] 研究两个示例实验，创建并实现自己的 QA 多轮检索实验
@@ -230,7 +230,7 @@ sf job stop <job_id>   # 停止作业、释放 GPU
 ## 附录：常用命令
 
 ```bash
-pip install starforge
+pip install starforge-core
 sf login --server https://starforge.gcoreinc.com
 sf status
 sf ls

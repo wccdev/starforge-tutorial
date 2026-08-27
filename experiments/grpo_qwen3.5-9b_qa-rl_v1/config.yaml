@@ -4,7 +4,7 @@
 # （task_name=qa，读取 env.qa.cfg）。数据走 run.py 自建 Dataset，不用 ResponseDataset。
 #
 # ★ 对比实验【实验一 / baseline】：单轮、无工具——模型直接答题，环境判分即结束。
-#   对照组【实验二 / treatment】= grpo_qwen3.5-9b_qa-rl-agent_v1（多轮 + 本地文档检索工具）。
+#   对照组【实验二 / treatment】= grpo_qwen3.5-9b_qa-rl-agent_v3（多轮 + 本地文档检索工具）。
 #   两者共用同一数据集 / 模型 / LoRA / batch / 裁判奖励，核心差异是「能否多轮检索本地资料」。
 #   注：seq 不同是有意的——baseline 单轮 1536 够用；agent 多轮要装下检索回灌+作答，需更大（3072），否则答案被截断。
 defaults:
@@ -17,7 +17,7 @@ defaults:
 # ══════════════════════════════════════════════════════════════════════════
 #  调参速查 —— 你主要动【① 调参区】这几行。硬件/分布式由服务端 profile 注册表下发，不在这。
 #  本实验目标集群：提交时 sf submit --profile 指定（推荐值见 README）；下列数值按该卡显存调，换卡 sf submit --profile 覆盖（通常要重调）。
-#  ⚠️ 这是对比实验 baseline：batch/模型/LoRA/裁判须与 qa-rl-agent_v1 严格一致，否则破坏对比。
+#  ⚠️ 这是对比实验 baseline：batch/模型/LoRA/裁判须与 qa-rl-agent_v3 严格一致，否则破坏对比。
 #     （seq 例外：agent 多轮需更大预算装下检索+作答，故两边 seq 有意不同，详见 agent config 注释。）
 # ──────────────────────────────────────────────────────────────────────────
 #  lr / dim / alpha                       默认来自 grpo_lora 基底(lr 1e-4 / dim8 / alpha16)
@@ -31,7 +31,7 @@ defaults:
 # ───────────────────────────── ① 调参区（按需改）─────────────────────────────
 policy:
   # 用已完整缓存的 base 模型（与 agent 实验一致；instruct 版集群没下全会卡在下载）。
-  # ⚠️ 对比实验二必须用同一个模型，改这里也要同步改 qa-rl-agent_v1。
+  # ⚠️ 对比实验二必须用同一个模型，改这里也要同步改 qa-rl-agent_v3。
   model_name: "Qwen/Qwen3.5-9B-Base"
   tokenizer:
     name: "Qwen/Qwen3.5-9B-Base"

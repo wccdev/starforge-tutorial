@@ -65,13 +65,13 @@ def main() -> int:
             raise SystemExit(
                 f"这些评测集不在 {args.data_dir}：{', '.join(missing)}；"
                 f"可用的有：{', '.join(files) or '（无）'}。"
-                "请先在能出网的机器上 `lab prepare opsd_math` 再 rsync 过来。"
+                "请先在能出网的机器上 `sf dataset prepare opsd_math` 再 rsync 过来。"
             )
         files = {k: files[k] for k in want}
     if not files:
         raise SystemExit(
             f"{args.data_dir} 下没有 eval_*.jsonl。"
-            "请先 `lab prepare opsd_math` 生成，再 rsync 到集群。"
+            "请先 `sf dataset prepare opsd_math` 生成，再 rsync 到集群。"
         )
 
     spec = EvalSpec(

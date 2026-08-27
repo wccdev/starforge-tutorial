@@ -48,7 +48,7 @@
 每行 `{"problem": ..., "solution": <参考解全文>, "answer": <最终答案>}`。
 
 **不走 HF `dataset_name`** —— 集群无外网，在线拉取必然失败。生成与投放见
-`datasets/opsd_math/README.md`（`lab prepare opsd_math` + rsync）。
+`datasets/opsd_math/README.md`（`sf dataset prepare opsd_math` + rsync）。
 
 ## 关键参数
 

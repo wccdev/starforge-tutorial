@@ -8,12 +8,12 @@
 
 - **多轮**：模型每轮输出一步移动，环境返回新棋面，循环到拼好或用尽步数。
 - **奖励自动判定**：拼好=1，不用接裁判 LLM。
-- **零外部依赖**：不接 RAGFlow / 工具服务器 / 裁判端点（对比同目录 `qa-rl-agent`、`multitool`）。
+- **零外部依赖**：不接 RAGFlow / 工具服务器 / 裁判端点（对照同目录 `qa-rl-agent`）。
 - **环境与入口都在 NeMo-RL 里**：直接用自带 `examples/run_grpo_sliding_puzzle.py`，本目录无需写 `run.py`。
 
 ## 目标集群
 
-`cluster` 文件 = `h100`（单机 1×H100 80GB）。`sf submit` 默认用它；`--profile` 可临时换卡（换卡通常要重调显存类超参）。
+`sf submit` 用 `--profile h100`（单机 1×H100 80GB）。换卡通常要重调显存类超参。本仓库没有 `cluster/` 目录。
 
 ## 组成
 
@@ -46,12 +46,11 @@
 ## 运行
 
 ```bash
-# 提交到集群（经中心化服务，全程在本机；先 sf login 接入服务）
 sf submit agent-grpo_qwen3.5-9b_sliding-puzzle_v1
-sf logs <job_id>               # 实时日志（不给 job_id 跟随最近一个）
+sf job logs                    # 省略 ID 则跟最近一个
 ```
 
-> 前提：H100 容器里已装 NeMo-RL 0.6.0，且 `Qwen/Qwen3.5-9B-Base` 已缓存到 `HF_HOME`（或集群能直连 huggingface.co）。
+镜像需带 NeMo-RL 0.7.0；`Qwen/Qwen3.5-9B-Base` 应已在 `HF_HOME`，或集群能拉 HuggingFace。
 
 ## SwanLab
 

@@ -41,8 +41,8 @@ KL 恒等于 0，训练白跑。`prepare_opsd_math.py` 因此把「有无参考�
 在**能出网的机器上**（中继机即可）：
 
 ```bash
-lab prepare opsd_math                      # 默认取 8000 条训练样本
-lab prepare opsd_math -- --max-train 0     # 全量 29k
+sf dataset prepare opsd_math                      # 默认取 8000 条训练样本
+sf dataset prepare opsd_math -- --max-train 0     # 全量 29k
 ```
 
 ## 放到集群

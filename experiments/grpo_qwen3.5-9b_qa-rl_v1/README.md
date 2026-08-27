@@ -3,7 +3,7 @@
 用 **GRPO** 在自有**技术培训考题题库**上强化训练 **Qwen 3.5 9B**。单轮：模型答一道题，环境判分即结束。
 
 > **这是 A/B 对比的基线组**：单轮、**无工具**。
-> 对照组（实验二 / treatment）= [`grpo_qwen3.5-9b_qa-rl-agent_v1`](../grpo_qwen3.5-9b_qa-rl-agent_v1)：**多轮 + 本地文档检索工具**（容器内 grep `/data/docs` 的 markdown）。
+> 对照组（实验二）= [`grpo_qwen3.5-9b_qa-rl-agent_v3`](../grpo_qwen3.5-9b_qa-rl-agent_v3)：**多轮 + 本地文档检索**。
 > 两个实验共用同一数据集 / 模型 / LoRA / batch / seq / 裁判奖励，**唯一变量**是「能否多轮检索本地资料回答」。
 > 先跑本实验拿到 baseline 曲线，再跑实验二对比。
 
@@ -29,7 +29,7 @@
 
 ```bash
 # 在本机：先本地预处理（若 datasets/qa_rl 还没 train/val.jsonl）
-lab prepare qa_rl
+sf dataset prepare qa_rl
 # 再把 *.jsonl 放到集群共享盘的 /data/datasets/qa_rl（与 config 的 data_dir 一致）
 ```
 

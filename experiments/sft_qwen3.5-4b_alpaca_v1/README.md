@@ -1,7 +1,6 @@
 # sft_qwen3.5-4b_alpaca_v1
 
-监督微调（SFT）示例：`qwen3.5-4b` 在 Alpaca 指令数据上做 SFT。与 GRPO / 多轮 Agent
-实验共同构成 SFT / GRPO / Agent 三种方法的样板。
+监督微调（SFT）示例：`qwen3.5-4b` 在 Alpaca 指令数据上做 SFT。和本仓的 GRPO / Agent 实验一起看即可。
 
 ## 目标
 
@@ -27,7 +26,7 @@ export ALPACA_DATA_DIR="$(pwd)/datasets/alpaca"   # 供 config.yaml 的 ${oc.env
 
 ## SFT vs GRPO
 
-| | 本实验（SFT） | grpo_qwen3.5-9b_gsm8k_v1（GRPO） |
+| | 本实验（SFT） | `grpo_qwen3.5-4b_gsm8k_v1`（GRPO） |
 | --- | --- | --- |
 | 学习信号 | 监督：模仿标注回复 | 强化：按奖励/正确性优化 |
 | 是否需要环境 | 否 | 是（math 环境验证） |

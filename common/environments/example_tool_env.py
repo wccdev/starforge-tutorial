@@ -1,4 +1,4 @@
-"""可运行的多轮「多工具」Agent Environment（NeMo-RL 0.6.0）。
+"""可运行的多轮「多工具」Agent Environment（NeMo-RL 0.7.0）。
 
 照官方 `nemo_rl/environments/games/sliding_puzzle.py` 的结构写成，可直接用于 GRPO 多轮
 Agent 训练。内置三个工具，贴近真实 Agent 场景：

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # 题库「多轮 + 本地文档检索」Agent GRPO 训练脚本（NeMo-RL 0.7.0）——【MaxRL 版 / v2】。
 #
-# 与 v1（grpo_qwen3.5-9b_qa-rl-agent_v1）的唯一差异：把 GRPO 的优势归一化从「除以组内标准差 σ」
+# 与 qa-rl-agent_v3 的唯一差异：把 GRPO 的优势归一化从「除以组内标准差 σ」
 #   改成论文《Maximum Likelihood Reinforcement Learning》(MaxRL, arXiv:2602.02710) 的「除以组内平均奖励 μ」：
 #       GRPO : Â = (r-μ)/σ        MaxRL : Â = (r-μ)/μ   （μ=0 整组置 0）
 #   实现见 common/algorithms/maxrl.py；通过 run_grpo 的 before_train 钩子安装 install_maxrl_estimator()，
