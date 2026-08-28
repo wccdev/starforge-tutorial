@@ -30,7 +30,7 @@ sf init my-lab --yes
 | `opsd_qwen3.5-9b_math_h200_1n2g` | `nemo-rl/opsd` | On-policy self-distillation |
 | `verl-grpo_qwen3.5-9b_qa-tools_v1` | `verl/grpo` | Same QA+tools scene, verl Agent Loop |
 | `trl-grpo_qwen3.5-9b_qa-tools_v1` | `trl/grpo` | Same scene, TRL `tools=` |
-| `verl-grpo_qwen3.5-9b_rtl-agent_v1` | `verl/grpo` | RTL design agent: compiler-in-the-loop, three-stage reward |
+| `verl-grpo_qwen3.5-9b_rtl-agent_v1` | `verl/grpo` | RTL design agent: compiler-in-the-loop, three-stage reward ([data guide](docs/rtl-dataset.md)) |
 
 `common/` ships with the job package (data scripts, environments, rewards). `plugins/` has example algorithm / data-prep plugins. `smoke/` is a tiny-GPU verl check.
 

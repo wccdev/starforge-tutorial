@@ -87,6 +87,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 | `tools.py` | `compile_rtl` / `lint_rtl` 两个 `@function_tool`，都只做静态分析 |
 | `reward.py` | verl `compute_score` 薄适配器 → `common/rewards/rtl_reward.py` |
 | `prepare_data.py` | 题库 jsonl → verl parquet（testbench 进 `ground_truth`，不进 prompt） |
+| `check_data.py` | **上训练前先跑**：查 testbench 判不判得出错（见下） |
 | `recipe.lock.json` | 锁 verl 0.9.0 |
 
 ## 跑起来
@@ -115,11 +116,31 @@ sf submit experiments/verl-grpo_qwen3.5-9b_rtl-agent_v1 \
 每行 jsonl：
 
 ```json
-{"spec": "设计一个 4 位同步计数器，带同步复位……", "testbench": "module tb; … endmodule", "top": "counter"}
+{"id": "counter_01", "spec": "实现 module counter(input clk, …)；4 位同步计数器……",
+ "top": "counter", "reference": "module counter … endmodule",
+ "testbench": "module tb; … endmodule"}
 ```
+
+`prepare_data.py` 只读 `spec` / `testbench` / `top`。**`reference`（参考实现）它不用，
+但一定要收**：SFT 的 target、OPSD 的老师输入、以及下面自检脚本的变异基准都靠它。
 
 `testbench` 是**隐藏**的：它进 `reward_model.ground_truth`，不进 prompt。
 有一条用例专门守这件事（`test_the_prompt_never_carries_the_hidden_testbench`）。
+
+**怎么收、收多少、怎么派生成 SFT / DPO / OPSD 的数据 —— 见
+[docs/rtl-dataset.md](../../docs/rtl-dataset.md)。**
+
+### 上训练前先自检
+
+```bash
+python experiments/verl-grpo_qwen3.5-9b_rtl-agent_v1/check_data.py \
+    datasets/rtl_rl/train.jsonl --write-bad /tmp/bad.jsonl
+```
+
+需要本机装 `iverilog`。它查五件事，其中最关键的一条是：**把参考实现改坏，分数必须
+掉下来**。判不出错的 testbench 不会让训练报错，只会让那道题全组同分 → GRPO 优势恒为
+0 → 曲线平着，看起来像「模型学不会」，其实这道题根本没有信号。这类题查不出来就只能烧
+GPU。
 
 ## RTL 特有的坑
 
