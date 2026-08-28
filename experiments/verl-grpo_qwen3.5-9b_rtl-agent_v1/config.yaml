@@ -1,0 +1,98 @@
+# verl Agent Loop RTL 示例：让模型带着 iverilog / verilator 的报错改自己的 Verilog。
+# 与 qa-tools 实验是同一套官方机制，只换了工具与奖励；那边的注释是这份的底稿，
+# 平台侧的坑（1/2/3）与 verl 侧的坑（5/6/7/11/12）完全一样，不再重复。
+#
+# 三个官方机制：
+#   1. rollout.mode=async + multi_turn.enable + agent.default_agent_loop=tool_agent
+#   2. multi_turn.function_tool_path → tools.py 的 compile_rtl / lint_rtl
+#   3. reward.custom_reward_function.path → reward.py 的三段式判分
+#
+# ⚠️ 数据集要求（见 prepare_data.py）：每行必须带 agent_name="tool_agent"，
+#    否则异步模式静默回落 single_turn_agent、工具永远不触发（verl issue #2986）。
+# ⚠️ 模型与数据不写在这里，提交时用 CLI 绑定：--model / --train-dataset /
+#    --train-data / --validation-dataset / --validation-data。
+#    verl 路线【绝对不能】写 data.train.dataset —— adapter 是 hydra-overrides，
+#    会原样扁平化成 `data.train.dataset=...`，Hydra struct 模式启动即报错。
+#
+# ★ 镜像里必须有 iverilog / verilator / yosys。三样都不在 verl 官方镜像里，
+#   缺哪个的表现见 README「镜像要装什么」—— 缺工具时奖励会在**构造期**报错、
+#   作业启动即失败，这是故意的：静默少一段的奖励会让整轮训练在更小的尺度上跑，
+#   而那件事从 reward 曲线上看不出来。
+#
+# ★ 本实验跑在【1 张 H200】上：提交时 `--profile h200:1`。
+#   卡数不写在本文件里（topology 是平台权威键），但下面的值是按单卡定的。
+
+data:
+  train_batch_size: 8
+  # 题面（设计规格）通常比 QA 题面长，加上 hermes 注入的两个工具 schema，
+  # 2048 是下限不是余量。verl 默认 truncation=error，超长 prompt 直接抛异常中断训练。
+  max_prompt_length: 2048
+  # 多轮预算：Verilog 模块本身就长，再算上「生成 → 编译报错回灌 → 重写」三轮，
+  # 2048 会截断。这里给 3072，与上面合成 5120。
+  # ★ 被截断的轨迹拿不到完整的 ```verilog 块 → reward 判 FORMAT_PENALTY，
+  #   看起来像模型不听话，其实是预算不够。改工具轮数时要一起重算。
+  max_response_length: 3072
+  filter_overlong_prompts: true
+  return_raw_chat: true
+
+actor_rollout_ref:
+  model:
+    # ⚠️ 必须用扁平键（FSDP 后端只读这套；嵌套 lora.* 只给 Megatron 读）。
+    #    写成 lora.rank 会让 LoRA 静默失效退回全参数，然后单卡 OOM。
+    lora_rank: 32
+    lora_alpha: 64
+    target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+  actor:
+    strategy: fsdp2
+    ppo_mini_batch_size: 8
+    ppo_micro_batch_size_per_gpu: 1
+    optim:
+      lr: 1.0e-4
+      weight_decay: 0.0
+      lr_scheduler_type: cosine
+      lr_warmup_steps_ratio: 0.05
+      min_lr_ratio: 0.1
+    use_kl_loss: true
+    kl_loss_coef: 0.01
+    kl_loss_type: low_var_kl
+  ref:
+    log_prob_micro_batch_size_per_gpu: 2
+  rollout:
+    name: vllm
+    log_prob_micro_batch_size_per_gpu: 2
+    tensor_model_parallel_size: 1
+    mode: async
+    # GRPO 的组大小。RTL 题的方差比 QA 大（同一道题可能一条编过、七条编不过），
+    # 8 是能让组内优势有区分度的下限。
+    n: 8
+    gpu_memory_utilization: 0.5
+    multi_turn:
+      enable: true
+      format: hermes
+      # 「写 → 编译 → 改 → 再编译 → 定稿」= 3 个 assistant 轮次。
+      # 给到 4 以上时 max_response_length 要同步加，否则轨迹被截断反而更差。
+      max_assistant_turns: 3
+      function_tool_path: experiments/verl-grpo_qwen3.5-9b_rtl-agent_v1/tools.py
+    agent:
+      default_agent_loop: tool_agent
+
+# ⚠️ 两套键都要写、且指向同一文件：顶层是文档旧键（平台 sf validate 认它），
+#    reward.* 是 verl 0.9 V1 实际读取的键。只写顶层时 V1 会走内置
+#    default_compute_score，碰到 data_source=rtl_rl 抛 NotImplementedError。
+custom_reward_function:
+  path: experiments/verl-grpo_qwen3.5-9b_rtl-agent_v1/reward.py
+  name: compute_score
+
+reward:
+  custom_reward_function:
+    path: experiments/verl-grpo_qwen3.5-9b_rtl-agent_v1/reward.py
+    name: compute_score
+
+algorithm:
+  use_kl_in_reward: false
+
+trainer:
+  logger: [console]
+  total_epochs: 1
+  save_freq: 25
+  test_freq: 25
