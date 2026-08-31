@@ -1,7 +1,7 @@
 {
   "apiVersion": "forge/recipe-lock/v3",
   "created_by": {
-    "core_version": "0.3.11"
+    "core_version": "0.3.31"
   },
   "framework": {
     "kind": "verl",
