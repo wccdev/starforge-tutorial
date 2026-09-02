@@ -1,0 +1,176 @@
+# verl Agent Loop 工具调用示例：题库 GRPO + <tool_call> 检索本地文档后作答。
+# 与 nemo-rl 的 grpo_qwen3.5-9b_qa-rl-agent_v3 是同一场景的 verl 官方实现对照：
+#   nemo-rl 路线 = 自定义 run.py 实例化 Environment 类；
+#   verl 路线   = 全 config 声明：Agent Loop（tool_agent）+ @function_tool 工具 + 自定义奖励文件。
+#   不需要自定义入口（main.py），官方 verl.trainer.main_ppo 原生支持。
+#
+# 三个官方机制（见 recipe 模板 README 与 verl docs/advance/agent_loop）：
+#   1. rollout.mode=async + multi_turn.enable + agent.default_agent_loop=tool_agent → ReAct 式多轮
+#   2. multi_turn.function_tool_path → tools.py 里 @function_tool 注册的检索工具
+#   3. reward.custom_reward_function.path → reward.py 的 compute_score 最终判分
+#      （顶层 custom_reward_function 是文档旧键，平台校验认它；verl 0.9 V1
+#       只读 reward.custom_reward_function，两套必须同文件，见 README 坑 18）
+#
+# ⚠️ 数据集要求（见 prepare_data.py）：每行必须带 agent_name="tool_agent"，
+#    否则异步模式静默回落 single_turn_agent、工具永远不触发（verl issue #2986）。
+# ⚠️ 模型与数据都不写在这里，提交时用 CLI 绑定（平台权威键）：
+#      --model                                     基座模型
+#      --train-dataset / --validation-dataset      平台数据集引用 <owner>/<name>@vN
+#      --train-data / --validation-data            数据集内的相对文件名（train.parquet）
+#      --corpus                                    检索语料引用 <owner>/<name>@vN
+#    ★ 检索资料也不写在这里：平台校权后按版本只读挂进容器并注入 DOCS_DIR，
+#      资料不进作业包、不签发下载直链。写死路径等于绕开这套访问控制。
+#      漏写 --corpus 不会报错，只会让检索永远空手 → reward 怎么调都上不去（见 README）。
+#    ★ verl 路线【绝对不能】在本文件写 data.train.dataset：verl adapter 是
+#      config_mode=hydra-overrides，会把整个 YAML 扁平化成 key=value 传给
+#      verl.trainer.main_ppo，只排除模型/数据/topology 那几个权威键。
+#      data.train.dataset 不在排除表里，会原样变成 `data.train.dataset=...`——
+#      verl 的 data 配置没有 train 子节点，Hydra struct 模式启动即报错。
+#      （nemo-rl 路线写在 config 里是对的，那边整份 YAML 就是训练配置。）
+#    模型固定用 Qwen/Qwen3.5-9B-Base：A/B 契约要求与 nemo-rl 对照侧同一个模型，
+#    且它已在共享缓存里完整落盘。hermes 需要 tokenizer 的 chat template 支持 tools
+#    （verl 用 apply_chat_template(..., tools=...) 注入工具 schema）——这一点先验证
+#    再换模型，别按「Base 一定不支持」想当然：本模型自带的模板就带 tools/tool_call。
+#
+# ★ 本实验跑在【1 张 H200】上：提交时 `--profile h200:1`（单写 h200 = 整节点 8 张）。
+#   卡数不写在本文件里（topology 是平台权威键，会被 adapter 排除），但下面这些值
+#   是按单卡定的，换卡数要一起重算：lora_rank/alpha、optim、batch、TP、显存占比。
+#
+# ★ A/B 对照契约：与 nemo-rl 的 grpo_qwen3.5-9b_qa-rl-agent_v3 严格同口径
+#   （那边注释写明「batch/模型/LoRA/裁判须一致，核心变量只有多轮+检索」）。
+#   下表左侧是 nemo-rl 侧的权威值，改本文件前先看那边：
+#     LoRA dim 32 / alpha 64                  → model.lora_rank / lora_alpha
+#                                               （扁平键！嵌套 model.lora.* 只给
+#                                                 Megatron 读，见下方 ⚠️）
+#     lr 1e-4, min_lr 1e-5, wd 0, cosine, warmup 50/1000
+#                                             → actor.optim.*
+#     num_prompts_per_step 8                  → data.train_batch_size
+#     num_generations_per_prompt 8            → rollout.n
+#     train_global_batch_size 64 (= 8×8)      → actor.ppo_mini_batch_size(×n)
+#     max_total_sequence_length 4096          → max_prompt_length + max_response_length
+#     max_rollout_turns 3                     → multi_turn.max_assistant_turns
+
+data:
+  # == nemo-rl 侧 grpo.num_prompts_per_step。每步 8 题 × 下方 rollout.n=8 条 = 全局 64。
+  train_batch_size: 8
+  # 题库最长题面 ~1359 字符，再加 system prompt 与 hermes 注入的工具 JSON schema，
+  # 1024 会超预算；verl 默认 truncation=error，超长 prompt 直接抛异常中断训练。
+  max_prompt_length: 2048
+  # 多轮预算：所有轮生成 + 工具回灌都算 response。
+  # 2048 + 上面 2048 = 4096，对齐 nemo-rl 的 max_total_sequence_length（整条轨迹总预算）。
+  max_response_length: 2048
+  # 兜底：仍然超长的离群题在建数据集时丢掉，而不是训练中途炸掉。
+  filter_overlong_prompts: true
+  # Agent Loop 从原始 chat 消息构造轨迹，必须开。
+  return_raw_chat: true
+
+actor_rollout_ref:
+  model:
+    # 单卡能跑的前提，同时也是 A/B 可比的前提（nemo-rl 侧同样是 LoRA）。
+    # 9B 全参数在一张 H200(141G) 上装不下：参数 bf16 18 + 梯度 bf16 18 +
+    # Adam fp32 72 + FSDP fp32 主权重 36 ≈ 144G，还没算 ref policy 与 vLLM。
+    # LoRA 只给适配器建优化器状态，base 权重冻结常驻 18G，峰值降到几十 G。
+    #
+    # ⚠️ 这里必须用【扁平键】lora_rank/lora_alpha/target_modules，不是嵌套的 lora.*。
+    #    verl 0.9 的 model 配置两套并存（源码注释「TODO: unify fsdp and megatron
+    #    lora config」）：嵌套 `lora:` 字典只有 Megatron 后端读，FSDP 后端读扁平键
+    #    （workers/engine/fsdp/transformer_impl.py 用 lora_rank 构造 PEFT LoraConfig）。
+    #    本实验是 fsdp2 —— 写成 lora.rank 会让 LoRA【静默失效】退回全参数，
+    #    然后在单卡上 OOM，或（多卡时）悄悄跑出一个和 A/B 不可比的结果。
+    #    见 README「常见坑」17。
+    # 覆盖默认 0（=关闭 LoRA）/ 16，对齐 nemo-rl 侧的 dim 32 / alpha 64。
+    lora_rank: 32
+    lora_alpha: 64
+    # nemo-rl 侧是 Megatron 命名的 4 个融合层，换算成 HF/PEFT 命名就是这 7 个
+    # （linear_qkv→q/k/v_proj，linear_proj→o_proj，linear_fc1→gate/up_proj，
+    #   linear_fc2→down_proj），覆盖的权重集合一一对应。
+    # 不用 verl 默认的 "all-linear"：显式列出才看得出与 nemo-rl 同集合，
+    # 且避免 all-linear 在 MoE 模型上顺带套到 router/expert 上（nemo-rl 侧默认排除 router）。
+    target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+    # FSDP 路径没有 lora dropout 键，PEFT 默认 0.0，与 nemo-rl 侧 dropout: 0 一致。
+  actor:
+    strategy: fsdp2
+    # == nemo-rl 侧 train_global_batch_size 64。verl 这个键是「题数」口径，
+    # 内部会 ×rollout.n 换成条数（8×8=64），即每步一次更新、不切 mini batch。
+    ppo_mini_batch_size: 8
+    # 纯显存/速度旋钮，不影响梯度数学，因此不属于 A/B 契约。
+    # 取 1（同 nemo-rl 侧 train_micro_batch_size）先确保单卡不 OOM；
+    # 首轮跑通后看 nvidia-smi 余量再往上抬，只会变快、不会改结果。
+    ppo_micro_batch_size_per_gpu: 1
+    optim:
+      # ⚠️ LoRA 的 lr 比全参数高 1~2 个量级。这里 1e-4 来自 nemo-rl 侧 grpo_lora 基底；
+      #    沿用全参数口径的 1e-6 配 LoRA 会几乎学不动。
+      lr: 1.0e-4
+      # 以下三项覆盖 verl 默认（wd 0.01 / constant / 不 warmup），对齐 nemo-rl 侧
+      # grpo_lora 的 weight_decay 0 + cosine + warmup 50 iters（占 decay 1000 的 5%）。
+      weight_decay: 0.0
+      lr_scheduler_type: cosine
+      lr_warmup_steps_ratio: 0.05
+      # nemo-rl 侧 min_lr 1e-5，即 lr 的 1/10。verl 用比例表达。
+      min_lr_ratio: 0.1
+    # GRPO 常规：KL 用 loss 项而不是折进 reward。
+    use_kl_loss: true
+    kl_loss_coef: 0.01
+    kl_loss_type: low_var_kl
+  # use_kl_loss=true 会启用 reference policy，而 verl 的 validate_config 要求
+  # ref 与 rollout 各自显式给出 log_prob micro batch（少一个就启动即报错，
+  # 见下方 README「常见坑」11）。
+  # 只做前向不反向，但 logits 很占显存：batch × 4096 token × 151k 词表 × 2B，
+  # 单卡下 8 就要 ~10G，所以给 2。
+  ref:
+    log_prob_micro_batch_size_per_gpu: 2
+  rollout:
+    name: vllm
+    log_prob_micro_batch_size_per_gpu: 2
+    # ★ 必须显式写 1：verl 默认 tensor_model_parallel_size=2，单卡下 vLLM
+    #   会去要第二张卡而起不来。
+    tensor_model_parallel_size: 1
+    # Agent Loop 依赖异步 rollout 管理器；sync 模式不会走 tool_agent。
+    mode: async
+    # == nemo-rl 侧 grpo.num_generations_per_prompt（GRPO 的组大小）。
+    n: 8
+    # 单卡上要和常驻权重抢显存：base 18G + ref policy 18G 一直在卡上，
+    # 0.7×141≈99G 会把卡挤爆。0.5 给 vLLM ~70G，KV cache 对 4096×64 条够用。
+    # （free_cache_engine 默认 true，训练阶段 vLLM 会让出 KV cache。）
+    gpu_memory_utilization: 0.5
+    multi_turn:
+      enable: true
+      # 工具调用格式，须与模型 chat template 匹配（Qwen 系用 hermes）。
+      format: hermes
+      # == nemo-rl 侧 max_rollout_turns 3（原为 4，对齐 A/B 后改 3）。
+      max_assistant_turns: 3
+      # 本目录 tools.py 的 @function_tool 检索工具；路径相对作业包根（cwd）。
+      function_tool_path: experiments/verl-grpo_qwen3.5-9b_qa-tools_v1/tools.py
+    agent:
+      # 数据集行内 agent_name 字段可按样本覆盖；这里设默认兜底。
+      default_agent_loop: tool_agent
+
+# verl 官方自定义奖励（docs/preparation/reward_function）：最终判分与工具无关，
+# 只看 \boxed{} 答案是否命中 ground_truth（与 nemo-rl 对照实验同口径）。
+#
+# ⚠️ 必须两套键都写、且指向同一文件（见 README 坑 18）：
+#    - 顶层 custom_reward_function：文档旧键；平台 sf validate 认这个路径。
+#    - reward.custom_reward_function：verl 0.9 V1 RewardLoop 实际读取的键。
+#    只写顶层时 hydra 看起来传进去了，V1 仍走内置 default_compute_score，
+#    碰到 data_source=qa_rl 抛 NotImplementedError，验证集打分全失败，
+#    最后表现为 kv_batch_get 空 keys。verl 0.9 的 main_ppo 没有
+#    migrate_legacy_reward_impl，旧键不会被自动搬过来。
+#    不要用 YAML anchor 抽一层：adapter 会把顶层键扁平化成 hydra override，
+#    `_REWARD_FN.path=...` 会让 Hydra struct 模式启动即报错。
+custom_reward_function:
+  path: experiments/verl-grpo_qwen3.5-9b_qa-tools_v1/reward.py
+  name: compute_score
+
+reward:
+  custom_reward_function:
+    path: experiments/verl-grpo_qwen3.5-9b_qa-tools_v1/reward.py
+    name: compute_score
+
+algorithm:
+  use_kl_in_reward: false
+
+trainer:
+  logger: [console]
+  total_epochs: 1
+  save_freq: 25
+  test_freq: 25
