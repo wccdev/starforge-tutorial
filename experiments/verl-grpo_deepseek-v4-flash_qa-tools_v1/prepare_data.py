@@ -2,7 +2,7 @@
 """把题库 jsonl 转成 verl RLHFDataset 需要的 parquet（本地一次性运行）。
 
 用法：
-  python experiments/verl-grpo_qwen3.5-9b_qa-tools_v1/prepare_data.py \
+  python experiments/verl-grpo_deepseek-v4-flash_qa-tools_v1/prepare_data.py \
       --data-dir <datasets/qa_rl 路径> --out-dir <输出目录>
   然后提交时 --train-data <out>/train.parquet --validation-data <out>/val.parquet。
 
